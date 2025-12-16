@@ -9,5 +9,5 @@
     "paths": {}
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/__tests__/**"]
+  "exclude": ["src/**/*.test.ts", "src/**/__tests__/**"]
 }

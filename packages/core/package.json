@@ -4,15 +4,15 @@
   "description": "SymphonyScript DSL, Compiler, and Music Theory",
   "license": "MIT",
   "author": "Tsomaia Technologies",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "browser": "./dist/index.umd.js",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
     }
   },
   "files": ["dist"],

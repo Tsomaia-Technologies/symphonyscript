@@ -85,16 +85,5 @@ export type {
   TrackBuilder
 } from './eval'
 
-// File watcher (Phase 6)
-export {
-  createFileWatcher,
-  NodeFileWatcher,
-  ChokidarWatcher,
-  isChokidarAvailable
-} from './watcher'
-export type {
-  FileWatcher,
-  WatcherOptions,
-  FileChangeEvent,
-  FileChangeHandler
-} from './watcher'
+// File watcher moved to @symphonyscript/node
+// import { FileWatcher } from '@symphonyscript/node'

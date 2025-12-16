@@ -52,6 +52,13 @@ export type { ChordQuality, ChordRoot, ChordCode, ChordDefinition, ChordOptions,
 // --- Types ---
 export type { NoteDuration, NoteName, TimeSignatureString, TimeSignature, Articulation, ArpPattern, TempoCurve, InstrumentId } from './types/primitives'
 export { instrumentId, midiVelocityToNormalized, normalizedToMidiVelocity } from './types/primitives'
+
+// --- MIDI Types ---
+export type { MidiValue, MidiChannel, MidiControlID } from './types/midi'
+export { midiValue, midiChannel, midiControl, CC } from './types/midi'
+
+// --- Utilities ---
+export { SeededRandom, createRandom, hashString } from './util/random'
 export { customTarget, isBuiltinTarget } from './automation/types'
 export type { AutomationTarget, BuiltinAutomationTarget, CustomAutomationTarget } from './automation/types'
 

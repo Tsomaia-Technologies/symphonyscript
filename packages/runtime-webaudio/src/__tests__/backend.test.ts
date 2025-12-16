@@ -4,7 +4,7 @@
 
 import { WebAudioBackend } from '../backend'
 import type { CompiledEvent } from '@symphonyscript/core'
-import { midiChannel, midiValue } from '@symphonyscript/core/types/midi'
+import { midiChannel, midiValue } from '@symphonyscript/core'
 import { jest } from '@jest/globals'
 
 // =============================================================================
@@ -83,8 +83,8 @@ class MockAudioContext {
     }
   }
   
-  resume = jest.fn().mockResolvedValue(undefined)
-  close = jest.fn().mockResolvedValue(undefined)
+  resume = jest.fn<() => Promise<void>>().mockResolvedValue(undefined)
+  close = jest.fn<() => Promise<void>>().mockResolvedValue(undefined)
 }
 
 // =============================================================================

@@ -22,7 +22,7 @@ import {
 } from '../quantize'
 import { StreamingScheduler } from '../StreamingScheduler'
 import type { RuntimeBackend, CompiledEvent } from '@symphonyscript/core'
-import { midiChannel, midiValue } from '@symphonyscript/core/types/midi'
+import { midiChannel, midiValue } from '@symphonyscript/core'
 
 // =============================================================================
 // Mock Backend

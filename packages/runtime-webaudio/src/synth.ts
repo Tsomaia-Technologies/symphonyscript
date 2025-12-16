@@ -2,7 +2,7 @@
  * Basic synthesis using Web Audio API.
  */
 
-import {createRandom} from '@symphonyscript/core/util/random'
+import { createRandom } from '@symphonyscript/core'
 import type {CompiledEvent} from '@symphonyscript/core'
 
 export interface SynthConfig {
