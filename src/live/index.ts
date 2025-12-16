@@ -36,7 +36,7 @@ export type {
   BackendState
 } from './backends/types'
 
-export { WebAudioBackend } from './backends/WebAudioBackend'
+export { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
 export { MIDIBackend } from './backends/MIDIBackend'
 
 // Quantize utilities

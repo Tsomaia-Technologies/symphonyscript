@@ -398,3 +398,4 @@ describe('Watcher Integration', () => {
     expect(watcher.isWatching()).toBe(true)
   })
 })
+

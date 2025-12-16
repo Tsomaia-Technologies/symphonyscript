@@ -1,4 +1,5 @@
 .idea
+.nx
 node_modules
 dist
 research

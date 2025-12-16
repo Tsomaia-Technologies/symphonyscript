@@ -415,3 +415,4 @@ describe('streamingCoalesceWithWarnings', () => {
     expect(warnings[0].type).toBe('orphaned_tie_start')
   })
 })
+

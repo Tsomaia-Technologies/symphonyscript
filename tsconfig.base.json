@@ -23,7 +23,9 @@
     "baseUrl": ".",
     "paths": {
       "@symphonyscript/core": ["packages/core/src/index.ts"],
-      "@symphonyscript/core/*": ["packages/core/src/*"]
+      "@symphonyscript/core/*": ["packages/core/src/*"],
+      "@symphonyscript/runtime-webaudio": ["packages/runtime-webaudio/src/index.ts"],
+      "@symphonyscript/runtime-webaudio/*": ["packages/runtime-webaudio/src/*"]
     }
   },
   "exclude": ["node_modules", "dist", "**/dist"]

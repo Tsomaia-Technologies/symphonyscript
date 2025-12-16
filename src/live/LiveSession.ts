@@ -25,7 +25,7 @@ import type {
   TrackState
 } from './types'
 import type { AudioBackend } from './backends/types'
-import { WebAudioBackend } from './backends/WebAudioBackend'
+import { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
 import { MIDIBackend } from './backends/MIDIBackend'
 import { StreamingScheduler, DEFAULT_LOOKAHEAD } from './StreamingScheduler'
 import {

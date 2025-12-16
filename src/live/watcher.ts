@@ -459,3 +459,4 @@ export function createFileWatcher(
 export function isChokidarAvailable(): boolean {
   return chokidar !== null
 }
+

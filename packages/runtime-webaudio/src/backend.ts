@@ -6,11 +6,10 @@
  * proper node tracking for live coding updates.
  */
 
-import type { CompiledEvent } from '@symphonyscript/core'
+import type { RuntimeBackend, CompiledEvent } from '@symphonyscript/core'
 import type { 
-  AudioBackend, 
   WebAudioBackendOptions, 
-  ScheduledNodeInfo,
+  ScheduledNodeInfo, 
   BackendState 
 } from './types'
 import {
@@ -21,12 +20,12 @@ import {
   pitchToFrequency,
   type SynthConfig,
   type ADSR
-} from '../../runtime/synth'
-import { beatsToSeconds, secondsToBeats } from '../quantize'
-
-// =============================================================================
-// Constants
-// =============================================================================
+} from './synth'
+import { getAudioContext, ensureAudioContextRunning } from './context' 
+// Note: beatsToSeconds moved to core? No, it's in live/quantize. 
+// We should probably implement simple conversion here or import from core if available.
+// For now, I'll copy the logic (it's simple math) to avoid dep on live.
+// Or wait, beatsToSeconds logic is: beats * (60/bpm).
 
 /** Default master gain level */
 const DEFAULT_MASTER_GAIN = 0.8
@@ -40,19 +39,19 @@ const DEFAULT_ADSR: ADSR = {
 }
 
 // =============================================================================
-// WebAudio Backend
+// Constants
 // =============================================================================
+
+
+// Helper for time conversion
+function secondsToBeats(seconds: number, bpm: number): number {
+  return seconds * (bpm / 60)
+}
 
 /**
  * WebAudio backend for live coding.
- * 
- * Features:
- * - Wraps existing synth functions
- * - Tracks scheduled nodes for cancellation
- * - Per-track gain nodes for mixing
- * - Master compressor to prevent clipping
  */
-export class WebAudioBackend implements AudioBackend {
+export class WebAudioBackend implements RuntimeBackend {
   // Audio context
   private audioContext: AudioContext
   private ownsContext: boolean = false
@@ -87,8 +86,9 @@ export class WebAudioBackend implements AudioBackend {
       this.audioContext = options.audioContext
       this.ownsContext = false
     } else {
-      this.audioContext = new AudioContext()
-      this.ownsContext = true
+      // Use the shared singleton from context.ts
+      this.audioContext = getAudioContext()
+      this.ownsContext = false // It's shared
     }
     
     this.seed = options.seed
@@ -104,7 +104,7 @@ export class WebAudioBackend implements AudioBackend {
     
     // Create master gain
     this.masterGain = this.audioContext.createGain()
-    this.masterGain.gain.value = options.masterGain ?? DEFAULT_MASTER_GAIN
+    this.masterGain.gain.value = options.masterGain ?? 0.8
     this.masterGain.connect(this.masterCompressor)
     
     // Create synth config
@@ -116,9 +116,22 @@ export class WebAudioBackend implements AudioBackend {
     
     this.state.initialized = true
   }
+
+  /**
+   * Initialize audio context (user gesture required).
+   */
+  async init(): Promise<boolean> {
+    if (this.state.disposed) return false
+    try {
+      await ensureAudioContextRunning()
+      return this.audioContext.state === 'running'
+    } catch {
+      return false
+    }
+  }
   
   // ===========================================================================
-  // AudioBackend Implementation
+  // RuntimeBackend Implementation
   // ===========================================================================
   
   /**
@@ -129,7 +142,7 @@ export class WebAudioBackend implements AudioBackend {
     
     // Resume context if suspended (needed for user gesture requirement)
     if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume()
+      this.audioContext.resume().catch(() => {})
     }
     
     // Skip events in the past
@@ -152,7 +165,6 @@ export class WebAudioBackend implements AudioBackend {
     if (event.kind === 'note') {
       this.scheduleNote(event, audioTime, trackConfig, trackId)
     }
-    // Future: handle other event types (control, automation, etc.)
   }
   
   /**
@@ -178,7 +190,7 @@ export class WebAudioBackend implements AudioBackend {
           // Ramp down gain quickly to avoid clicks
           // Note: We can't actually stop the node early without clicks,
           // but we can mute it rapidly
-          info.node.stop(now + 0.01)
+          try { info.node.stop(now + 0.01) } catch {}
         }
       } catch (e) {
         // Node may have already stopped

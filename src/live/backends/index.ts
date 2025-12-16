@@ -16,7 +16,7 @@ export type {
 } from './types'
 
 // WebAudio Backend
-export { WebAudioBackend } from './WebAudioBackend'
+export { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
 
 // MIDI Backend
 export { MIDIBackend } from './MIDIBackend'
