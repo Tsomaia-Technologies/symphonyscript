@@ -57,29 +57,8 @@ export function importMusicXMLAsClip(
   }
 }
 
-/**
- * Import a MusicXML file from the filesystem (Node.js only).
- */
-export async function importMusicXMLFile(
-  path: string,
-  options?: MusicXMLImportOptions
-): Promise<MultiClipImportResult> {
-  const fs = await import('fs/promises')
-  const xml = await fs.readFile(path, 'utf-8')
-  return importMusicXML(xml, options)
-}
-
-/**
- * Import a MusicXML file from the filesystem as a single clip (Node.js only).
- */
-export async function importMusicXMLFileAsClip(
-  path: string,
-  options?: MusicXMLImportOptions
-): Promise<ClipImportResult> {
-  const fs = await import('fs/promises')
-  const xml = await fs.readFile(path, 'utf-8')
-  return importMusicXMLAsClip(xml, options)
-}
+// NOTE: File-based imports (importMusicXMLFile, importMusicXMLFileAsClip) 
+// are in @symphonyscript/node package - not available in core.
 
 // --- Internal Types ---
 

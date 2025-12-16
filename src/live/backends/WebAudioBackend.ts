@@ -6,7 +6,7 @@
  * proper node tracking for live coding updates.
  */
 
-import type { CompiledEvent } from '../../compiler/pipeline/types'
+import type { CompiledEvent } from '@symphonyscript/core'
 import type { 
   AudioBackend, 
   WebAudioBackendOptions, 

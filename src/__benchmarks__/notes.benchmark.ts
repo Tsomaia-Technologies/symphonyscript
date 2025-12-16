@@ -1,5 +1,5 @@
-import { ClipFactory } from '../clip'
-import { compileClip } from '../compiler/pipeline'
+import { ClipFactory } from '@symphonyscript/core'
+import { compileClip } from '@symphonyscript/core'
 import { performance } from 'perf_hooks'
 
 function runBenchmark() {

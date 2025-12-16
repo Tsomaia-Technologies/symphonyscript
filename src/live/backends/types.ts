@@ -4,7 +4,7 @@
  * Defines the contract for audio playback backends (WebAudio, MIDI, etc.).
  */
 
-import type { CompiledEvent } from '../../compiler/pipeline/types'
+import type { CompiledEvent } from '@symphonyscript/core'
 
 // =============================================================================
 // Audio Backend Interface
@@ -99,13 +99,13 @@ export interface MIDIBackendOptions {
  */
 export interface TrackInstrumentMap {
   /** Track ID -> instrument configuration */
-  [trackId: string]: InstrumentConfig
+  [trackId: string]: BackendInstrumentConfig
 }
 
 /**
  * Instrument configuration for a track.
  */
-export interface InstrumentConfig {
+export interface BackendInstrumentConfig {
   /** Instrument type */
   type: 'synth' | 'sampler' | 'drums'
   

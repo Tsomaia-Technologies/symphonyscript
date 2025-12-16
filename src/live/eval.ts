@@ -5,14 +5,14 @@
  * This approach limits scope access and runs in strict mode for safety.
  */
 
-import type { SessionNode, TrackNode } from '../session/types'
-import type { ClipNode } from '../clip/types'
+import type { SessionNode, TrackNode } from '@symphonyscript/core'
+import type { ClipNode } from '@symphonyscript/core'
 import type { LiveSession } from './LiveSession'
 
 // Import DSL components for eval context
-import { ClipFactory } from '../clip/index'
-import { Session, session, Track } from '../session/index'
-import { Synth, Sampler, synth, sampler, InstrumentFactory } from '../instrument/index'
+import { ClipFactory } from '@symphonyscript/core'
+import { Session, session, Track } from '@symphonyscript/core'
+import { Synth, Sampler, synth, sampler, InstrumentFactory } from '@symphonyscript/core'
 
 // =============================================================================
 // Types

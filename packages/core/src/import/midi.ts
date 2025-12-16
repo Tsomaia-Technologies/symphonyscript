@@ -59,29 +59,8 @@ export function importMidiAsClip(
   }
 }
 
-/**
- * Import a MIDI file from the filesystem (Node.js only).
- */
-export async function importMidiFile(
-  path: string,
-  options?: MidiImportOptions
-): Promise<MultiClipImportResult> {
-  const fs = await import('fs/promises')
-  const buffer = await fs.readFile(path)
-  return importMidi(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), options)
-}
-
-/**
- * Import a MIDI file from the filesystem as a single clip (Node.js only).
- */
-export async function importMidiFileAsClip(
-  path: string,
-  options?: MidiImportOptions
-): Promise<ClipImportResult> {
-  const fs = await import('fs/promises')
-  const buffer = await fs.readFile(path)
-  return importMidiAsClip(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), options)
-}
+// NOTE: File-based imports (importMidiFile, importMidiFileAsClip) 
+// are in @symphonyscript/node package - not available in core.
 
 // --- Internal Conversion Logic ---
 

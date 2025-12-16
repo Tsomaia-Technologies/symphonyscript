@@ -21,7 +21,10 @@
     "composite": true,
     "incremental": true,
     "baseUrl": ".",
-    "paths": {}
+    "paths": {
+      "@symphonyscript/core": ["packages/core/src/index.ts"],
+      "@symphonyscript/core/*": ["packages/core/src/*"]
+    }
   },
   "exclude": ["node_modules", "dist", "**/dist"]
 }

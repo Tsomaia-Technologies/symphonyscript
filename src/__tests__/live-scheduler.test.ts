@@ -22,8 +22,8 @@ import {
 } from '../live/quantize'
 import { StreamingScheduler } from '../live/StreamingScheduler'
 import type { AudioBackend } from '../live/backends/types'
-import type { CompiledEvent } from '../compiler/pipeline/types'
-import { midiChannel, midiValue } from '../types/midi'
+import type { CompiledEvent } from '@symphonyscript/core'
+import { midiChannel, midiValue } from '@symphonyscript/core/types/midi'
 
 // =============================================================================
 // Mock Backend

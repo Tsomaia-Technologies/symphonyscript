@@ -9,7 +9,7 @@
  * - User permission for MIDI access
  */
 
-import type { CompiledEvent } from '../../compiler/pipeline/types'
+import type { CompiledEvent } from '@symphonyscript/core'
 import type { AudioBackend, MIDIBackendOptions } from './types'
 import { beatsToSeconds, secondsToBeats } from '../quantize'
 

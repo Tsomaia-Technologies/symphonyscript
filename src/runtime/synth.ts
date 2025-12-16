@@ -2,8 +2,8 @@
  * Basic synthesis using Web Audio API.
  */
 
-import {createRandom} from '../util/random'
-import type {CompiledEvent} from '../compiler/pipeline/types'
+import {createRandom} from '@symphonyscript/core/util/random'
+import type {CompiledEvent} from '@symphonyscript/core'
 
 export interface SynthConfig {
   audioContext: AudioContext

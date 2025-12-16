@@ -10,7 +10,7 @@ export type {
   WebAudioBackendOptions,
   MIDIBackendOptions,
   TrackInstrumentMap,
-  InstrumentConfig,
+  BackendInstrumentConfig,
   ScheduledNodeInfo,
   BackendState
 } from './types'

@@ -2,8 +2,8 @@
  * Main playback engine facade.
  */
 
-import type {CompiledClip, CompiledEvent} from '../compiler/pipeline/types'
-import type {CompiledOutput} from '../compiler/types'
+import type {CompiledClip, CompiledEvent} from '@symphonyscript/core'
+import type {CompiledOutput} from '@symphonyscript/core'
 import {ensureAudioContextRunning} from './context'
 import {createTransport, type TransportState} from './transport'
 import {createScheduler, type Scheduler} from './scheduler'

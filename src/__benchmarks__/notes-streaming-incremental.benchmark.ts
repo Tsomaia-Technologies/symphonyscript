@@ -1,7 +1,7 @@
-import { ClipFactory } from '../clip'
+import { ClipFactory } from '@symphonyscript/core'
 import { performance } from 'perf_hooks'
-import { incrementalCompile } from '../compiler/incremental'
-import { compileClip } from '../compiler/pipeline'
+import { incrementalCompile } from '@symphonyscript/core'
+import { compileClip } from '@symphonyscript/core'
 
 /**
  * Incremental Compilation Benchmark

@@ -9,8 +9,8 @@
  * 5. Tied note spanning marker scenario
  */
 
-import { Clip } from '../core'
-import { MinHeap } from '../util/heap'
+import { Clip } from '@symphonyscript/core'
+import { MinHeap } from '@symphonyscript/core/util/heap'
 import {
   coalesceStream,
   streamingCoalesceToResult,
@@ -20,7 +20,7 @@ import {
   computeTiming,
   compileClip,
   type TimedPipelineOp
-} from '../compiler/pipeline'
+} from '@symphonyscript/core'
 
 // =============================================================================
 // MinHeap Unit Tests

@@ -4,9 +4,9 @@
  * Types for the live coding session, scheduling, and playback.
  */
 
-import type { CompiledEvent, TempoMap } from '../compiler/pipeline/types'
-import type { SessionNode } from '../session/types'
-import type { CompilationCache } from '../compiler/incremental/types'
+import type { CompiledEvent, TempoMap } from '@symphonyscript/core'
+import type { SessionNode } from '@symphonyscript/core'
+import type { CompilationCache } from '@symphonyscript/core'
 
 // =============================================================================
 // Quantize Modes

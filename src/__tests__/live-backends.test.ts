@@ -9,8 +9,8 @@
 
 import { WebAudioBackend } from '../live/backends/WebAudioBackend'
 import { MIDIBackend } from '../live/backends/MIDIBackend'
-import type { CompiledEvent } from '../compiler/pipeline/types'
-import { midiChannel, midiValue } from '../types/midi'
+import type { CompiledEvent } from '@symphonyscript/core'
+import { midiChannel, midiValue } from '@symphonyscript/core/types/midi'
 
 // =============================================================================
 // Mock AudioContext

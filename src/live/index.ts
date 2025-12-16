@@ -31,7 +31,7 @@ export type {
   WebAudioBackendOptions,
   MIDIBackendOptions,
   TrackInstrumentMap,
-  InstrumentConfig,
+  BackendInstrumentConfig,
   ScheduledNodeInfo,
   BackendState
 } from './backends/types'

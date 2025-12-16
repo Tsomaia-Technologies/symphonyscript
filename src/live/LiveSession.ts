@@ -5,12 +5,12 @@
  * Orchestrates compilation, scheduling, and playback.
  */
 
-import type { SessionNode, TrackNode } from '../session/types'
-import type { ClipNode } from '../clip/types'
-import type { CompiledClip, CompiledEvent } from '../compiler/pipeline/types'
-import type { CompilationCache } from '../compiler/incremental/types'
-import { compileClip } from '../compiler/pipeline/index'
-import { incrementalCompile } from '../compiler/incremental/compile'
+import type { SessionNode, TrackNode } from '@symphonyscript/core'
+import type { ClipNode } from '@symphonyscript/core'
+import type { CompiledClip, CompiledEvent } from '@symphonyscript/core'
+import type { CompilationCache } from '@symphonyscript/core'
+import { compileClip } from '@symphonyscript/core'
+import { incrementalCompile } from '@symphonyscript/core'
 
 import type {
   LiveSessionOptions,
@@ -46,8 +46,8 @@ import {
   preprocessCode,
   validateCode
 } from './eval'
-import { synth } from '../instrument/index'
-import { SCHEMA_VERSION } from '../schema/version'
+import { synth } from '@symphonyscript/core'
+import { SCHEMA_VERSION } from '@symphonyscript/core'
 import {
   createFileWatcher,
   type FileWatcher,

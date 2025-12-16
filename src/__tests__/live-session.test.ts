@@ -5,9 +5,9 @@
  */
 
 import { LiveSession } from '../live/LiveSession'
-import type { SessionNode, TrackNode } from '../session/types'
-import type { ClipNode } from '../clip/types'
-import { SCHEMA_VERSION } from '../schema/version'
+import type { SessionNode, TrackNode } from '@symphonyscript/core'
+import type { ClipNode } from '@symphonyscript/core'
+import { SCHEMA_VERSION } from '@symphonyscript/core'
 
 // =============================================================================
 // Mock AudioContext

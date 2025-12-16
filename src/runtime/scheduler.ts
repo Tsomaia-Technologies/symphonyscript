@@ -6,7 +6,7 @@
  * slightly in the future to compensate.
  */
 
-import type {CompiledEvent} from '../compiler/pipeline/types'
+import type {CompiledEvent} from '@symphonyscript/core'
 
 /** How far ahead to schedule (seconds) */
 export const LOOKAHEAD = 0.1

@@ -9,7 +9,7 @@
  * - Callback scheduling at beat boundaries
  */
 
-import type { CompiledEvent } from '../compiler/pipeline/types'
+import type { CompiledEvent } from '@symphonyscript/core'
 import type { AudioBackend } from './backends/types'
 import type { 
   StreamingSchedulerConfig, 

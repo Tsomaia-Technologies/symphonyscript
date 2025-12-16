@@ -1,0 +1,967 @@
+{
+  "version": "6.0",
+  "nxVersion": "22.2.6",
+  "pathMappings": {
+    "@symphonyscript/core": [
+      "packages/core/src/index.ts"
+    ],
+    "@symphonyscript/core/*": [
+      "packages/core/src/*"
+    ]
+  },
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {},
+    "nonProjectFiles": [
+      {
+        "file": ".changeset/README.md",
+        "hash": "4888845876018830777"
+      },
+      {
+        "file": ".changeset/config.json",
+        "hash": "9737132415888430439"
+      },
+      {
+        "file": ".gitignore",
+        "hash": "8474885178647073077"
+      },
+      {
+        "file": "LICENSE",
+        "hash": "16907033109858821687"
+      },
+      {
+        "file": "README.md",
+        "hash": "10275147006520424979"
+      },
+      {
+        "file": "build.mjs",
+        "hash": "7275414557421306236"
+      },
+      {
+        "file": "docs/VERSIONING.md",
+        "hash": "13188404847539008249"
+      },
+      {
+        "file": "docs/proofs/00-INDEX.md",
+        "hash": "9431302891622015492"
+      },
+      {
+        "file": "docs/proofs/01-LINEAR.md",
+        "hash": "312976496765599630"
+      },
+      {
+        "file": "docs/proofs/02-EASE-IN.md",
+        "hash": "196850431409873918"
+      },
+      {
+        "file": "docs/proofs/03-EASE-OUT.md",
+        "hash": "1110158957569404720"
+      },
+      {
+        "file": "docs/proofs/04-EASE-IN-OUT.md",
+        "hash": "18403818756591862787"
+      },
+      {
+        "file": "docs/proofs/05-EDGE-CASES.md",
+        "hash": "16411761979100842207"
+      },
+      {
+        "file": "docs/proofs/06-NUMERICAL-FALLBACK.md",
+        "hash": "6670857791670020347"
+      },
+      {
+        "file": "docs/rfc/004-estimator-stack-safety.md",
+        "hash": "7760871570648764078"
+      },
+      {
+        "file": "docs/rfc/005-modifier-relay-pattern.md",
+        "hash": "17050853582185831895"
+      },
+      {
+        "file": "docs/rfc/006-language-server-protocol.md",
+        "hash": "18338945423822462754"
+      },
+      {
+        "file": "docs/rfc/007-timeline-visualizers.md",
+        "hash": "18334235436585520120"
+      },
+      {
+        "file": "docs/rfc/008-language-server-protocol.md",
+        "hash": "18338945423822462754"
+      },
+      {
+        "file": "docs/rfc/009-timeline-visualizers.md",
+        "hash": "18334235436585520120"
+      },
+      {
+        "file": "docs/rfc/010-waveform-visualization.md",
+        "hash": "14910368909035018946"
+      },
+      {
+        "file": "docs/rfc/011-monorepo-migration.md",
+        "hash": "4263762952887788287"
+      },
+      {
+        "file": "docs/rfc/012-symphonycode-ide.md",
+        "hash": "3010908065285456279"
+      },
+      {
+        "file": "docs/rfc/013-type-safe-chord-codes.md",
+        "hash": "14473543743564577639"
+      },
+      {
+        "file": "docs/rfc/014-octave-shift.md",
+        "hash": "14416266804249596740"
+      },
+      {
+        "file": "docs/rfc/015-hierarchical-tempo.md",
+        "hash": "12861047094426566937"
+      },
+      {
+        "file": "docs/rfc/016-hierarchical-timesig-duration.md",
+        "hash": "10732129650481025387"
+      },
+      {
+        "file": "docs/rfc/017-clip-humanize.md",
+        "hash": "10275885704309566088"
+      },
+      {
+        "file": "docs/rfc/018-effects-system.md",
+        "hash": "9636518249451237050"
+      },
+      {
+        "file": "docs/rfc/019-mpe-field-type-safety.md",
+        "hash": "943779365967123762"
+      },
+      {
+        "file": "docs/rfc/020-measure-tracking-backward-jump.md",
+        "hash": "5355489137416354846"
+      },
+      {
+        "file": "docs/rfc/021-notename-branded-type-fix.md",
+        "hash": "728270848696010133"
+      },
+      {
+        "file": "docs/rfc/022-schema-migration-implementation.md",
+        "hash": "4554016861640704888"
+      },
+      {
+        "file": "docs/rfc/023-operation-limit-fencepost-fix.md",
+        "hash": "581826869988778265"
+      },
+      {
+        "file": "docs/rfc/024-tempo-transition-curve-cleanup.md",
+        "hash": "6525243672675775489"
+      },
+      {
+        "file": "docs/rfc/025-polyphonic-voice-identification.md",
+        "hash": "7219147032423099313"
+      },
+      {
+        "file": "docs/rfc/026-event-sourcing-compiler.md",
+        "hash": "17600552983313545183"
+      },
+      {
+        "file": "docs/rfc/026.5-streaming-incremental-compilation.md",
+        "hash": "4095309844372479744"
+      },
+      {
+        "file": "docs/rfc/026.9-incremental-compilation.md",
+        "hash": "4787285202965375603"
+      },
+      {
+        "file": "docs/rfc/027-music-theory-system.md",
+        "hash": "8714739597278829338"
+      },
+      {
+        "file": "docs/rfc/027.1-music-theory-edge-cases.md",
+        "hash": "14041292442770070427"
+      },
+      {
+        "file": "docs/rfc/028-quantization-system.md",
+        "hash": "18042068459211467036"
+      },
+      {
+        "file": "docs/rfc/029-musicxml-midi-import.md",
+        "hash": "1704649666394250501"
+      },
+      {
+        "file": "docs/rfc/030-musicxml-midi-export.md",
+        "hash": "10412953234283468973"
+      },
+      {
+        "file": "docs/rfc/030.1-export-edge-cases.md",
+        "hash": "13610486527118023846"
+      },
+      {
+        "file": "docs/rfc/031-live-coding-runtime.md",
+        "hash": "993180931837501930"
+      },
+      {
+        "file": "docs/rfc/031.8-multi-backend-midi.md",
+        "hash": "10631798966411334500"
+      },
+      {
+        "file": "docs/rfc/032-documentation-system.md",
+        "hash": "1582743071110059987"
+      },
+      {
+        "file": "docs/rfc/033-compiler-internals-guide.md",
+        "hash": "15254289284891165625"
+      },
+      {
+        "file": "docs/rfc/034-documentation-site.md",
+        "hash": "13986133488158946179"
+      },
+      {
+        "file": "docs/verification/tempo_stability_report.md",
+        "hash": "6924059513819088779"
+      },
+      {
+        "file": "jest.config.js",
+        "hash": "16879028532066187867"
+      },
+      {
+        "file": "nx.json",
+        "hash": "10416437620944160691"
+      },
+      {
+        "file": "package-lock.json",
+        "hash": "11702553923230344528"
+      },
+      {
+        "file": "package.json",
+        "hash": "4625384826279176672"
+      },
+      {
+        "file": "packages/core/jest.config.js",
+        "hash": "16625613012386715617"
+      },
+      {
+        "file": "packages/core/package.json",
+        "hash": "15185975104977057412"
+      },
+      {
+        "file": "packages/core/src/__tests__/ascii_debug.test.ts",
+        "hash": "17292158599158564766"
+      },
+      {
+        "file": "packages/core/src/__tests__/block.test.ts",
+        "hash": "15622381740274853426"
+      },
+      {
+        "file": "packages/core/src/__tests__/builder-perf.test.ts",
+        "hash": "6085366682355234146"
+      },
+      {
+        "file": "packages/core/src/__tests__/builders.test.ts",
+        "hash": "14969119809658415884"
+      },
+      {
+        "file": "packages/core/src/__tests__/chords.test.ts",
+        "hash": "9121166466007976620"
+      },
+      {
+        "file": "packages/core/src/__tests__/codegen.test.ts",
+        "hash": "10914680109856992788"
+      },
+      {
+        "file": "packages/core/src/__tests__/default-duration.test.ts",
+        "hash": "11077743331675213915"
+      },
+      {
+        "file": "packages/core/src/__tests__/dynamics.test.ts",
+        "hash": "14121113000898293375"
+      },
+      {
+        "file": "packages/core/src/__tests__/effects.test.ts",
+        "hash": "4045487111525276392"
+      },
+      {
+        "file": "packages/core/src/__tests__/export-midi.test.ts",
+        "hash": "516040016914789742"
+      },
+      {
+        "file": "packages/core/src/__tests__/export-musicxml.test.ts",
+        "hash": "3017772442741607192"
+      },
+      {
+        "file": "packages/core/src/__tests__/expression.test.ts",
+        "hash": "12001813380534804721"
+      },
+      {
+        "file": "packages/core/src/__tests__/generators.test.ts",
+        "hash": "1656547250991609038"
+      },
+      {
+        "file": "packages/core/src/__tests__/groove.test.ts",
+        "hash": "12661061909717390063"
+      },
+      {
+        "file": "packages/core/src/__tests__/import.test.ts",
+        "hash": "2430348072613396658"
+      },
+      {
+        "file": "packages/core/src/__tests__/incremental.test.ts",
+        "hash": "17860862336320762809"
+      },
+      {
+        "file": "packages/core/src/__tests__/instruments.test.ts",
+        "hash": "8626676097825903226"
+      },
+      {
+        "file": "packages/core/src/__tests__/integration.test.ts",
+        "hash": "10891678068320129809"
+      },
+      {
+        "file": "packages/core/src/__tests__/loop-overloads.test.ts",
+        "hash": "14299110616722089615"
+      },
+      {
+        "file": "packages/core/src/__tests__/manifest.test.ts",
+        "hash": "2628410339133539457"
+      },
+      {
+        "file": "packages/core/src/__tests__/modifiers.test.ts",
+        "hash": "10285992417623000725"
+      },
+      {
+        "file": "packages/core/src/__tests__/regression.test.ts",
+        "hash": "6855698934635245161"
+      },
+      {
+        "file": "packages/core/src/__tests__/serializer.test.ts",
+        "hash": "18126198654561993529"
+      },
+      {
+        "file": "packages/core/src/__tests__/session-api.test.ts",
+        "hash": "280704059552827675"
+      },
+      {
+        "file": "packages/core/src/__tests__/tempo.test.ts",
+        "hash": "719785084039089765"
+      },
+      {
+        "file": "packages/core/src/__tests__/theory.test.ts",
+        "hash": "2644271301818161018"
+      },
+      {
+        "file": "packages/core/src/__tests__/timesig.test.ts",
+        "hash": "2951880265853755327"
+      },
+      {
+        "file": "packages/core/src/__tests__/timing.test.ts",
+        "hash": "15604133108688628348"
+      },
+      {
+        "file": "packages/core/src/__tests__/validation.test.ts",
+        "hash": "12797906688901539956"
+      },
+      {
+        "file": "packages/core/src/automation/types.ts",
+        "hash": "8443314596466559826"
+      },
+      {
+        "file": "packages/core/src/chords/definitions.ts",
+        "hash": "2954599033457239001"
+      },
+      {
+        "file": "packages/core/src/chords/index.ts",
+        "hash": "315169001251985507"
+      },
+      {
+        "file": "packages/core/src/chords/parser.ts",
+        "hash": "3459084623541408563"
+      },
+      {
+        "file": "packages/core/src/chords/resolver.ts",
+        "hash": "5970216083310495313"
+      },
+      {
+        "file": "packages/core/src/chords/types.ts",
+        "hash": "6727065969835305547"
+      },
+      {
+        "file": "packages/core/src/clip/ClipBuilder.ts",
+        "hash": "9256631917163937187"
+      },
+      {
+        "file": "packages/core/src/clip/DrumBuilder.ts",
+        "hash": "2797554909727699534"
+      },
+      {
+        "file": "packages/core/src/clip/KeyboardBuilder.ts",
+        "hash": "4654113338798782829"
+      },
+      {
+        "file": "packages/core/src/clip/MelodyBuilder.ts",
+        "hash": "12502450891050675693"
+      },
+      {
+        "file": "packages/core/src/clip/OpChain.ts",
+        "hash": "13375906737626954551"
+      },
+      {
+        "file": "packages/core/src/clip/StringBuilder.ts",
+        "hash": "13895773739792602994"
+      },
+      {
+        "file": "packages/core/src/clip/WindBuilder.ts",
+        "hash": "13261165465904947295"
+      },
+      {
+        "file": "packages/core/src/clip/actions.ts",
+        "hash": "14707890572261255779"
+      },
+      {
+        "file": "packages/core/src/clip/builder-types.ts",
+        "hash": "9376564175289487143"
+      },
+      {
+        "file": "packages/core/src/clip/capabilities.ts",
+        "hash": "8100756358311242891"
+      },
+      {
+        "file": "packages/core/src/clip/cursors/DrumHitCursor.ts",
+        "hash": "17029398414105275700"
+      },
+      {
+        "file": "packages/core/src/clip/cursors/MelodyChordCursor.ts",
+        "hash": "12455657454173634608"
+      },
+      {
+        "file": "packages/core/src/clip/cursors/MelodyNoteCursor.ts",
+        "hash": "6009587917806460620"
+      },
+      {
+        "file": "packages/core/src/clip/cursors/NoteCursor.ts",
+        "hash": "670138624227474423"
+      },
+      {
+        "file": "packages/core/src/clip/cursors/index.ts",
+        "hash": "16194140748545500980"
+      },
+      {
+        "file": "packages/core/src/clip/index.ts",
+        "hash": "11544516557021702072"
+      },
+      {
+        "file": "packages/core/src/clip/types.ts",
+        "hash": "15244008788289534818"
+      },
+      {
+        "file": "packages/core/src/codegen/index.ts",
+        "hash": "13141556466223320233"
+      },
+      {
+        "file": "packages/core/src/codegen/toCode.ts",
+        "hash": "8987796885849681083"
+      },
+      {
+        "file": "packages/core/src/compiler/block/cache.ts",
+        "hash": "11809991642548375266"
+      },
+      {
+        "file": "packages/core/src/compiler/block/compile-block.ts",
+        "hash": "7509769182893448435"
+      },
+      {
+        "file": "packages/core/src/compiler/block/hash.ts",
+        "hash": "9824377450176596118"
+      },
+      {
+        "file": "packages/core/src/compiler/block/index.ts",
+        "hash": "11966777115853325017"
+      },
+      {
+        "file": "packages/core/src/compiler/block/types.ts",
+        "hash": "6190530035090205702"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/cache.ts",
+        "hash": "6037903666265556769"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/compile.ts",
+        "hash": "4567487655693959655"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/hash.ts",
+        "hash": "13832946612794986599"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/index.ts",
+        "hash": "16306253945576440738"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/sections.ts",
+        "hash": "12016688877958170047"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/snapshot.ts",
+        "hash": "813655105512700089"
+      },
+      {
+        "file": "packages/core/src/compiler/incremental/types.ts",
+        "hash": "2515322688128134834"
+      },
+      {
+        "file": "packages/core/src/compiler/index.ts",
+        "hash": "11252514871654977807"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/coalesce.ts",
+        "hash": "10719243654179761645"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/emit.ts",
+        "hash": "13637145827591766807"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/estimate.ts",
+        "hash": "7044284774839209899"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/expand.ts",
+        "hash": "8785196821651793299"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/index.ts",
+        "hash": "16842501213439869173"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/manifest.ts",
+        "hash": "12633797892070981841"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/tempo-map.ts",
+        "hash": "14214008058149807443"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/timing.ts",
+        "hash": "5752200095523896496"
+      },
+      {
+        "file": "packages/core/src/compiler/pipeline/types.ts",
+        "hash": "18154813893641285339"
+      },
+      {
+        "file": "packages/core/src/compiler/projections/compose.ts",
+        "hash": "11211845569292278240"
+      },
+      {
+        "file": "packages/core/src/compiler/projections/index.ts",
+        "hash": "12367917692480913194"
+      },
+      {
+        "file": "packages/core/src/compiler/projections/phases.ts",
+        "hash": "2970578310630619885"
+      },
+      {
+        "file": "packages/core/src/compiler/projections/types.ts",
+        "hash": "1872368010669647459"
+      },
+      {
+        "file": "packages/core/src/compiler/routing-resolver.ts",
+        "hash": "15051070841131004914"
+      },
+      {
+        "file": "packages/core/src/compiler/serialize.ts",
+        "hash": "12389230090839810092"
+      },
+      {
+        "file": "packages/core/src/compiler/tempo-resolver.ts",
+        "hash": "7689577275474519500"
+      },
+      {
+        "file": "packages/core/src/compiler/tempo.ts",
+        "hash": "15865802322646541066"
+      },
+      {
+        "file": "packages/core/src/compiler/timesig-resolver.ts",
+        "hash": "16853490322672764068"
+      },
+      {
+        "file": "packages/core/src/compiler/types.ts",
+        "hash": "2150707466405924683"
+      },
+      {
+        "file": "packages/core/src/compiler/utils.ts",
+        "hash": "323145637712061200"
+      },
+      {
+        "file": "packages/core/src/compiler/validation.ts",
+        "hash": "14182348966717523662"
+      },
+      {
+        "file": "packages/core/src/core/index.ts",
+        "hash": "2758846188015397352"
+      },
+      {
+        "file": "packages/core/src/debug/ascii.ts",
+        "hash": "12251001650494514920"
+      },
+      {
+        "file": "packages/core/src/effects/index.ts",
+        "hash": "4437677019947516199"
+      },
+      {
+        "file": "packages/core/src/effects/types.ts",
+        "hash": "8250255749673277278"
+      },
+      {
+        "file": "packages/core/src/export/index.ts",
+        "hash": "8639672290288186182"
+      },
+      {
+        "file": "packages/core/src/export/midi-utils.ts",
+        "hash": "14490819516158545011"
+      },
+      {
+        "file": "packages/core/src/export/midi.ts",
+        "hash": "4334507256187839978"
+      },
+      {
+        "file": "packages/core/src/export/musicxml.ts",
+        "hash": "2096099594939519091"
+      },
+      {
+        "file": "packages/core/src/export/types.ts",
+        "hash": "17000359849343773706"
+      },
+      {
+        "file": "packages/core/src/generators/euclidean.ts",
+        "hash": "13765355298001765920"
+      },
+      {
+        "file": "packages/core/src/groove/index.ts",
+        "hash": "1910511027239775043"
+      },
+      {
+        "file": "packages/core/src/groove/templates.ts",
+        "hash": "539887307620189914"
+      },
+      {
+        "file": "packages/core/src/groove/types.ts",
+        "hash": "15090798482563038972"
+      },
+      {
+        "file": "packages/core/src/import/index.ts",
+        "hash": "1213826363568407953"
+      },
+      {
+        "file": "packages/core/src/import/midi-parser.ts",
+        "hash": "8068550993688283650"
+      },
+      {
+        "file": "packages/core/src/import/midi.ts",
+        "hash": "8887494206684997171"
+      },
+      {
+        "file": "packages/core/src/import/musicxml-parser.ts",
+        "hash": "4811052467133598415"
+      },
+      {
+        "file": "packages/core/src/import/musicxml.ts",
+        "hash": "14967405036079196263"
+      },
+      {
+        "file": "packages/core/src/import/types.ts",
+        "hash": "14394963021779171048"
+      },
+      {
+        "file": "packages/core/src/index.ts",
+        "hash": "7672610132418848959"
+      },
+      {
+        "file": "packages/core/src/instrument/Instrument.ts",
+        "hash": "10002493237479579427"
+      },
+      {
+        "file": "packages/core/src/instrument/index.ts",
+        "hash": "12040478200862847012"
+      },
+      {
+        "file": "packages/core/src/instrument/registry.ts",
+        "hash": "16241384217182561751"
+      },
+      {
+        "file": "packages/core/src/instrument/types.ts",
+        "hash": "8536130482911600775"
+      },
+      {
+        "file": "packages/core/src/runtime/index.ts",
+        "hash": "5524804233033713684"
+      },
+      {
+        "file": "packages/core/src/runtime/types.ts",
+        "hash": "7077630443394889429"
+      },
+      {
+        "file": "packages/core/src/samples/auld-lang-syne.ts",
+        "hash": "18217144510386273027"
+      },
+      {
+        "file": "packages/core/src/scales/index.ts",
+        "hash": "14671071432344517405"
+      },
+      {
+        "file": "packages/core/src/scales/types.ts",
+        "hash": "12079303378468305989"
+      },
+      {
+        "file": "packages/core/src/schema/migrations.ts",
+        "hash": "18384446056890137054"
+      },
+      {
+        "file": "packages/core/src/schema/validate.ts",
+        "hash": "16236150836630356100"
+      },
+      {
+        "file": "packages/core/src/schema/version.ts",
+        "hash": "10079212397526283621"
+      },
+      {
+        "file": "packages/core/src/session/Session.ts",
+        "hash": "10285369564122468200"
+      },
+      {
+        "file": "packages/core/src/session/Track.ts",
+        "hash": "8201560580090668942"
+      },
+      {
+        "file": "packages/core/src/session/index.ts",
+        "hash": "13139883202360492826"
+      },
+      {
+        "file": "packages/core/src/session/serialize.ts",
+        "hash": "11459253063971807724"
+      },
+      {
+        "file": "packages/core/src/session/types.ts",
+        "hash": "1563959446021029805"
+      },
+      {
+        "file": "packages/core/src/theory/index.ts",
+        "hash": "12494415914318333063"
+      },
+      {
+        "file": "packages/core/src/theory/keys.ts",
+        "hash": "163649541930773911"
+      },
+      {
+        "file": "packages/core/src/theory/progressions.ts",
+        "hash": "16840125674339130048"
+      },
+      {
+        "file": "packages/core/src/theory/types.ts",
+        "hash": "8641445902085011865"
+      },
+      {
+        "file": "packages/core/src/theory/voiceleading.ts",
+        "hash": "4526717372166760352"
+      },
+      {
+        "file": "packages/core/src/types/index.ts",
+        "hash": "12869088061123743733"
+      },
+      {
+        "file": "packages/core/src/types/midi.ts",
+        "hash": "18333654021317637939"
+      },
+      {
+        "file": "packages/core/src/types/primitives.ts",
+        "hash": "6429910343790531033"
+      },
+      {
+        "file": "packages/core/src/util/articulation.ts",
+        "hash": "7206837246179467114"
+      },
+      {
+        "file": "packages/core/src/util/duration.ts",
+        "hash": "14212718595577798880"
+      },
+      {
+        "file": "packages/core/src/util/heap.ts",
+        "hash": "11107035525930119324"
+      },
+      {
+        "file": "packages/core/src/util/index.ts",
+        "hash": "2412170683404648427"
+      },
+      {
+        "file": "packages/core/src/util/midi.ts",
+        "hash": "4855693506748327027"
+      },
+      {
+        "file": "packages/core/src/util/random.ts",
+        "hash": "12191911363722641538"
+      },
+      {
+        "file": "packages/core/src/validation/runtime.ts",
+        "hash": "1198769688232321887"
+      },
+      {
+        "file": "packages/core/tsconfig.json",
+        "hash": "3203840807252712005"
+      },
+      {
+        "file": "packages/live/src/index.ts",
+        "hash": "10713703005056828721"
+      },
+      {
+        "file": "packages/midi-backend-node/src/index.ts",
+        "hash": "506726884436835263"
+      },
+      {
+        "file": "packages/midi-backend-web/src/index.ts",
+        "hash": "506726884436835263"
+      },
+      {
+        "file": "packages/node/src/index.ts",
+        "hash": "5870030326070339939"
+      },
+      {
+        "file": "packages/runtime-webaudio/src/index.ts",
+        "hash": "10561568029991695566"
+      },
+      {
+        "file": "playground/index.html",
+        "hash": "15933569786814790767"
+      },
+      {
+        "file": "playground/live.html",
+        "hash": "8931229989151493440"
+      },
+      {
+        "file": "src/__benchmarks__/notes-streaming-incremental.benchmark.ts",
+        "hash": "14117910900603614835"
+      },
+      {
+        "file": "src/__benchmarks__/notes-streaming.benchmark.ts",
+        "hash": "5688323579376319285"
+      },
+      {
+        "file": "src/__benchmarks__/notes.benchmark.ts",
+        "hash": "10155431412484689650"
+      },
+      {
+        "file": "src/__tests__/live-backends.test.ts",
+        "hash": "17699371780065741530"
+      },
+      {
+        "file": "src/__tests__/live-beatgrid.test.ts",
+        "hash": "17058701324896194428"
+      },
+      {
+        "file": "src/__tests__/live-eval.test.ts",
+        "hash": "7593070604205637773"
+      },
+      {
+        "file": "src/__tests__/live-scheduler.test.ts",
+        "hash": "4358033841224533760"
+      },
+      {
+        "file": "src/__tests__/live-session.test.ts",
+        "hash": "14978158114232236771"
+      },
+      {
+        "file": "src/__tests__/live-watcher.test.ts",
+        "hash": "2212455470438252124"
+      },
+      {
+        "file": "src/__tests__/streaming.test.ts",
+        "hash": "8280846489189625404"
+      },
+      {
+        "file": "src/index.ts",
+        "hash": "2625652205550586105"
+      },
+      {
+        "file": "src/live/LiveSession.ts",
+        "hash": "8738575573668653060"
+      },
+      {
+        "file": "src/live/StreamingScheduler.ts",
+        "hash": "3789473790967297480"
+      },
+      {
+        "file": "src/live/backends/MIDIBackend.ts",
+        "hash": "1085884476924421964"
+      },
+      {
+        "file": "src/live/backends/WebAudioBackend.ts",
+        "hash": "6948510657031736390"
+      },
+      {
+        "file": "src/live/backends/index.ts",
+        "hash": "6427448883996930666"
+      },
+      {
+        "file": "src/live/backends/types.ts",
+        "hash": "2030344747656015944"
+      },
+      {
+        "file": "src/live/eval.ts",
+        "hash": "17163647061479562731"
+      },
+      {
+        "file": "src/live/index.ts",
+        "hash": "5744372806603180416"
+      },
+      {
+        "file": "src/live/quantize.ts",
+        "hash": "17635046458309402223"
+      },
+      {
+        "file": "src/live/types.ts",
+        "hash": "7510540771166162237"
+      },
+      {
+        "file": "src/live/watcher.ts",
+        "hash": "13868211606084416412"
+      },
+      {
+        "file": "src/runtime/context.ts",
+        "hash": "2397555432595043531"
+      },
+      {
+        "file": "src/runtime/engine.ts",
+        "hash": "4609942506406301393"
+      },
+      {
+        "file": "src/runtime/scheduler.ts",
+        "hash": "571259619265145507"
+      },
+      {
+        "file": "src/runtime/synth.ts",
+        "hash": "14922183087319540174"
+      },
+      {
+        "file": "src/runtime/transport.ts",
+        "hash": "17983496120001997519"
+      },
+      {
+        "file": "src/runtime/types.ts",
+        "hash": "3851015414299058795"
+      },
+      {
+        "file": "test_output.txt",
+        "hash": "649100065554218710"
+      },
+      {
+        "file": "tsconfig.base.json",
+        "hash": "5919209568032918035"
+      },
+      {
+        "file": "tsconfig.json",
+        "hash": "3609334390703957415"
+      },
+      {
+        "file": "tsconfig.tsbuildinfo",
+        "hash": "16102430295289311099"
+      }
+    ]
+  },
+  "externalNodesHash": "16903195070942305694"
+}

@@ -1,22 +1,18 @@
 // =============================================================================
-// SymphonyScript - Import Module
-// Import MIDI and MusicXML files as ClipNode (sheet music)
+// SymphonyScript - Import Module (Core - Buffer Only)
+// File-based imports are in @symphonyscript/node
 // =============================================================================
 
-// MIDI Import
+// MIDI Import (buffer-based only)
 export {
   importMidi,
-  importMidiAsClip,
-  importMidiFile,
-  importMidiFileAsClip
+  importMidiAsClip
 } from './midi'
 
-// MusicXML Import
+// MusicXML Import (string-based only)
 export {
   importMusicXML,
-  importMusicXMLAsClip,
-  importMusicXMLFile,
-  importMusicXMLFileAsClip
+  importMusicXMLAsClip
 } from './musicxml'
 
 // Types
@@ -27,7 +23,7 @@ export type {
   MultiClipImportResult
 } from './types'
 
-// Low-level parsers (for advanced use)
+// Low-level parsers
 export { parseMidiBuffer } from './midi-parser'
 export type {
   MidiFile,
