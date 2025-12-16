@@ -21,7 +21,7 @@ import {
   getTimeUntilNextQuantize,
   getQuantizeTargetWithLookahead,
   getBeatGridInfo
-} from '../live/quantize'
+} from '../quantize'
 
 // =============================================================================
 // Time Signature Parsing Tests

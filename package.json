@@ -1,31 +1,13 @@
 {
-  "name": "@symphonyscript/core",
-  "version": "1.0.0",
-  "description": "The reactive composition engine. Compiles TypeScript to precise musical events in real-time.",
-  "license": "MIT",
-  "author": "Tsomaia Technologies",
-  "homepage": "https://symphonyscript.com",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tsomaia-technologies/symphonyscript.git"
-  },
-  "keywords": [
-    "music",
-    "composition",
-    "typescript",
-    "compiler",
-    "midi",
-    "theory",
-    "audio"
-  ],
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist"
+  "name": "@symphonyscript/monorepo",
+  "private": true,
+  "description": "SymphonyScript Monorepo",
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
     "test": "jest --no-cache",
-    "build": "tsc",
+    "build": "tsc --build",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

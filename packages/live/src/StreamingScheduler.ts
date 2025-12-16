@@ -9,8 +9,7 @@
  * - Callback scheduling at beat boundaries
  */
 
-import type { CompiledEvent } from '@symphonyscript/core'
-import type { AudioBackend } from './backends/types'
+import type { CompiledEvent, RuntimeBackend } from '@symphonyscript/core'
 import type { 
   StreamingSchedulerConfig, 
   ScheduledEvent, 
@@ -51,7 +50,7 @@ export class StreamingScheduler {
   private beatsPerMeasure: number
   
   // Backend
-  private backend: AudioBackend
+  private backend: RuntimeBackend
   
   // Playback state
   private playbackStartTime: number = 0
@@ -72,7 +71,7 @@ export class StreamingScheduler {
   // Track-based event storage for splice operations
   private trackEvents: Map<string, CompiledEvent[]> = new Map()
   
-  constructor(backend: AudioBackend, config: StreamingSchedulerConfig) {
+  constructor(backend: RuntimeBackend, config: StreamingSchedulerConfig) {
     this.backend = backend
     this.bpm = config.bpm
     this.lookahead = config.lookahead ?? DEFAULT_LOOKAHEAD

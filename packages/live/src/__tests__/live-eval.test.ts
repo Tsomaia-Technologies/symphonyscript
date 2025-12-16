@@ -12,8 +12,10 @@ import {
   preprocessCode,
   validateCode,
   type EvalContext,
+  type SafeEvalResult as EvalResult,
   type TrackDefinition
-} from '../live/eval'
+} from '../eval'
+import { LiveSession } from '../LiveSession'
 import type { SessionNode, TrackNode } from '@symphonyscript/core'
 import type { ClipNode } from '@symphonyscript/core'
 import { SCHEMA_VERSION } from '@symphonyscript/core'

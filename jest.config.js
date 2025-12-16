@@ -1,7 +1,7 @@
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
-    roots: ['<rootDir>/src', '<rootDir>/packages/core/src', '<rootDir>/packages/runtime-webaudio/src'],
+    roots: ['<rootDir>/src', '<rootDir>/packages/core/src', '<rootDir>/packages/runtime-webaudio/src', '<rootDir>/packages/live/src'],
     transform: {
         '^.+\\.tsx?$': ['ts-jest', { isolatedModules: true }]
     },

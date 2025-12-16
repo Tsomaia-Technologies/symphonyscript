@@ -19,17 +19,16 @@ import {
   getEffectiveCancelBeat,
   getCurrentBeatFromAudioTime,
   getAudioTimeForBeat
-} from '../live/quantize'
-import { StreamingScheduler } from '../live/StreamingScheduler'
-import type { AudioBackend } from '../live/backends/types'
-import type { CompiledEvent } from '@symphonyscript/core'
+} from '../quantize'
+import { StreamingScheduler } from '../StreamingScheduler'
+import type { RuntimeBackend, CompiledEvent } from '@symphonyscript/core'
 import { midiChannel, midiValue } from '@symphonyscript/core/types/midi'
 
 // =============================================================================
 // Mock Backend
 // =============================================================================
 
-function createMockBackend(): AudioBackend & { 
+function createMockBackend(): RuntimeBackend & { 
   scheduledEvents: Array<{ event: CompiledEvent; time: number }>;
   cancelledAfter: Array<{ beat: number; trackId?: string }>;
   currentTime: number;
@@ -63,6 +62,11 @@ function createMockBackend(): AudioBackend & {
     
     dispose(): void {
       this.disposed = true
+    },
+
+    async init(): Promise<boolean> {
+      // Mock init
+      return true
     }
   }
 }

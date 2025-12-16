@@ -25,7 +25,9 @@
       "@symphonyscript/core": ["packages/core/src/index.ts"],
       "@symphonyscript/core/*": ["packages/core/src/*"],
       "@symphonyscript/runtime-webaudio": ["packages/runtime-webaudio/src/index.ts"],
-      "@symphonyscript/runtime-webaudio/*": ["packages/runtime-webaudio/src/*"]
+      "@symphonyscript/runtime-webaudio/*": ["packages/runtime-webaudio/src/*"],
+      "@symphonyscript/live": ["packages/live/src/index.ts"],
+      "@symphonyscript/live/*": ["packages/live/src/*"]
     }
   },
   "exclude": ["node_modules", "dist", "**/dist"]

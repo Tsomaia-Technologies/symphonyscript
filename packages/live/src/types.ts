@@ -6,6 +6,8 @@
 
 import type { CompiledEvent, TempoMap } from '@symphonyscript/core'
 import type { SessionNode } from '@symphonyscript/core'
+import type { RuntimeBackend } from '@symphonyscript/core'
+import type { Watcher } from './watcher'
 import type { CompilationCache } from '@symphonyscript/core'
 
 // =============================================================================
@@ -28,20 +30,29 @@ export type QuantizeMode = 'bar' | 'beat' | 'off'
  * Configuration options for a LiveSession.
  */
 export interface LiveSessionOptions {
-  /** Initial tempo in BPM */
-  bpm: number
+  /** Beats per minute (default: 120) */
+  bpm?: number
   
-  /** Audio backend to use (default: 'webaudio') */
-  backend?: 'webaudio' | 'midi' | 'both'
+  /** Audio backend (default: 'webaudio') */
+  backend?: 'webaudio' | 'midi' | 'both' | RuntimeBackend
   
-  /** Lookahead buffer in seconds (default: 0.1) */
+  /** Injected runtime backend (preferred over 'backend' string) */
+  runtime?: RuntimeBackend
+  
+  /** Injected watcher */
+  watcher?: Watcher
+  
+  /** Injected compiler (optional, useful for testing) */
+  compiler?: any 
+  
+  /** Lookahead time in seconds (default: 0.1) */
   lookahead?: number
   
-  /** When changes take effect (default: 'bar') */
+  /** Quantization mode for updates (default: 'bar') */
   quantize?: QuantizeMode
   
-  /** Time signature for bar calculations (default: '4/4') */
-  timeSignature?: `${number}/${number}`
+  /** Time signature (default: '4/4') */
+  timeSignature?: string
 }
 
 // =============================================================================
