@@ -1,0 +1,490 @@
+
+> symphonyscript@1.0.0 test
+> jest --no-cache
+
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /Users/torniketsomaia/projects/@tsomaia.tech/symphonyscript/tsconfig.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS src/__tests__/serializer.test.ts (18.346 s)
+  Serializer
+    ✓ should generate a full timeline string with header (9 ms)
+    ✓ should omit header when includeHeader is false (1 ms)
+    ✓ should respect precision option (1 ms)
+  ASCII Visualization
+    ✓ should render simple pattern (1 ms)
+    ✓ should show sustain for long notes (1 ms)
+    ✓ should use x for drums
+    ✓ should render multiple tracks from session (47 ms)
+    ✓ should support preview on builder (18 ms)
+  Session Serialization
+    ✓ serializes simple session to JSON (10 ms)
+    ✓ serializes sidechain as ID reference (33 ms)
+    ✓ validateSerializedSession catches missing instrument (1 ms)
+    ✓ validateSerializedSession catches missing sidechain source
+  Schema Versioning
+    isCompatible
+      ✓ accepts same version (1 ms)
+      ✓ accepts older minor version
+      ✓ rejects newer minor version
+      ✓ rejects different major version
+    migrations
+      ✓ migrates legacy data (no version) to 1.0.0
+      ✓ finds multi-step migration path (1 ms)
+    validateSchema
+      ✓ warns on version mismatch (non-strict)
+      ✓ throws on version mismatch (strict) (346 ms)
+    Integration
+      ✓ built clips include _version field
+      ✓ serialized session includes _version
+
+PASS src/__tests__/instruments.test.ts
+  Instruments & Routing
+    Configuration
+      ✓ should allow configuring pitch bend range (73 ms)
+      ✓ should allow configuring drum map for Sampler (1 ms)
+      ✓ should allow configuring sampler pitch bend range (1 ms)
+    Routing: Sidechain
+      ✓ should configure sidechain source and amount
+    Routing: Sends & Buses
+      ✓ should configure sends on an instrument (1 ms)
+      ✓ should define buses in session meta (21 ms)
+      ✓ should reflect routing in compiled manifest (1 ms)
+      Phase 4: Feature Completeness
+        ✓ should support multi-sample regions
+        ✓ should support MIDI channel configuration (3 ms)
+
+PASS src/__tests__/expression.test.ts
+  Note Expression (MPE)
+    Builder API
+      detune
+        ✓ applies microtonal detuning (1 ms)
+        ✓ validates range (-1200 to 1200) (80 ms)
+      timbre
+        ✓ applies brightness value
+        ✓ validates range (0-1) (1 ms)
+      pressure
+        ✓ applies initial pressure
+        ✓ validates range (0-1) (1 ms)
+      expression()
+        ✓ applies multiple parameters
+        ✓ merges with existing values
+    Emission & Pipeline
+      ✓ includes expression data in compiled note payload
+      ✓ emits CC74 for timbre (1 ms)
+      ✓ emits aftertouch for pressure
+      ✓ emits control/aftertouch BEFORE note event (same timestamp) (1 ms)
+
+  console.log
+    Compiling with seed 0
+
+      at compile (src/compiler/index.ts:106:43)
+
+PASS src/__tests__/generators.test.ts (20.622 s)
+  Generators: Arpeggiator
+    Patterns
+      ✓ should generate "up" pattern (17 ms)
+      ✓ should generate "down" pattern (1 ms)
+      ✓ should generate "upDown" pattern (10 ms)
+      ✓ should generate "downUp" pattern (39 ms)
+      ✓ should generate "converge" pattern (1 ms)
+      ✓ should generate "diverge" pattern (1 ms)
+      ✓ should generate "random" pattern (3 ms)
+    Options
+      ✓ should expand octaves
+      ✓ should apply gate to note durations (2 ms)
+      ✓ should produce identical random patterns with same seed (1 ms)
+      ✓ should produce different random patterns with different seeds
+  Euclidean Rhythms
+    Algorithm
+      ✓ should generate tresillo (3,8) (1 ms)
+      ✓ should generate cinquillo (5,8) (80 ms)
+      ✓ should handle edge case: all hits (1 ms)
+      ✓ should handle edge case: no hits
+      ✓ should rotate pattern correctly (1 ms)
+    Integration
+      ✓ should integrate with DrumBuilder (161 ms)
+      ✓ should integrate with MelodyBuilder (7 ms)
+
+PASS src/__tests__/tempo.test.ts
+  Hierarchical Tempo Inheritance
+    Resolver Logic (Unit)
+      ✓ should use global default (120) when nothing is specified (1 ms)
+      ✓ should use session tempo if specified
+      ✓ should allow track tempo to override session tempo (1 ms)
+      ✓ should allow clip tempo operation to override everything
+    Integration (Compile)
+      ✓ uses fallback 120 BPM when no tempo is set (1 ms)
+      ✓ uses session-level tempo (97 ms)
+      ✓ overrides session tempo at track level (1 ms)
+      ✓ overrides track tempo at clip level (1 ms)
+      ✓ supports mixed tempos in same session (1 ms)
+
+FAIL src/__tests__/ascii_debug.test.ts (20.957 s)
+  ASCII Visualization (Comprehensive)
+    Edge Cases
+      ✓ handles empty event list (18 ms)
+      ✓ handles sub-step duration (very short notes)
+      ✓ handles notes starting off-grid (quantization)
+    Polyphony
+      ✓ handles overlapping notes (monophonic view logic) (1 ms)
+      ✓ sustain does not overwrite existing notes (1 ms)
+    Customization
+      ✓ supports custom resolution (stepsPerBeat)
+      ✓ supports custom characters (1 ms)
+    Complex Rhythms
+      ✓ visualizes euclidean rhythms correctly (119 ms)
+      ✕ visualizes triplets (approximate)
+      Session Integration
+        ✓ handles tempo changes alignment (2 ms)
+
+  ● ASCII Visualization (Comprehensive) › Complex Rhythms › visualizes triplets (approximate)
+
+    Tests cannot be nested. Test "should support triplets in ASCII" cannot run because it is nested within "visualizes triplets (approximate)".
+
+      137 |
+      138 |       // 1 beat at 120bpm = 0.5s.
+    > 139 |     it('should support triplets in ASCII', () => {
+          |     ^
+      140 |       const clip = Clip.melody('B').note('C4', '4t').note('D4', '4t').note('E4', '4t').commit()
+      141 |       const compiled = compile(session({ tempo: 120 }).add(Track.from(clip, Instrument.synth('Synth'))))
+      142 |       const output = compiled.toAscii?.()
+
+      at eventHandler (node_modules/jest-circus/build/jestAdapterInit.js:145:44)
+      at Object.<anonymous> (src/__tests__/ascii_debug.test.ts:139:5)
+
+PASS src/__tests__/modifiers.test.ts (20.946 s)
+  Modifiers
+    Humanize
+      ✓ should produce variance in timing and velocity (656 ms)
+      ✓ should preserve seed property in operation (17 ms)
+    Tie
+      ✓ should emit only one note_on for a tied sequence (1 ms)
+    Glide
+      ✓ should emit pitch_bend events (19 ms)
+    Articulation
+      ✓ should reduce duration for staccato (47 ms)
+      ✓ should increase duration for legato (1 ms)
+    Transposition
+      ✓ should apply transposition context (16 ms)
+    Vibrato
+      ✓ should emit Control Change 1 (Modulation) (1 ms)
+    Octave Control
+      ✓ octave(5) shifts C4 to C5 (101 ms)
+      ✓ octave(3) shifts C4 to C3 (13 ms)
+      ✓ octaveUp(1) shifts by +12 semitones
+      ✓ octaveDown(2) shifts by -24 semitones
+      ✓ octave + octaveUp are cumulative (1 ms)
+      ✓ validates octave range (564 ms)
+
+PASS src/__tests__/dynamics.test.ts
+  Dynamics & Expression
+    Velocity Regions
+      ✓ should interpolate velocity for crescendo (0.2 -> 1.0) (172 ms)
+      ✓ should interpolate velocity for decrescendo (14 ms)
+    Accent
+      ✓ should boost velocity for accented notes (1 ms)
+    Aftertouch
+      ✓ should emit aftertouch events (1 ms)
+
+  console.log
+    Compiling with seed 12345
+
+      at compile (src/compiler/index.ts:106:43)
+
+PASS src/__tests__/chords.test.ts
+  Chord Parser
+    ✓ parses major triad (2 ms)
+    ✓ parses minor seventh (1 ms)
+    ✓ parses sharps and flats
+    ✓ parses alternative codes
+    ✓ parses empty suffix as major triad (1 ms)
+    ✓ throws on invalid root (51 ms)
+    ✓ throws on invalid quality (60 ms)
+  Chord Resolver
+    ✓ resolves C major in octave 4
+    ✓ resolves Am7 in octave 3 (1 ms)
+    ✓ resolves complex altered chord (1 ms)
+
+  console.log
+    Compiling with seed 12345
+
+      at compile (src/compiler/index.ts:106:43)
+
+PASS src/__tests__/block.test.ts
+  Phase 2: Incremental Compilation
+    compileBlock
+      ✓ compiles a simple clip to block (2 ms)
+      ✓ generates stable hash
+      ✓ changes hash when clip changes (1 ms)
+      ✓ captures end state tempo
+    FrozenClip integration
+      ✓ frozen clip plays correctly in parent
+      ✓ block events have correct time offsets (14 ms)
+    Cache
+      ✓ cache hit avoids recompilation (1 ms)
+
+  console.log
+    Compiling with seed 12345
+
+      at compile (src/compiler/index.ts:106:43)
+
+PASS src/__tests__/builders.test.ts (21.79 s)
+  Builders
+    Immutability
+      ✓ should return new instrument instance when modifying params (21 ms)
+    Context Inheritance
+      ✓ should preserve drum map in DrumBuilder loop callback (2 ms)
+      ✓ should reset transposition in MelodyBuilder loop callback (handled by parent wrapper) (1 ms)
+      ✓ should preserve swing in stack builder callback (1 ms)
+    DrumBuilder API
+      ✓ should correctly resolve mapped notes using withMapping (108 ms)
+      Phase 4: Feature Completeness
+        ✓ should create automation operations (12 ms)
+        ✓ should create complex tempo envelopes (1 ms)
+        ✓ should validate tempo envelope keyframes (143 ms)
+    Scale Awareness
+      degreeToNote
+        ✓ should convert degree 1 to root note
+        ✓ should convert degree 3 in major scale
+        ✓ should convert degree 3 in minor scale (1 ms)
+        ✓ should handle octave wrapping
+        ✓ should handle chromatic alteration (1 ms)
+    MelodyBuilder.scale
+      ✓ should create scale context
+      ✓ should work with minor scale
+      ✓ should support degreeChord (1 ms)
+      ✓ should throw if degree called without scale (271 ms)
+      ✓ should support roman numerals (1 ms)
+      ✓ should support inversions (22 ms)
+    Scope Isolation
+      ✓ should create a scope operation with isolate method (2 ms)
+    Chord Code Integration
+      ✓ should resolve chord codes (1 ms)
+      ✓ should support alternative syntax (NoteName array) (1 ms)
+      ✓ should support inversions via cursor method (1 ms)
+      ✓ should support degreeChord inversions (3 ms)
+
+PASS src/__tests__/manifest.test.ts
+  Phase 1: Manifest & Contracts
+    ✓ should generate an empty manifest for a rest clip (2 ms)
+    ✓ should detect controllers used (54 ms)
+    ✓ should detect pitch bend necessity (1 ms)
+    ✓ should detect polyphony (1 ms)
+    ✓ should detect features (MPE, Sustain) (1 ms)
+
+FAIL src/__tests__/timing.test.ts (21.726 s)
+  Timing & Tempo
+    Precision & Quantization
+      ✓ should match analytical and numerical integration for linear curves (high precision) (25 ms)
+      ✓ should match analytical and high-precision numerical for ease-in
+      ✓ should match analytical and high-precision numerical for ease-out (1 ms)
+      ✓ should match analytical and high-precision numerical for ease-in-out (1 ms)
+      ✓ should quantize seconds to integer sample indices (1 ms)
+      ✓ should produce sample-aligned event times when sampleRate is set (50 ms)
+      ✓ should produce deterministic output with high precision (155 ms)
+    Duration Calculation
+      ✓ should calculate duration correctly for constant BPM (120) (3 ms)
+      ✓ should calculate duration correctly for constant BPM (60) (95 ms)
+      ✓ should handle dotted notes (12 ms)
+      ✓ should handle triplet notes (30 ms)
+    Time Signature
+      ✓ should record time signature in meta (55 ms)
+    Tempo Transitions (Ramps & Curves)
+      ✓ should reduce duration of consecutive notes during accelerando (Precise Ramp) (2 ms)
+      ✓ should emit tempo events with curves (67 ms)
+      ✓ should support ease-out (ritardando) (1 ms)
+      ✕ should produce distinct timing for ease-in vs linear curves (3 ms)
+      ✓ should compile tempoEnvelope to complex TempoOp and events (1 ms)
+    Parallel Timing
+      ✓ should track max duration correctly across parallel branches (1 ms)
+    Pipeline Timing
+      ✓ should compute beats for sequential ops (1 ms)
+      ✓ should compute beats for parallel branches (stack) (1 ms)
+  Tempo Integration Edge Cases
+    near-equal BPM
+      ✓ linear handles epsilon difference
+      ✓ ease-in handles epsilon difference (1 ms)
+    extreme deceleration
+      ✓ ease-in handles 4x slowdown (1 ms)
+      ✓ ease-in handles 10x slowdown
+      ✓ ease-in handles extreme deceleration (fallback to numerical)
+    input validation
+      ✓ throws on zero BPM (29 ms)
+      ✓ throws on negative BPM (1 ms)
+      ✓ returns 0 for 0 beats
+  Tie Coalescing
+    basic ties
+      ✓ merges start + end into single note (1 ms)
+      ✓ merges start + continue + end
+    orphaned ties
+      ✓ warns on orphaned start (1 ms)
+      ✓ warns on orphaned end
+    multiple voices
+      ✓ handles simultaneous ties on different pitches (1 ms)
+  Temporal Isolation
+    ✓ should isolate tempo changes in nested clips by default
+    ✓ should allow opt-out with inheritTempo: true (26 ms)
+    ✓ should cut off tempo ramps at scope boundaries (1 ms)
+    ✓ should handle explicit isolate() usage (2 ms)
+
+  ● Timing & Tempo › Tempo Transitions (Ramps & Curves) › should produce distinct timing for ease-in vs linear curves
+
+    expect(received).not.toBeCloseTo(expected, precision)
+
+    Expected: not 1.2
+
+      191 |       expect(durLinear).toBeGreaterThan(0)
+      192 |       expect(durEase).toBeGreaterThan(0)
+    > 193 |       expect(durEase).not.toBeCloseTo(durLinear, 4)
+          |                           ^
+      194 |       expect(durEase).toBeGreaterThan(durLinear)
+      195 |     })
+      196 |
+
+      at Object.<anonymous> (src/__tests__/timing.test.ts:193:27)
+
+  console.log
+    Compiling with seed 67890
+
+      at compile (src/compiler/index.ts:106:43)
+
+PASS src/__tests__/integration.test.ts (21.511 s)
+  Integration: Hello World
+    ✓ should compile a complex full session without errors (38 ms)
+  Expansion Bounds
+    maxOperations
+      ✓ throws when operation count exceeded (131 ms)
+      ✓ error includes operation count (3 ms)
+    estimateExpansion
+      ✓ estimates simple clip (1 ms)
+      ✓ estimates nested loops
+      ✓ warns about large loops
+      Determinism
+        ✓ produces identical output with same seed (598 ms)
+        ✓ produces different output with different seeds (149 ms)
+        ✓ handles deeply nested clips without stack overflow (15 ms)
+        ✓ handles stack operations correctly (2 ms)
+
+PASS src/__tests__/groove.test.ts
+  Groove & Swing
+    Swing
+      ✓ should delay off-beat notes when swing is active (15 ms)
+    Groove Templates
+      ✓ should apply timing offsets from MPC groove (1 ms)
+
+PASS src/__tests__/regression.test.ts (21.964 s)
+  Regressions
+    Phase 1 Fixes
+      ✓ should handle time conversion across tempo changes correctly (144 ms)
+      ✓ should handle cumulative transposition and reset (5 ms)
+      ✓ should throw useful error when applying modifiers to non-notes (e.g. rest) (1 ms)
+      ✓ should handle deep recursion (Iterative Stack) (808 ms)
+      ✓ should handle 1000-deep stack recursion (Iterative Stack) (179 ms)
+      ✓ should not leak transposition to parent scope (1 ms)
+  Pipeline Expansion
+    ✓ should flatten loop operations (1 ms)
+    ✓ should flatten stack operations into markers (89 ms)
+    ✓ should enforce max depth limit (81 ms)
+  Nested Stack Correctness (Phase 1/3 Verification)
+    ✓ produces correct note count for nested stacks (1 ms)
+    ✓ starts all parallel branches at the same time (2 ms)
+    ✓ preserves transposition in nested stacks (1 ms)
+    ✓ handles stacks at different beat positions correctly (1 ms)
+
+  console.log
+    1,000 notes: 2.36ms (423,841 ops/sec)
+
+      at Object.<anonymous> (src/__tests__/builder-perf.test.ts:46:13)
+
+PASS src/__tests__/validation.test.ts (22.227 s)
+  Validation System
+    Parameter Validation
+      ✓ should throw error with suggestion for invalid strings like "4x" (171 ms)
+    Session Validation
+      ✓ should detect duplicate instrument names (2 ms)
+      ✓ should detect sidechain source not in session (3 ms)
+      ✓ should detect empty clips (1 ms)
+      ✓ should warn on large loop counts (399 ms)
+      ✓ should warn on extreme transposition (1169 ms)
+      ✓ should detect circular clip references
+    Source Tracking
+      ✓ should include source location in operations
+    Runtime Validation
+      ✓ should throw BuilderValidationError for staccato after rest (86 ms)
+      ✓ should throw for velocity out of range (32 ms)
+      ✓ should throw for invalid pitch format (17 ms)
+      ✓ should include method name in error
+      ✓ should include failing value in message
+    Type Safety
+      NoteName Validation
+        ✓ isNoteName accepts valid note names (66 ms)
+        ✓ isNoteName rejects invalid note names (1 ms)
+        ✓ noteName() returns branded type for valid input
+        ✓ noteName() throws for invalid input (3 ms)
+      Notes Helper
+        ✓ creates correct note names
+      Duration Constants
+        ✓ provides standard durations
+        ✓ provides dotted durations
+        ✓ provides triplet durations
+      AutomationTarget
+        ✓ accepts builtin targets (10 ms)
+        ✓ accepts custom targets via customTarget()
+        ✓ validates custom target names (1 ms)
+        ✓ isBuiltinTarget identifies builtins
+      InstrumentId
+        ✓ validates format
+        ✓ rejects invalid format (1 ms)
+        ✓ isInstrumentId guard works (8 ms)
+      Velocity Standardization
+        ✓ accepts 0-1 range (1 ms)
+        ✓ rejects values outside 0-1 (1 ms)
+        ✓ provides hint for MIDI values
+        ✓ converts MIDI velocity correctly (1 ms)
+        ✓ converts normalized to MIDI correctly
+
+  console.log
+    10,000 notes: 30.49ms (328,014 ops/sec)
+
+      at Object.<anonymous> (src/__tests__/builder-perf.test.ts:60:13)
+
+  console.log
+    1,000 mixed iterations: 1.99ms (1,005,109 ops/sec)
+
+      at Object.<anonymous> (src/__tests__/builder-perf.test.ts:73:13)
+
+PASS src/__tests__/builder-perf.test.ts
+  Builder Performance Benchmark
+    ✓ measures baseline performance (1000 notes) (240 ms)
+    ✓ measures baseline performance (10000 notes) (213 ms)
+    ✓ measures mixed operations (1000 iterations) (14 ms)
+
+Test Suites: 2 failed, 16 passed, 18 total
+Tests:       2 failed, 240 passed, 242 total
+Snapshots:   0 total
+Time:        26.804 s
+Ran all test suites.

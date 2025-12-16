@@ -1,0 +1,39 @@
+{
+  "name": "symphonyscript",
+  "version": "1.0.0",
+  "description": "The reactive composition engine. Compiles TypeScript to precise musical events in real-time.",
+  "license": "MIT",
+  "author": "Tsomaia Technologies",
+  "homepage": "https://symphonyscript.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsomaia-technologies/symphonyscript.git"
+  },
+  "keywords": [
+    "music",
+    "composition",
+    "typescript",
+    "compiler",
+    "midi",
+    "theory",
+    "audio"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "jest --no-cache",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.27.1",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  }
+}

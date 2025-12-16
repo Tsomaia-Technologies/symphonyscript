@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SymphonyScript Live Coding Demo</title>
+    <style>
+      body {
+        font-family: system-ui;
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 1rem;
+        background: #1e1e1e;
+        color: #d4d4d4;
+      }
+      button {
+        font-size: 1rem;
+        padding: 0.5rem 1rem;
+        margin: 0.25rem;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #status,
+      #beat-display {
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        background: #2d2d2d;
+        border-radius: 4px;
+      }
+      #error {
+        color: #f44;
+        padding: 1rem;
+        margin: 1rem 0;
+        background: #400;
+        border-radius: 4px;
+        display: none;
+      }
+      #error.visible {
+        display: block;
+      }
+      #code {
+        width: 100%;
+        font-family: monospace;
+        font-size: 14px;
+        background: #252526;
+        color: #d4d4d4;
+        border: 1px solid #3c3c3c;
+        padding: 1rem;
+        box-sizing: border-box;
+      }
+      .tempo-control {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.5rem 0;
+      }
+      .tempo-control input {
+        width: 80px;
+        padding: 0.25rem;
+      }
+      .load-error {
+        text-align: center;
+        padding: 3rem;
+        background: #400;
+        border-radius: 8px;
+      }
+      .load-error h2 {
+        color: #f88;
+      }
+      .load-error code {
+        background: #000;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>🎵 Live Coding Demo</h1>
+      <div id="status">Not initialized</div>
+      <div id="beat-display">Beat: 0 | Bar: 0</div>
+
+      <!-- Tempo Control -->
+      <div class="tempo-control">
+        <label>BPM:</label>
+        <input type="number" id="bpm" value="120" min="20" max="300" />
+      </div>
+
+      <!-- Playback Controls -->
+      <div>
+        <button id="init">🔊 Start Audio</button>
+        <button id="play" disabled>▶️ Play</button>
+        <button id="pause" disabled>⏸️ Pause</button>
+        <button id="stop" disabled>⏹️ Stop</button>
+        <select id="quantize">
+          <option value="bar">Quantize: Bar</option>
+          <option value="beat">Quantize: Beat</option>
+          <option value="off">Quantize: Off</option>
+        </select>
+      </div>
+
+      <!-- Code Input -->
+      <h3>Live Code</h3>
+      <textarea id="code" rows="8">
+track('lead', t => t.clip(
+  Clip.melody()
+    .note('C4', '8n').note('E4', '8n').note('G4', '4n')
+    .loop(4)
+))</textarea
+      >
+      <button id="eval-btn">▶ Eval</button>
+
+      <div id="error"></div>
+      <p><small>Chrome/Firefox/Safari. Click "Start Audio" first.</small></p>
+    </div>
+
+    <script type="module">
+      const errorEl = document.getElementById("error");
+      const showError = (msg) => {
+        errorEl.textContent = msg;
+        errorEl.classList.add("visible");
+      };
+      const clearError = () => {
+        errorEl.classList.remove("visible");
+      };
+
+      import(`../dist/symphonyscript.js?v=${Date.now()}`)
+        .then((m) => {
+          const { LiveSession, Clip } = m;
+          let live = null;
+          const statusEl = document.getElementById("status");
+          const beatEl = document.getElementById("beat-display");
+
+          document.getElementById("init").onclick = async () => {
+            try {
+              live = new LiveSession({
+                bpm: +document.getElementById("bpm").value,
+                quantize: "bar",
+              });
+              await live.init();
+              live.on("beat", (b) => {
+                beatEl.textContent = `Beat: ${b} | Bar: ${live.getCurrentBar()}`;
+              });
+              live.on("error", (err) => showError(`Error: ${err.message}`));
+              statusEl.textContent = "Audio ready ✓";
+              ["play", "pause", "stop"].forEach(
+                (id) => (document.getElementById(id).disabled = false)
+              );
+              clearError();
+            } catch (err) {
+              showError(`Init failed: ${err.message}`);
+            }
+          };
+
+          document.getElementById("play").onclick = () => {
+            live.play();
+            statusEl.textContent = "Playing...";
+          };
+          document.getElementById("pause").onclick = () => {
+            live.pause();
+            statusEl.textContent = "Paused";
+          };
+          document.getElementById("stop").onclick = () => {
+            live.stop();
+            statusEl.textContent = "Stopped";
+          };
+          document.getElementById("quantize").onchange = (e) =>
+            live?.setQuantize(e.target.value);
+          document.getElementById("bpm").onchange = (e) =>
+            live?.setTempo(+e.target.value);
+
+          document.getElementById("eval-btn").onclick = () => {
+            clearError();
+            const result = live.eval(document.getElementById("code").value);
+            if (!result.success) showError(`Eval: ${result.error?.message}`);
+            else statusEl.textContent = "Eval queued";
+          };
+        })
+        .catch(() => {
+          document.getElementById("app").innerHTML = `
+        <div class="load-error">
+          <h2>⚠️ Bundle Not Found</h2>
+          <p>Run <code>npm run build</code> first, then refresh.</p>
+        </div>`;
+        });
+    </script>
+  </body>
+</html>

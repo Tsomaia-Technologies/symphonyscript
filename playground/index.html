@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SymphonyScript Playground</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 1rem;
+    }
+
+    button {
+      font-size: 1.2rem;
+      padding: 0.5rem 1rem;
+      margin: 0.5rem;
+      cursor: pointer;
+    }
+
+    #status {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #f0f0f0;
+      border-radius: 4px;
+    }
+
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+
+<body>
+<h1>🎵 SymphonyScript Playground</h1>
+<div id="status">Status: Not initialized</div>
+<div>
+  <button id="init">🔊 Start Audio</button>
+  <button id="play" disabled>▶️ Play</button>
+  <button id="pause" disabled>⏸️ Pause</button>
+  <button id="stop" disabled>⏹️ Stop</button>
+</div>
+<h2>Example Code</h2>
+<pre><code>
+const melody =
+  Clip.melody('Demo')
+    .tempo(120)
+    .loop(2, b => b
+        .note('C4', '8n')
+        .note('E4', '8n')
+        .note('G4', '4n')
+        .note('E4', '8n')
+        .note('C4', '2n')
+    )
+
+const compiled = compile(melody.build(), { bpm: 120 })
+engine.play(compiled)
+  </code></pre>
+<script type="module">
+    import((`../dist/symphonyscript.js?v=${Date.now()}_${Math.random()}`)).then(m => {
+        const {
+            Clip,
+            session,
+            Track,
+            synth,
+            compile,
+            createPlaybackEngine
+        } = m;
+
+        const engine = createPlaybackEngine()
+        const statusEl = document.getElementById('status')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // enable humanize() -> wrapper -> to huamnize everything inside
+        // when writing chord C-minor - we should default presets - done
+
+        // 1. Build a Clip (Melody)
+        // 1. Build a Clip (Melody)
+        // Note: We do NOT call .build() here because Session.track() expects a Builder
+        const main = Clip.keys('Main')
+            // .tempo(120)
+            // .transpose(4)
+            .transpose(-1)
+            .sustain()
+            .chord(['C2', 'C3'], '8n').staccato()
+            .chord(['C2', 'C3'], '8n').staccato()
+            // .rest('8n')
+            .chord(['C4', 'E4', 'G4'], '8n').staccato()
+            .chord(['C4', 'E4', 'G4'], '8n').staccato()
+            .release()
+
+            .chord(['A2', 'A3'], '8n').staccato()
+            .chord(['A2', 'A3'], '8n').staccato()
+            .chord(['A3', 'C4', 'E4'], '8n').staccato()
+            .chord(['A3', 'C4', 'E4'], '8n').staccato()
+
+            .chord(['F2', 'F3'], '8n').staccato()
+            .chord(['F2', 'F3'], '8n').staccato()
+            .chord(['F3', 'A3', 'C3'], '8n').staccato()
+            .chord(['F3', 'A3', 'C3'], '8n').staccato()
+
+            .chord(['G2', 'G3'], '8n').staccato()
+            .chord(['G2', 'G3'], '8n').staccato()
+            .chord(['G3', 'B3', 'D3'], '8n').staccato()
+            .chord(['G3', 'B3', 'D3'], '8n').staccato()
+
+        const intro = Clip.keys('Demo')
+            .loop(4, b => b.play(main)) // we should be able to directly pass Clip AS WELL
+
+        //
+        //
+        // const melody = Clip.melody()
+        //     .play(intro.build())
+
+
+        // unda sheidzlebodes tvlis gawera (customize) - session, track, clip - done
+        // unda sheidzlebodes oktavis dakleba/momateba - done
+        // unda davamatot scale (D minor) - already done (withScale -> scale)
+        // echo?
+
+        const lead = Clip.melody()
+                // .tempo(120)
+                // .loop(2, b => b.rest('1n').rest('1n'))
+                .transpose(-1)
+                .note('C5', '4n')
+                .note('C5', '4n')
+                .note('C5', '4n')
+
+                .rest('4n.')
+
+                .note('C5', '8n')
+                .note('B4', '8n')
+                .note('A4', '8n')
+                .note('B4', '8n')
+                .note('C5', '8n')
+                .note('D5', '8n')
+
+                .rest('8n')
+
+                .note('E5', '4n')
+                .note('E5', '4n')
+                .note('E5', '4n')
+
+                .rest('4n.')
+
+                .note('E5', '8n')
+                .note('D5', '8n')
+                .note('C5', '8n')
+                .note('D5', '8n')
+                .note('E5', '8n')
+                .note('F5', '8n')
+
+                .rest('8n')
+
+                .note('G5', '2n')
+                .note('C5', '2n')
+
+                .rest('8n')
+
+                .note('A5', '8n')
+                .note('G5', '8n')
+                .note('F5', '8n')
+                .note('E5', '4n')
+                .note('D5', '4n')
+            // .note('C5', '8n')
+            // .note('G5', '4n')
+            // .note('G5', '4n')
+            // .note('G5', '4n')
+            // .rest('4n.')
+            // .note('G5', '8n')
+            // .note('F5', '8n')
+            // .note('E5', '8n')
+            // .note('D5', '8n')
+            // .note('E5', '8n')
+            // .note('F5', '8n')
+        ;
+
+        // 2. Wrap in a Session (Using Fluent API)
+        const mySession = session()
+            // .tempo(120) - aq unda etitebodes
+            .track('Backing Track', intro, synth())
+            .track('Main Track', lead, synth())
+
+        // 3. Compile the Session
+        const result = compile(mySession, { bpm: 120 })
+        // Extract the timeline output for the engine
+        const compiledData = result.output
+
+        document.getElementById('init').onclick = async () => {
+            await engine.init()
+            statusEl.textContent = 'Status: Audio ready ✓'
+            document.getElementById('play').disabled = false
+        }
+
+        document.getElementById('play').onclick = () => {
+            engine.play(compiledData)
+            statusEl.textContent = 'Status: Playing...'
+            document.getElementById('pause').disabled = false
+            document.getElementById('stop').disabled = false
+        }
+        document.getElementById('pause').onclick = () => {
+            engine.pause()
+            statusEl.textContent = 'Status: Paused'
+        }
+        document.getElementById('stop').onclick = () => {
+            engine.stop()
+            statusEl.textContent = 'Status: Stopped'
+        }
+    });
+</script>
+</body>
+
+</html>
