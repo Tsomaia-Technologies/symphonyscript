@@ -1,0 +1,29 @@
+{
+  "name": "@symphonyscript/live",
+  "version": "0.1.0",
+  "description": "SymphonyScript Live Coding Runtime",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/index.umd.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts && esbuild src/index.ts --bundle --format=iife --global-name=SymphonyScript.Live --external:@symphonyscript/core --outfile=dist/index.umd.js",
+    "test": "jest --config jest.config.js"
+  },
+  "peerDependencies": {
+    "@symphonyscript/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@symphonyscript/core": "workspace:*",
+    "@symphonyscript/runtime-webaudio": "workspace:*"
+  }
+}

@@ -5,12 +5,16 @@
  * Orchestrates compilation, scheduling, and playback.
  */
 
-import type { SessionNode, TrackNode } from '@symphonyscript/core'
-import type { ClipNode } from '@symphonyscript/core'
-import type { CompiledClip, CompiledEvent } from '@symphonyscript/core'
-import type { CompilationCache } from '@symphonyscript/core'
-import { compileClip } from '@symphonyscript/core'
-import { incrementalCompile } from '@symphonyscript/core'
+import type { 
+  SessionNode, 
+  TrackNode, 
+  ClipNode,
+  CompiledClip, 
+  CompiledEvent,
+  CompilationCache,
+  RuntimeBackend
+} from '@symphonyscript/core'
+import { compileClip, incrementalCompile, synth, SCHEMA_VERSION } from '@symphonyscript/core'
 
 import type {
   LiveSessionOptions,
@@ -24,9 +28,6 @@ import type {
   LiveSessionEvent,
   TrackState
 } from './types'
-import type { AudioBackend } from './backends/types'
-import { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
-import { MIDIBackend } from './backends/MIDIBackend'
 import { StreamingScheduler, DEFAULT_LOOKAHEAD } from './StreamingScheduler'
 import {
   parseTimeSignature,
@@ -46,14 +47,7 @@ import {
   preprocessCode,
   validateCode
 } from './eval'
-import { synth } from '@symphonyscript/core'
-import { SCHEMA_VERSION } from '@symphonyscript/core'
-import {
-  createFileWatcher,
-  type FileWatcher,
-  type WatcherOptions,
-  type FileChangeEvent
-} from './watcher'
+import type { Watcher } from './watcher'
 
 // =============================================================================
 // Constants
@@ -100,10 +94,8 @@ export class LiveSession {
   // Configuration
   private options: Required<LiveSessionOptions>
   
-  // Backends
-  private webAudioBackend: WebAudioBackend | null = null
-  private midiBackend: MIDIBackend | null = null
-  private activeBackend: AudioBackend | null = null
+  // Backend (injected)
+  private activeBackend: RuntimeBackend | null = null
   
   // Scheduler
   private scheduler: StreamingScheduler | null = null
@@ -123,9 +115,8 @@ export class LiveSession {
   private lastEmittedBar: number = -1
   private beatCheckInterval: ReturnType<typeof setInterval> | null = null
   
-  // File watcher (Phase 6)
-  private fileWatcher: FileWatcher | null = null
-  private watchedFiles: Set<string> = new Set()
+  // Watcher (injected)
+  private fileWatcher: Watcher | null = null
   
   // Initialization state
   private initialized: boolean = false
@@ -135,10 +126,25 @@ export class LiveSession {
     // Normalize options with defaults
     this.options = {
       bpm: options.bpm ?? DEFAULT_BPM,
-      backend: options.backend ?? 'webaudio',
+      backend: options.backend ?? options.runtime, // Support both keys
       lookahead: options.lookahead ?? DEFAULT_LOOKAHEAD,
       quantize: options.quantize ?? 'bar',
-      timeSignature: options.timeSignature ?? DEFAULT_TIME_SIGNATURE
+      timeSignature: options.timeSignature ?? DEFAULT_TIME_SIGNATURE,
+      compiler: options.compiler,
+      watcher: options.watcher
+    } as any // Cast to satisfy strict type checking during Refactor
+    
+    // Store injected dependencies
+    if (options.runtime) {
+      this.activeBackend = options.runtime
+    } else if (options.backend && typeof options.backend !== 'string') {
+      this.activeBackend = options.backend as RuntimeBackend
+    }
+    
+    // File watcher (injected)
+    if (options.watcher) {
+      this.fileWatcher = options.watcher
+      this.fileWatcher.on('change', (code) => this.eval(code))
     }
     
     // Parse time signature for beats per measure
@@ -168,28 +174,14 @@ export class LiveSession {
   async init(): Promise<void> {
     if (this.initialized || this.disposed) return
     
-    const { backend } = this.options
-    
-    // Initialize WebAudio backend
-    if (backend === 'webaudio' || backend === 'both') {
-      this.webAudioBackend = new WebAudioBackend({
-        masterGain: 0.8
-      })
-      await this.webAudioBackend.resume()
-    }
-    
-    // Initialize MIDI backend
-    if (backend === 'midi' || backend === 'both') {
-      this.midiBackend = new MIDIBackend()
-      await this.midiBackend.init()
-    }
-    
-    // Set active backend (prefer WebAudio for timing)
-    this.activeBackend = this.webAudioBackend ?? this.midiBackend
-    
     if (!this.activeBackend) {
-      throw new Error('No audio backend available')
+      // If no backend injected, we can't proceed in the new architecture
+      // The user MUST provide a runtime
+      throw new Error('No runtime backend provided. Pass { runtime: new WebAudioRuntime() } to constructor.')
     }
+    
+    // Initialize backend
+    await this.activeBackend.init()
     
     // Create scheduler
     const { beatsPerMeasure } = parseTimeSignature(this.options.timeSignature)
