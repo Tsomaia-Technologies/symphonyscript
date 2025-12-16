@@ -1,5 +1,5 @@
 {
-  "name": "symphonyscript",
+  "name": "@symphonyscript/core",
   "version": "1.0.0",
   "description": "The reactive composition engine. Compiles TypeScript to precise musical events in real-time.",
   "license": "MIT",
@@ -29,11 +29,14 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
     "esbuild": "^0.27.1",
     "jest": "^30.2.0",
+    "nx": "^22.2.6",
     "ts-jest": "^29.4.6",
+    "tslib": "^2.8.1",
     "typescript": "^5.9.3"
   }
 }
