@@ -1,6 +1,5 @@
 {
   "name": "@symphonyscript/monorepo",
-  "private": true,
   "description": "SymphonyScript Monorepo",
   "workspaces": [
     "packages/*"
