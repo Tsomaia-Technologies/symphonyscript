@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Coding - SymphonyScript Playground</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+    }
+    h1 {
+      color: #58a6ff;
+    }
+    .back-link {
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .back-link:hover {
+      color: #58a6ff;
+    }
+    button {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      margin: 0.25rem;
+      cursor: pointer;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: #30363d;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #status, #beat-display {
+      padding: 0.75rem 1rem;
+      margin: 0.5rem 0;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    #beat-display {
+      font-family: monospace;
+      font-size: 1.1rem;
+    }
+    #error {
+      color: #f85149;
+      padding: 1rem;
+      margin: 1rem 0;
+      background: #3d1c1c;
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      display: none;
+    }
+    #error.visible {
+      display: block;
+    }
+    #code {
+      width: 100%;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      background: #161b22;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 1rem;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    #code:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 1rem 0;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .control-group label {
+      color: #8b949e;
+      font-size: 0.9rem;
+    }
+    .control-group input, .control-group select {
+      padding: 0.5rem;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    .control-group input[type="number"] {
+      width: 80px;
+    }
+    .eval-btn {
+      background: #238636;
+      border-color: #238636;
+      font-weight: 500;
+    }
+    .eval-btn:hover {
+      background: #2ea043;
+    }
+    small {
+      color: #8b949e;
+    }
+  </style>
+</head>
+<body>
+  <a href="../index.html" class="back-link">← Back to Playground</a>
+  <h1>⚡ Live Coding Demo</h1>
+
+  <div id="status">Status: Not initialized</div>
+  <div id="beat-display">Beat: 0 | Bar: 0</div>
+
+  <div class="controls">
+    <button id="init">🔊 Start Audio</button>
+    <button id="play" disabled>▶️ Play</button>
+    <button id="pause" disabled>⏸️ Pause</button>
+    <button id="stop" disabled>⏹️ Stop</button>
+    
+    <div class="control-group">
+      <label>BPM:</label>
+      <input type="number" id="bpm" value="120" min="20" max="300">
+    </div>
+    
+    <div class="control-group">
+      <label>Quantize:</label>
+      <select id="quantize">
+        <option value="bar">Bar</option>
+        <option value="beat">Beat</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
+  </div>
+
+  <h3>Live Code</h3>
+  <textarea id="code" rows="10">track('lead', t => t.clip(
+  Clip.melody()
+    .note('C4', '8n')
+    .note('E4', '8n')
+    .note('G4', '4n')
+    .note('E4', '8n')
+    .note('C4', '2n')
+    .loop(4)
+))</textarea>
+  <button id="eval-btn" class="eval-btn" disabled>▶ Eval Code</button>
+
+  <div id="error"></div>
+
+  <p><small>
+    Click "Start Audio" first (browser requires user gesture).
+    Edit the code above and click "Eval" to update the music in real-time.
+    Changes apply at the next bar boundary by default.
+  </small></p>
+
+  <script type="module">
+    import { Clip, synth } from '@symphonyscript/core'
+    import { LiveSession } from '@symphonyscript/live'
+    import { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
+
+    const errorEl = document.getElementById('error')
+    const statusEl = document.getElementById('status')
+    const beatEl = document.getElementById('beat-display')
+
+    const showError = (msg) => {
+      errorEl.textContent = msg
+      errorEl.classList.add('visible')
+    }
+
+    const clearError = () => {
+      errorEl.classList.remove('visible')
+    }
+
+    let live = null
+
+    document.getElementById('init').onclick = async () => {
+      try {
+        // Create WebAudio backend
+        const backend = new WebAudioBackend()
+        await backend.init()
+
+        // Create LiveSession with backend
+        live = new LiveSession({
+          bpm: +document.getElementById('bpm').value,
+          quantize: 'bar',
+          backend
+        })
+
+        // Subscribe to beat events
+        live.on('beat', (b) => {
+          beatEl.textContent = `Beat: ${b} | Bar: ${live.getCurrentBar()}`
+        })
+
+        // Subscribe to error events
+        live.on('error', (err) => showError(`Error: ${err.message}`))
+
+        statusEl.textContent = 'Status: Audio ready ✓'
+        document.getElementById('play').disabled = false
+        document.getElementById('eval-btn').disabled = false
+        clearError()
+      } catch (err) {
+        showError(`Init failed: ${err.message}`)
+      }
+    }
+
+    document.getElementById('play').onclick = () => {
+      live.play()
+      statusEl.textContent = 'Status: Playing...'
+      document.getElementById('pause').disabled = false
+      document.getElementById('stop').disabled = false
+    }
+
+    document.getElementById('pause').onclick = () => {
+      live.pause()
+      statusEl.textContent = 'Status: Paused'
+    }
+
+    document.getElementById('stop').onclick = () => {
+      live.stop()
+      statusEl.textContent = 'Status: Stopped'
+    }
+
+    document.getElementById('quantize').onchange = (e) => {
+      if (live) live.setQuantize(e.target.value)
+    }
+
+    document.getElementById('bpm').onchange = (e) => {
+      if (live) live.setTempo(+e.target.value)
+    }
+
+    document.getElementById('eval-btn').onclick = () => {
+      clearError()
+      const code = document.getElementById('code').value
+      const result = live.eval(code)
+      if (!result.success) {
+        showError(`Eval error: ${result.error?.message}`)
+      } else {
+        statusEl.textContent = 'Status: Code queued for next ' + 
+          document.getElementById('quantize').value
+      }
+    }
+
+    // Allow Ctrl+Enter to eval
+    document.getElementById('code').addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault()
+        document.getElementById('eval-btn').click()
+      }
+    })
+  </script>
+</body>
+</html>

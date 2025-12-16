@@ -1,12 +1,7 @@
 /**
- * RFC-031: Live Coding Runtime - MIDI Backend
+ * @symphonyscript/midi-backend-web
  * 
- * @deprecated This file is deprecated and will be removed in a future version.
- * Use the extracted packages instead:
- * - For Web MIDI (Browser): `@symphonyscript/midi-backend-web` → WebMIDIBackend
- * - For Node.js MIDI: `@symphonyscript/midi-backend-node` → NodeMIDIBackend
- * 
- * Implements AudioBackend interface using Web MIDI API.
+ * Web MIDI API backend implementing RuntimeBackend interface.
  * Sends note/CC events to external MIDI devices or software.
  * 
  * Browser Requirements:
@@ -14,9 +9,48 @@
  * - User permission for MIDI access
  */
 
-import type { CompiledEvent } from '@symphonyscript/core'
-import type { AudioBackend, MIDIBackendOptions } from './types'
-import { beatsToSeconds, secondsToBeats } from '../quantize'
+import type { RuntimeBackend, CompiledEvent } from '@symphonyscript/core'
+
+// =============================================================================
+// Local Type Definitions
+// =============================================================================
+
+/**
+ * MIDI device information.
+ */
+export interface MIDIDevice {
+  id: string
+  name: string
+  manufacturer?: string
+}
+
+/**
+ * Options for creating a WebMIDIBackend.
+ */
+export interface WebMIDIBackendOptions {
+  /** MIDI output port to use */
+  output?: MIDIOutput
+  /** Default MIDI channel (1-16, default: 1) */
+  defaultChannel?: number
+}
+
+// =============================================================================
+// Local Utility Functions
+// =============================================================================
+
+/**
+ * Convert beats to seconds.
+ */
+function beatsToSeconds(beats: number, bpm: number): number {
+  return (beats / bpm) * 60
+}
+
+/**
+ * Convert seconds to beats.
+ */
+function secondsToBeats(seconds: number, bpm: number): number {
+  return (seconds / 60) * bpm
+}
 
 // =============================================================================
 // Constants
@@ -50,11 +84,11 @@ interface ScheduledMidiEvent {
 }
 
 // =============================================================================
-// MIDI Backend
+// WebMIDIBackend
 // =============================================================================
 
 /**
- * MIDI backend for live coding.
+ * Web MIDI backend for live coding.
  * 
  * Features:
  * - Web MIDI API integration
@@ -62,7 +96,7 @@ interface ScheduledMidiEvent {
  * - Note scheduling with proper note-off handling
  * - Graceful degradation when MIDI unavailable
  */
-export class MIDIBackend implements AudioBackend {
+export class WebMIDIBackend implements RuntimeBackend {
   // MIDI state
   private midiAccess: MIDIAccess | null = null
   private midiOutput: MIDIOutput | null = null
@@ -84,14 +118,25 @@ export class MIDIBackend implements AudioBackend {
   // Timing reference (we need a time source since MIDI doesn't have one)
   private startTime: number = 0
   
-  constructor(options: MIDIBackendOptions = {}) {
+  constructor(options: WebMIDIBackendOptions = {}) {
     this.midiOutput = options.output ?? null
     this.defaultChannel = (options.defaultChannel ?? 1) - 1 // Convert to 0-indexed
     this.startTime = performance.now()
   }
   
   // ===========================================================================
-  // Initialization
+  // Static Methods
+  // ===========================================================================
+  
+  /**
+   * Check if Web MIDI API is supported in the current environment.
+   */
+  static async isSupported(): Promise<boolean> {
+    return typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator
+  }
+  
+  // ===========================================================================
+  // RuntimeBackend Implementation
   // ===========================================================================
   
   /**
@@ -104,8 +149,8 @@ export class MIDIBackend implements AudioBackend {
     if (this.initialized) return this.midiOutput !== null
     
     // Check for Web MIDI API support
-    if (!navigator.requestMIDIAccess) {
-      console.warn('MIDIBackend: Web MIDI API not supported in this browser')
+    if (!(await WebMIDIBackend.isSupported())) {
+      console.warn('WebMIDIBackend: Web MIDI API not supported in this browser')
       this.initialized = true
       return false
     }
@@ -118,72 +163,20 @@ export class MIDIBackend implements AudioBackend {
         const outputs = this.getMidiOutputs()
         if (outputs.length > 0) {
           this.midiOutput = outputs[0]
-          console.log(`MIDIBackend: Using output "${this.midiOutput.name}"`)
+          console.log(`WebMIDIBackend: Using output "${this.midiOutput.name}"`)
         } else {
-          console.warn('MIDIBackend: No MIDI outputs available')
+          console.warn('WebMIDIBackend: No MIDI outputs available')
         }
       }
       
       this.initialized = true
       return this.midiOutput !== null
     } catch (err) {
-      console.warn('MIDIBackend: MIDI access denied or unavailable:', err)
+      console.warn('WebMIDIBackend: MIDI access denied or unavailable:', err)
       this.initialized = true
       return false
     }
   }
-  
-  /**
-   * Get available MIDI outputs.
-   */
-  async getOutputs(): Promise<MIDIOutput[]> {
-    if (!this.midiAccess) {
-      await this.init()
-    }
-    
-    return this.getMidiOutputs()
-  }
-  
-  /**
-   * Get MIDI outputs from the access object (handles iterator conversion).
-   */
-  private getMidiOutputs(): MIDIOutput[] {
-    if (!this.midiAccess) return []
-    
-    const outputs: MIDIOutput[] = []
-    this.midiAccess.outputs.forEach((output) => {
-      outputs.push(output)
-    })
-    return outputs
-  }
-  
-  /**
-   * Select a MIDI output by name or index.
-   */
-  async selectOutput(nameOrIndex: string | number): Promise<boolean> {
-    const outputs = await this.getOutputs()
-    
-    if (typeof nameOrIndex === 'number') {
-      if (nameOrIndex >= 0 && nameOrIndex < outputs.length) {
-        this.midiOutput = outputs[nameOrIndex]
-        return true
-      }
-    } else {
-      const found = outputs.find(o => 
-        o.name?.toLowerCase().includes(nameOrIndex.toLowerCase())
-      )
-      if (found) {
-        this.midiOutput = found
-        return true
-      }
-    }
-    
-    return false
-  }
-  
-  // ===========================================================================
-  // AudioBackend Implementation
-  // ===========================================================================
   
   /**
    * Schedule an event for MIDI output.
@@ -302,6 +295,54 @@ export class MIDIBackend implements AudioBackend {
   }
   
   // ===========================================================================
+  // MIDI-Specific Methods
+  // ===========================================================================
+  
+  /**
+   * List available MIDI outputs.
+   */
+  async listOutputs(): Promise<MIDIDevice[]> {
+    if (!this.midiAccess) {
+      await this.init()
+    }
+    
+    return this.getMidiOutputs().map(output => ({
+      id: output.id,
+      name: output.name ?? 'Unknown',
+      manufacturer: output.manufacturer ?? undefined
+    }))
+  }
+  
+  /**
+   * Select a MIDI output by device ID.
+   */
+  async selectOutput(deviceId: string): Promise<boolean> {
+    const outputs = await this.listOutputs()
+    const rawOutputs = this.getMidiOutputs()
+    
+    const index = outputs.findIndex(o => o.id === deviceId)
+    if (index >= 0 && index < rawOutputs.length) {
+      this.midiOutput = rawOutputs[index]
+      return true
+    }
+    
+    return false
+  }
+  
+  /**
+   * Get the currently selected MIDI output.
+   */
+  getSelectedOutput(): MIDIDevice | null {
+    if (!this.midiOutput) return null
+    
+    return {
+      id: this.midiOutput.id,
+      name: this.midiOutput.name ?? 'Unknown',
+      manufacturer: this.midiOutput.manufacturer ?? undefined
+    }
+  }
+  
+  // ===========================================================================
   // Extended API
   // ===========================================================================
   
@@ -349,6 +390,19 @@ export class MIDIBackend implements AudioBackend {
   // ===========================================================================
   // Private Methods
   // ===========================================================================
+  
+  /**
+   * Get MIDI outputs from the access object (handles iterator conversion).
+   */
+  private getMidiOutputs(): MIDIOutput[] {
+    if (!this.midiAccess) return []
+    
+    const outputs: MIDIOutput[] = []
+    this.midiAccess.outputs.forEach((output) => {
+      outputs.push(output)
+    })
+    return outputs
+  }
   
   /**
    * Schedule a note event.

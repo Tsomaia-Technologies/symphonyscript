@@ -1,0 +1,22 @@
+{
+  "name": "@symphonyscript/playground",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SymphonyScript demos and examples",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@symphonyscript/core": "workspace:*",
+    "@symphonyscript/live": "workspace:*",
+    "@symphonyscript/runtime-webaudio": "workspace:*",
+    "@symphonyscript/midi-backend-web": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.3.3"
+  }
+}

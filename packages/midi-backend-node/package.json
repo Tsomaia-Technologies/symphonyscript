@@ -1,0 +1,38 @@
+{
+  "name": "@symphonyscript/midi-backend-node",
+  "version": "0.1.0",
+  "description": "SymphonyScript MIDI backend using jzz for Node.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "jest --config jest.config.js"
+  },
+  "dependencies": {
+    "jzz": "^1.8.0"
+  },
+  "peerDependencies": {
+    "@symphonyscript/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@symphonyscript/core": "workspace:*",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "tsup": "^8.0.2",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Basic Playback - SymphonyScript Playground</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+    }
+    h1 {
+      color: #58a6ff;
+    }
+    .back-link {
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .back-link:hover {
+      color: #58a6ff;
+    }
+    button {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      margin: 0.25rem;
+      cursor: pointer;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: #30363d;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #status {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    pre {
+      background: #161b22;
+      color: #c9d1d9;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid #30363d;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .comment { color: #8b949e; }
+    .keyword { color: #ff7b72; }
+    .string { color: #a5d6ff; }
+    .number { color: #79c0ff; }
+    .function { color: #d2a8ff; }
+  </style>
+</head>
+<body>
+  <a href="../index.html" class="back-link">← Back to Playground</a>
+  <h1>🎹 Basic Playback Demo</h1>
+  
+  <div id="status">Status: Not initialized</div>
+  
+  <div>
+    <button id="init">🔊 Start Audio</button>
+    <button id="play" disabled>▶️ Play</button>
+    <button id="pause" disabled>⏸️ Pause</button>
+    <button id="stop" disabled>⏹️ Stop</button>
+  </div>
+
+  <h2>Example Code</h2>
+  <pre><code><span class="comment">// Create a melody clip</span>
+<span class="keyword">const</span> melody = Clip.<span class="function">melody</span>(<span class="string">'Demo'</span>)
+  .<span class="function">tempo</span>(<span class="number">120</span>)
+  .<span class="function">loop</span>(<span class="number">2</span>, b => b
+    .<span class="function">note</span>(<span class="string">'C4'</span>, <span class="string">'8n'</span>)
+    .<span class="function">note</span>(<span class="string">'E4'</span>, <span class="string">'8n'</span>)
+    .<span class="function">note</span>(<span class="string">'G4'</span>, <span class="string">'4n'</span>)
+    .<span class="function">note</span>(<span class="string">'E4'</span>, <span class="string">'8n'</span>)
+    .<span class="function">note</span>(<span class="string">'C4'</span>, <span class="string">'2n'</span>)
+  )
+
+<span class="comment">// Wrap in a session</span>
+<span class="keyword">const</span> mySession = <span class="function">session</span>()
+  .<span class="function">track</span>(<span class="string">'Melody'</span>, melody, <span class="function">synth</span>())
+
+<span class="comment">// Compile and play</span>
+<span class="keyword">const</span> compiled = <span class="function">compile</span>(mySession, { bpm: <span class="number">120</span> })
+engine.<span class="function">play</span>(compiled.output)</code></pre>
+
+  <script type="module">
+    import { Clip, session, Track, synth, compile } from '@symphonyscript/core'
+    import { createPlaybackEngine } from '@symphonyscript/runtime-webaudio'
+
+    const engine = createPlaybackEngine()
+    const statusEl = document.getElementById('status')
+
+    // Build a chord progression
+    const main = Clip.keys('Main')
+      .transpose(-1)
+      .sustain()
+      .chord(['C2', 'C3'], '8n').staccato()
+      .chord(['C2', 'C3'], '8n').staccato()
+      .chord(['C4', 'E4', 'G4'], '8n').staccato()
+      .chord(['C4', 'E4', 'G4'], '8n').staccato()
+      .release()
+
+      .chord(['A2', 'A3'], '8n').staccato()
+      .chord(['A2', 'A3'], '8n').staccato()
+      .chord(['A3', 'C4', 'E4'], '8n').staccato()
+      .chord(['A3', 'C4', 'E4'], '8n').staccato()
+
+      .chord(['F2', 'F3'], '8n').staccato()
+      .chord(['F2', 'F3'], '8n').staccato()
+      .chord(['F3', 'A3', 'C3'], '8n').staccato()
+      .chord(['F3', 'A3', 'C3'], '8n').staccato()
+
+      .chord(['G2', 'G3'], '8n').staccato()
+      .chord(['G2', 'G3'], '8n').staccato()
+      .chord(['G3', 'B3', 'D3'], '8n').staccato()
+      .chord(['G3', 'B3', 'D3'], '8n').staccato()
+
+    const intro = Clip.keys('Intro')
+      .loop(4, b => b.play(main))
+
+    // Build a lead melody
+    const lead = Clip.melody('Lead')
+      .transpose(-1)
+      .note('C5', '4n')
+      .note('C5', '4n')
+      .note('C5', '4n')
+      .rest('4n.')
+      .note('C5', '8n')
+      .note('B4', '8n')
+      .note('A4', '8n')
+      .note('B4', '8n')
+      .note('C5', '8n')
+      .note('D5', '8n')
+      .rest('8n')
+      .note('E5', '4n')
+      .note('E5', '4n')
+      .note('E5', '4n')
+      .rest('4n.')
+      .note('E5', '8n')
+      .note('D5', '8n')
+      .note('C5', '8n')
+      .note('D5', '8n')
+      .note('E5', '8n')
+      .note('F5', '8n')
+      .rest('8n')
+      .note('G5', '2n')
+      .note('C5', '2n')
+      .rest('8n')
+      .note('A5', '8n')
+      .note('G5', '8n')
+      .note('F5', '8n')
+      .note('E5', '4n')
+      .note('D5', '4n')
+
+    // Create session with tracks
+    const mySession = session()
+      .track('Backing', intro, synth())
+      .track('Lead', lead, synth())
+
+    // Compile
+    const result = compile(mySession, { bpm: 120 })
+    const compiledData = result.output
+
+    // UI handlers
+    document.getElementById('init').onclick = async () => {
+      await engine.init()
+      statusEl.textContent = 'Status: Audio ready ✓'
+      document.getElementById('play').disabled = false
+    }
+
+    document.getElementById('play').onclick = () => {
+      engine.play(compiledData)
+      statusEl.textContent = 'Status: Playing...'
+      document.getElementById('pause').disabled = false
+      document.getElementById('stop').disabled = false
+    }
+
+    document.getElementById('pause').onclick = () => {
+      engine.pause()
+      statusEl.textContent = 'Status: Paused'
+    }
+
+    document.getElementById('stop').onclick = () => {
+      engine.stop()
+      statusEl.textContent = 'Status: Stopped'
+    }
+  </script>
+</body>
+</html>

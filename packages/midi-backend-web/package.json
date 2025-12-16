@@ -1,0 +1,31 @@
+{
+  "name": "@symphonyscript/midi-backend-web",
+  "version": "0.1.0",
+  "description": "SymphonyScript MIDI backend using Web MIDI API",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "jest --config jest.config.js"
+  },
+  "peerDependencies": {
+    "@symphonyscript/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@symphonyscript/core": "workspace:*",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "tsup": "^8.0.2",
+    "typescript": "^5.3.3"
+  }
+}

@@ -18,5 +18,6 @@ export type {
 // WebAudio Backend
 export { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
 
-// MIDI Backend
-export { MIDIBackend } from './MIDIBackend'
+// MIDIBackend moved to @symphonyscript/midi-backend-web
+// For Web MIDI: import { WebMIDIBackend } from '@symphonyscript/midi-backend-web'
+// For Node.js MIDI: import { NodeMIDIBackend } from '@symphonyscript/midi-backend-node'

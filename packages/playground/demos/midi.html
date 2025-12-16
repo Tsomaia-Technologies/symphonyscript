@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIDI Output - SymphonyScript Playground</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+    }
+    h1 {
+      color: #58a6ff;
+    }
+    .back-link {
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .back-link:hover {
+      color: #58a6ff;
+    }
+    button {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      margin: 0.25rem;
+      cursor: pointer;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: #30363d;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #status {
+      padding: 0.75rem 1rem;
+      margin: 0.5rem 0;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    #error {
+      color: #f85149;
+      padding: 1rem;
+      margin: 1rem 0;
+      background: #3d1c1c;
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      display: none;
+    }
+    #error.visible {
+      display: block;
+    }
+    .warning {
+      background: #3d2c1c;
+      border: 1px solid #d29922;
+      color: #e3b341;
+      padding: 1rem;
+      border-radius: 6px;
+      margin: 1rem 0;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 1rem 0;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .control-group label {
+      color: #8b949e;
+      font-size: 0.9rem;
+    }
+    .control-group select {
+      padding: 0.5rem;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      min-width: 200px;
+    }
+    #devices-list {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    #devices-list h3 {
+      margin-top: 0;
+      color: #8b949e;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+    }
+    .device-item {
+      padding: 0.5rem;
+      margin: 0.25rem 0;
+      background: #21262d;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .device-name {
+      color: #c9d1d9;
+    }
+    .device-manufacturer {
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    .keyboard {
+      display: flex;
+      gap: 2px;
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    .key {
+      width: 40px;
+      height: 120px;
+      background: #f0f0f0;
+      border: 1px solid #333;
+      border-radius: 0 0 4px 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 8px;
+      font-size: 0.75rem;
+      color: #333;
+      transition: background 0.1s;
+    }
+    .key:hover {
+      background: #e0e0e0;
+    }
+    .key.active {
+      background: #58a6ff;
+      color: white;
+    }
+    .key.black {
+      width: 28px;
+      height: 80px;
+      background: #1e1e1e;
+      color: #999;
+      margin-left: -14px;
+      margin-right: -14px;
+      z-index: 1;
+    }
+    .key.black:hover {
+      background: #333;
+    }
+    .key.black.active {
+      background: #58a6ff;
+    }
+    small {
+      color: #8b949e;
+    }
+  </style>
+</head>
+<body>
+  <a href="../index.html" class="back-link">← Back to Playground</a>
+  <h1>🎛️ MIDI Output Demo</h1>
+
+  <div class="warning">
+    <strong>⚠️ Web MIDI Requirements:</strong>
+    <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+      <li>Chrome, Edge, or Opera browser (Firefox/Safari don't support Web MIDI)</li>
+      <li>HTTPS or localhost (secure context required)</li>
+      <li>A MIDI device connected, or a virtual MIDI driver (like IAC on macOS)</li>
+    </ul>
+  </div>
+
+  <div id="status">Status: Not initialized</div>
+  <div id="error"></div>
+
+  <div class="controls">
+    <button id="init">🔌 Connect MIDI</button>
+    
+    <div class="control-group">
+      <label>Output:</label>
+      <select id="output-select" disabled>
+        <option value="">-- Select MIDI Output --</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="devices-list">
+    <h3>Available MIDI Outputs</h3>
+    <div id="devices">Click "Connect MIDI" to scan for devices...</div>
+  </div>
+
+  <h3>Virtual Keyboard</h3>
+  <p><small>Click keys to send MIDI notes to the selected output. Or use keyboard: A-K for white keys, W-U for black keys.</small></p>
+  
+  <div class="keyboard" id="keyboard">
+    <div class="key" data-note="60">C4</div>
+    <div class="key black" data-note="61">C#</div>
+    <div class="key" data-note="62">D4</div>
+    <div class="key black" data-note="63">D#</div>
+    <div class="key" data-note="64">E4</div>
+    <div class="key" data-note="65">F4</div>
+    <div class="key black" data-note="66">F#</div>
+    <div class="key" data-note="67">G4</div>
+    <div class="key black" data-note="68">G#</div>
+    <div class="key" data-note="69">A4</div>
+    <div class="key black" data-note="70">A#</div>
+    <div class="key" data-note="71">B4</div>
+    <div class="key" data-note="72">C5</div>
+  </div>
+
+  <script type="module">
+    import { WebMIDIBackend } from '@symphonyscript/midi-backend-web'
+
+    const statusEl = document.getElementById('status')
+    const errorEl = document.getElementById('error')
+    const devicesEl = document.getElementById('devices')
+    const outputSelect = document.getElementById('output-select')
+
+    let midiBackend = null
+
+    const showError = (msg) => {
+      errorEl.textContent = msg
+      errorEl.classList.add('visible')
+    }
+
+    const clearError = () => {
+      errorEl.classList.remove('visible')
+    }
+
+    // Check support first
+    const checkSupport = async () => {
+      const supported = await WebMIDIBackend.isSupported()
+      if (!supported) {
+        showError('Web MIDI is not supported in this browser. Try Chrome, Edge, or Opera.')
+        document.getElementById('init').disabled = true
+        return false
+      }
+      return true
+    }
+
+    checkSupport()
+
+    // Initialize MIDI
+    document.getElementById('init').onclick = async () => {
+      clearError()
+      
+      try {
+        midiBackend = new WebMIDIBackend()
+        const success = await midiBackend.init()
+        
+        if (!success) {
+          showError('MIDI access denied or no outputs available')
+          return
+        }
+
+        // List available outputs
+        const outputs = await midiBackend.listOutputs()
+        
+        if (outputs.length === 0) {
+          devicesEl.innerHTML = '<em>No MIDI outputs found. Connect a MIDI device and refresh.</em>'
+          showError('No MIDI outputs available')
+          return
+        }
+
+        // Populate device list
+        devicesEl.innerHTML = outputs.map(d => `
+          <div class="device-item">
+            <span class="device-name">${d.name}</span>
+            <span class="device-manufacturer">${d.manufacturer || 'Unknown'}</span>
+          </div>
+        `).join('')
+
+        // Populate dropdown
+        outputSelect.innerHTML = '<option value="">-- Select MIDI Output --</option>' +
+          outputs.map(d => `<option value="${d.id}">${d.name}</option>`).join('')
+        outputSelect.disabled = false
+
+        // Auto-select first output
+        if (outputs.length > 0) {
+          outputSelect.value = outputs[0].id
+          await midiBackend.selectOutput(outputs[0].id)
+          statusEl.textContent = `Status: Connected to "${outputs[0].name}"`
+        }
+
+      } catch (err) {
+        showError(`MIDI init failed: ${err.message}`)
+      }
+    }
+
+    // Handle output selection change
+    outputSelect.onchange = async (e) => {
+      if (!midiBackend || !e.target.value) return
+      
+      const success = await midiBackend.selectOutput(e.target.value)
+      if (success) {
+        const output = midiBackend.getSelectedOutput()
+        statusEl.textContent = `Status: Connected to "${output?.name}"`
+      }
+    }
+
+    // Virtual keyboard
+    const keyboard = document.getElementById('keyboard')
+    const activeNotes = new Set()
+
+    const playNote = (note) => {
+      if (!midiBackend || !midiBackend.isReady()) return
+      if (activeNotes.has(note)) return
+      
+      activeNotes.add(note)
+      midiBackend.sendRaw([0x90, note, 100]) // Note On, channel 1, velocity 100
+      
+      // Highlight key
+      const key = keyboard.querySelector(`[data-note="${note}"]`)
+      if (key) key.classList.add('active')
+    }
+
+    const stopNote = (note) => {
+      if (!midiBackend || !midiBackend.isReady()) return
+      
+      activeNotes.delete(note)
+      midiBackend.sendRaw([0x80, note, 0]) // Note Off
+      
+      // Remove highlight
+      const key = keyboard.querySelector(`[data-note="${note}"]`)
+      if (key) key.classList.remove('active')
+    }
+
+    // Mouse events
+    keyboard.addEventListener('mousedown', (e) => {
+      const key = e.target.closest('.key')
+      if (key) playNote(parseInt(key.dataset.note))
+    })
+
+    keyboard.addEventListener('mouseup', (e) => {
+      const key = e.target.closest('.key')
+      if (key) stopNote(parseInt(key.dataset.note))
+    })
+
+    keyboard.addEventListener('mouseleave', () => {
+      activeNotes.forEach(note => stopNote(note))
+    })
+
+    // Keyboard mapping (A-K for white keys, W-U for black keys)
+    const keyMap = {
+      'a': 60, 'w': 61, 's': 62, 'e': 63, 'd': 64,
+      'f': 65, 't': 66, 'g': 67, 'y': 68, 'h': 69,
+      'u': 70, 'j': 71, 'k': 72
+    }
+
+    document.addEventListener('keydown', (e) => {
+      const note = keyMap[e.key.toLowerCase()]
+      if (note && !e.repeat) playNote(note)
+    })
+
+    document.addEventListener('keyup', (e) => {
+      const note = keyMap[e.key.toLowerCase()]
+      if (note) stopNote(note)
+    })
+  </script>
+</body>
+</html>

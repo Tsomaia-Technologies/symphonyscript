@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SymphonyScript Playground</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #58a6ff;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 0.5rem;
+    }
+    h2 {
+      color: #8b949e;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 2rem;
+    }
+    .demo-grid {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .demo-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .demo-card:hover {
+      border-color: #58a6ff;
+      transform: translateY(-2px);
+    }
+    .demo-card h3 {
+      margin: 0 0 0.5rem 0;
+      color: #58a6ff;
+    }
+    .demo-card p {
+      margin: 0;
+      color: #8b949e;
+      font-size: 0.9rem;
+    }
+    .demo-card .badge {
+      display: inline-block;
+      background: #238636;
+      color: white;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      margin-top: 0.5rem;
+    }
+    .demo-card .badge.new {
+      background: #a371f7;
+    }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #30363d;
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    footer a {
+      color: #58a6ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎵 SymphonyScript Playground</h1>
+  <p>
+    Interactive demos showcasing the SymphonyScript music DSL.
+    Click any demo to try it out.
+  </p>
+
+  <h2>Demos</h2>
+  <div class="demo-grid">
+    <a href="demos/basic.html" class="demo-card">
+      <h3>🎹 Basic Playback</h3>
+      <p>Session, Track, and Clip API with WebAudio playback. Start here to understand the core concepts.</p>
+      <span class="badge">Core API</span>
+    </a>
+
+    <a href="demos/live.html" class="demo-card">
+      <h3>⚡ Live Coding</h3>
+      <p>Real-time code evaluation with LiveSession. Edit code while music plays with beat-synced updates.</p>
+      <span class="badge">Live Session</span>
+    </a>
+
+    <a href="demos/midi.html" class="demo-card">
+      <h3>🎛️ MIDI Output</h3>
+      <p>Connect to external MIDI devices using the Web MIDI API. Send notes to hardware synths or DAWs.</p>
+      <span class="badge new">New in Phase 6</span>
+    </a>
+  </div>
+
+  <footer>
+    <p>
+      SymphonyScript — A TypeScript DSL for algorithmic music composition.
+      <br>
+      <a href="https://github.com/symphonyscript/symphonyscript" target="_blank">GitHub</a> ·
+      <a href="https://symphonyscript.dev" target="_blank">Documentation</a>
+    </p>
+  </footer>
+</body>
+</html>

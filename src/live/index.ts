@@ -37,7 +37,9 @@ export type {
 } from './backends/types'
 
 export { WebAudioBackend } from '@symphonyscript/runtime-webaudio'
-export { MIDIBackend } from './backends/MIDIBackend'
+// MIDIBackend moved to @symphonyscript/midi-backend-web
+// For Web MIDI: import { WebMIDIBackend } from '@symphonyscript/midi-backend-web'
+// For Node.js MIDI: import { NodeMIDIBackend } from '@symphonyscript/midi-backend-node'
 
 // Quantize utilities
 export {

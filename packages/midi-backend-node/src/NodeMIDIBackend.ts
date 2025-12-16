@@ -1,22 +1,57 @@
 /**
- * RFC-031: Live Coding Runtime - MIDI Backend
+ * @symphonyscript/midi-backend-node
  * 
- * @deprecated This file is deprecated and will be removed in a future version.
- * Use the extracted packages instead:
- * - For Web MIDI (Browser): `@symphonyscript/midi-backend-web` → WebMIDIBackend
- * - For Node.js MIDI: `@symphonyscript/midi-backend-node` → NodeMIDIBackend
+ * Node.js MIDI backend using jzz library.
+ * Implements RuntimeBackend interface.
  * 
- * Implements AudioBackend interface using Web MIDI API.
- * Sends note/CC events to external MIDI devices or software.
- * 
- * Browser Requirements:
- * - Secure context (HTTPS or localhost)
- * - User permission for MIDI access
+ * Requirements:
+ * - Node.js 18+
+ * - jzz package installed
  */
 
-import type { CompiledEvent } from '@symphonyscript/core'
-import type { AudioBackend, MIDIBackendOptions } from './types'
-import { beatsToSeconds, secondsToBeats } from '../quantize'
+import type { RuntimeBackend, CompiledEvent } from '@symphonyscript/core'
+
+// jzz types are untyped, using any for internal jzz state
+import JZZ from 'jzz'
+
+// =============================================================================
+// Local Type Definitions
+// =============================================================================
+
+/**
+ * MIDI device information.
+ */
+export interface MIDIDevice {
+  id: string
+  name: string
+  manufacturer?: string
+}
+
+/**
+ * Options for creating a NodeMIDIBackend.
+ */
+export interface NodeMIDIBackendOptions {
+  /** Default MIDI channel (1-16, default: 1) */
+  defaultChannel?: number
+}
+
+// =============================================================================
+// Local Utility Functions
+// =============================================================================
+
+/**
+ * Convert beats to seconds.
+ */
+function beatsToSeconds(beats: number, bpm: number): number {
+  return (beats / bpm) * 60
+}
+
+/**
+ * Convert seconds to beats.
+ */
+function secondsToBeats(seconds: number, bpm: number): number {
+  return (seconds / 60) * bpm
+}
 
 // =============================================================================
 // Constants
@@ -50,22 +85,22 @@ interface ScheduledMidiEvent {
 }
 
 // =============================================================================
-// MIDI Backend
+// NodeMIDIBackend
 // =============================================================================
 
 /**
- * MIDI backend for live coding.
+ * Node.js MIDI backend using jzz library.
  * 
  * Features:
- * - Web MIDI API integration
+ * - jzz library integration for cross-platform MIDI
  * - Per-track channel mapping
  * - Note scheduling with proper note-off handling
  * - Graceful degradation when MIDI unavailable
  */
-export class MIDIBackend implements AudioBackend {
-  // MIDI state
-  private midiAccess: MIDIAccess | null = null
-  private midiOutput: MIDIOutput | null = null
+export class NodeMIDIBackend implements RuntimeBackend {
+  // jzz state
+  private midi: any = null
+  private midiOutput: any = null
   
   // Configuration
   private defaultChannel: number
@@ -81,109 +116,60 @@ export class MIDIBackend implements AudioBackend {
   private disposed: boolean = false
   private initialized: boolean = false
   
-  // Timing reference (we need a time source since MIDI doesn't have one)
+  // Timing reference
   private startTime: number = 0
   
-  constructor(options: MIDIBackendOptions = {}) {
-    this.midiOutput = options.output ?? null
+  // Selected output info
+  private selectedDevice: MIDIDevice | null = null
+  
+  constructor(options: NodeMIDIBackendOptions = {}) {
     this.defaultChannel = (options.defaultChannel ?? 1) - 1 // Convert to 0-indexed
     this.startTime = performance.now()
   }
   
   // ===========================================================================
-  // Initialization
+  // Static Methods
   // ===========================================================================
   
   /**
-   * Request MIDI access from the browser.
-   * Must be called before scheduling events.
+   * Check if Node.js MIDI is supported (always true in Node.js environment).
+   */
+  static async isSupported(): Promise<boolean> {
+    return typeof process !== 'undefined' && process.versions?.node !== undefined
+  }
+  
+  // ===========================================================================
+  // RuntimeBackend Implementation
+  // ===========================================================================
+  
+  /**
+   * Initialize the jzz MIDI engine.
    * 
-   * @returns True if MIDI access was granted
+   * @returns True if initialization succeeded
    */
   async init(): Promise<boolean> {
     if (this.initialized) return this.midiOutput !== null
     
-    // Check for Web MIDI API support
-    if (!navigator.requestMIDIAccess) {
-      console.warn('MIDIBackend: Web MIDI API not supported in this browser')
-      this.initialized = true
-      return false
-    }
-    
     try {
-      this.midiAccess = await navigator.requestMIDIAccess()
+      this.midi = await JZZ()
       
-      // If no output was provided, try to get the first available
-      if (!this.midiOutput) {
-        const outputs = this.getMidiOutputs()
-        if (outputs.length > 0) {
-          this.midiOutput = outputs[0]
-          console.log(`MIDIBackend: Using output "${this.midiOutput.name}"`)
-        } else {
-          console.warn('MIDIBackend: No MIDI outputs available')
-        }
+      // Try to open the first available output
+      const outputs = await this.listOutputs()
+      if (outputs.length > 0) {
+        await this.selectOutput(outputs[0].id)
+        console.log(`NodeMIDIBackend: Using output "${outputs[0].name}"`)
+      } else {
+        console.warn('NodeMIDIBackend: No MIDI outputs available')
       }
       
       this.initialized = true
       return this.midiOutput !== null
     } catch (err) {
-      console.warn('MIDIBackend: MIDI access denied or unavailable:', err)
+      console.warn('NodeMIDIBackend: JZZ initialization failed:', err)
       this.initialized = true
       return false
     }
   }
-  
-  /**
-   * Get available MIDI outputs.
-   */
-  async getOutputs(): Promise<MIDIOutput[]> {
-    if (!this.midiAccess) {
-      await this.init()
-    }
-    
-    return this.getMidiOutputs()
-  }
-  
-  /**
-   * Get MIDI outputs from the access object (handles iterator conversion).
-   */
-  private getMidiOutputs(): MIDIOutput[] {
-    if (!this.midiAccess) return []
-    
-    const outputs: MIDIOutput[] = []
-    this.midiAccess.outputs.forEach((output) => {
-      outputs.push(output)
-    })
-    return outputs
-  }
-  
-  /**
-   * Select a MIDI output by name or index.
-   */
-  async selectOutput(nameOrIndex: string | number): Promise<boolean> {
-    const outputs = await this.getOutputs()
-    
-    if (typeof nameOrIndex === 'number') {
-      if (nameOrIndex >= 0 && nameOrIndex < outputs.length) {
-        this.midiOutput = outputs[nameOrIndex]
-        return true
-      }
-    } else {
-      const found = outputs.find(o => 
-        o.name?.toLowerCase().includes(nameOrIndex.toLowerCase())
-      )
-      if (found) {
-        this.midiOutput = found
-        return true
-      }
-    }
-    
-    return false
-  }
-  
-  // ===========================================================================
-  // AudioBackend Implementation
-  // ===========================================================================
   
   /**
    * Schedule an event for MIDI output.
@@ -231,8 +217,7 @@ export class MIDIBackend implements AudioBackend {
       
       // Send immediate note off if note was already triggered
       if (scheduled.noteNumber !== undefined && this.midiOutput) {
-        const noteOff = [MIDI_NOTE_OFF | scheduled.channel, scheduled.noteNumber, 0]
-        this.midiOutput.send(noteOff)
+        this.sendNoteOff(scheduled.channel, scheduled.noteNumber)
       }
     }
     
@@ -257,8 +242,7 @@ export class MIDIBackend implements AudioBackend {
       
       // Send note off
       if (scheduled.noteNumber !== undefined && this.midiOutput) {
-        const noteOff = [MIDI_NOTE_OFF | scheduled.channel, scheduled.noteNumber, 0]
-        this.midiOutput.send(noteOff)
+        this.sendNoteOff(scheduled.channel, scheduled.noteNumber)
       }
     }
     
@@ -266,7 +250,7 @@ export class MIDIBackend implements AudioBackend {
     if (this.midiOutput) {
       for (let ch = 0; ch < 16; ch++) {
         // CC 123 = All Notes Off
-        this.midiOutput.send([MIDI_CONTROL_CHANGE | ch, 123, 0])
+        this.sendControlChange(ch, 123, 0)
       }
     }
     
@@ -274,7 +258,7 @@ export class MIDIBackend implements AudioBackend {
   }
   
   /**
-   * Get current time (using performance.now since MIDI has no clock).
+   * Get current time (using performance.now).
    */
   getCurrentTime(): number {
     return (performance.now() - this.startTime) / 1000
@@ -295,10 +279,80 @@ export class MIDIBackend implements AudioBackend {
     
     this.cancelAll()
     
+    if (this.midiOutput) {
+      try {
+        this.midiOutput.close()
+      } catch {
+        // Ignore close errors
+      }
+    }
+    
     this.midiOutput = null
-    this.midiAccess = null
+    this.midi = null
     this.trackChannels.clear()
+    this.selectedDevice = null
     this.disposed = true
+  }
+  
+  // ===========================================================================
+  // MIDI-Specific Methods
+  // ===========================================================================
+  
+  /**
+   * List available MIDI outputs.
+   */
+  async listOutputs(): Promise<MIDIDevice[]> {
+    if (!this.midi) {
+      try {
+        this.midi = await JZZ()
+      } catch {
+        return []
+      }
+    }
+    
+    const info = this.midi.info()
+    if (!info || !info.outputs) return []
+    
+    return info.outputs.map((output: any, index: number) => ({
+      id: String(index),
+      name: output.name || `Output ${index}`,
+      manufacturer: output.manufacturer || undefined
+    }))
+  }
+  
+  /**
+   * Select a MIDI output by device ID.
+   */
+  async selectOutput(deviceId: string): Promise<boolean> {
+    if (!this.midi) {
+      try {
+        this.midi = await JZZ()
+      } catch {
+        return false
+      }
+    }
+    
+    const outputs = await this.listOutputs()
+    const device = outputs.find(o => o.id === deviceId)
+    
+    if (!device) return false
+    
+    try {
+      const index = parseInt(deviceId, 10)
+      this.midiOutput = this.midi.openMidiOut(index)
+      this.selectedDevice = device
+      return true
+    } catch (err) {
+      console.warn('NodeMIDIBackend: Failed to open MIDI output:', err)
+      return false
+    }
+  }
+  
+  /**
+   * Get the currently selected MIDI output.
+   */
+  getSelectedOutput(): MIDIDevice | null {
+    return this.selectedDevice
   }
   
   // ===========================================================================
@@ -320,7 +374,7 @@ export class MIDIBackend implements AudioBackend {
    * Get the current MIDI output name.
    */
   getOutputName(): string | null {
-    return this.midiOutput?.name ?? null
+    return this.selectedDevice?.name ?? null
   }
   
   /**
@@ -331,15 +385,6 @@ export class MIDIBackend implements AudioBackend {
   }
   
   /**
-   * Send raw MIDI message (for advanced usage).
-   */
-  sendRaw(data: number[]): void {
-    if (this.midiOutput) {
-      this.midiOutput.send(data)
-    }
-  }
-  
-  /**
    * Reset start time reference.
    */
   resetTime(): void {
@@ -347,7 +392,47 @@ export class MIDIBackend implements AudioBackend {
   }
   
   // ===========================================================================
-  // Private Methods
+  // Private Methods - MIDI Message Sending
+  // ===========================================================================
+  
+  /**
+   * Send a note on message.
+   */
+  private sendNoteOn(channel: number, note: number, velocity: number): void {
+    if (!this.midiOutput) return
+    try {
+      this.midiOutput.send([MIDI_NOTE_ON | channel, note, velocity])
+    } catch {
+      // Ignore send errors
+    }
+  }
+  
+  /**
+   * Send a note off message.
+   */
+  private sendNoteOff(channel: number, note: number): void {
+    if (!this.midiOutput) return
+    try {
+      this.midiOutput.send([MIDI_NOTE_OFF | channel, note, 0])
+    } catch {
+      // Ignore send errors
+    }
+  }
+  
+  /**
+   * Send a control change message.
+   */
+  private sendControlChange(channel: number, controller: number, value: number): void {
+    if (!this.midiOutput) return
+    try {
+      this.midiOutput.send([MIDI_CONTROL_CHANGE | channel, controller, value])
+    } catch {
+      // Ignore send errors
+    }
+  }
+  
+  // ===========================================================================
+  // Private Methods - Scheduling
   // ===========================================================================
   
   /**
@@ -369,8 +454,6 @@ export class MIDIBackend implements AudioBackend {
         lowerPitch.includes('snare') || 
         lowerPitch.includes('hat') ||
         lowerPitch.includes('clap')) {
-      // Could map these to specific drum notes (GM drum map)
-      // For now, skip
       return
     }
     
@@ -394,8 +477,7 @@ export class MIDIBackend implements AudioBackend {
     // Schedule note on
     scheduled.noteOnTimeout = setTimeout(() => {
       if (this.midiOutput && !this.disposed) {
-        const noteOn = [MIDI_NOTE_ON | channel, noteNumber, velocity]
-        this.midiOutput.send(noteOn)
+        this.sendNoteOn(channel, noteNumber, velocity)
       }
       scheduled.noteOnTimeout = null
     }, delay)
@@ -403,8 +485,7 @@ export class MIDIBackend implements AudioBackend {
     // Schedule note off
     scheduled.noteOffTimeout = setTimeout(() => {
       if (this.midiOutput && !this.disposed) {
-        const noteOff = [MIDI_NOTE_OFF | channel, noteNumber, 0]
-        this.midiOutput.send(noteOff)
+        this.sendNoteOff(channel, noteNumber)
       }
       scheduled.noteOffTimeout = null
       
@@ -428,8 +509,7 @@ export class MIDIBackend implements AudioBackend {
     
     setTimeout(() => {
       if (this.midiOutput && !this.disposed) {
-        const cc = [MIDI_CONTROL_CHANGE | channel, controller, value]
-        this.midiOutput.send(cc)
+        this.sendControlChange(channel, controller, value)
       }
     }, delay)
   }
