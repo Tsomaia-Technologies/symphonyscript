@@ -835,6 +835,30 @@ describe('RFC-041 Zero-Allocation Compiler', () => {
 
       expect(result.vmBytecode.length).toBeGreaterThan(0)
     })
+
+    it('inline groove state restored after structural scopes', () => {
+      // This test ensures inlineGrooveTop doesn't drift across structural boundaries
+      const builder = Clip.melody()
+        .groove(groove([10]), b => {
+          b.loop(2, b2 => {
+            b2.groove(groove([20]), b3 => b3.note('C4', '4n'))
+          })
+          b.note('D4', '4n')  // Should still use outer groove (+10)
+        })
+        .groove(groove([30]), b => {
+          b.note('E4', '4n')  // Should use new groove (+30)
+        })
+
+      const treeResult = compileBuilderToVM(builder.buf, 96, 12345, [], false)
+      const zeroResult = compileBuilderToVMZeroAlloc(builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      expect(Array.from(zeroResult.vmBytecode)).toEqual(treeResult.vmBuf)
+    })
   })
 
   // =========================================================================

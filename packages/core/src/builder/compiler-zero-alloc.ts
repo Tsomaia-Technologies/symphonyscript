@@ -730,6 +730,7 @@ export class ZeroAllocCompiler {
     const savedHumTop = this.humanizeTop
     const savedQuantTop = this.quantizeTop
     const savedGrooveTop = this.grooveTop
+    const savedInlineGrooveTop = this.inlineGrooveTop
 
     // Allocate LOOP scope
     const loopScopeId = this.allocateScope(OP.LOOP_START, count, startTick, parentScopeId)
@@ -744,6 +745,7 @@ export class ZeroAllocCompiler {
     this.humanizeTop = savedHumTop
     this.quantizeTop = savedQuantTop
     this.grooveTop = savedGrooveTop
+    this.inlineGrooveTop = savedInlineGrooveTop
 
     return bodyEnd + 1  // Skip LOOP_END
   }
@@ -768,6 +770,7 @@ export class ZeroAllocCompiler {
     const savedHumTop = this.humanizeTop
     const savedQuantTop = this.quantizeTop
     const savedGrooveTop = this.grooveTop
+    const savedInlineGrooveTop = this.inlineGrooveTop
 
     // Save eventIndex at loop start - each iteration resets to use the SAME indices
     // This matches tree-based compiler where cloned events keep their originalIndex
@@ -778,6 +781,7 @@ export class ZeroAllocCompiler {
       this.humanizeTop = savedHumTop
       this.quantizeTop = savedQuantTop
       this.grooveTop = savedGrooveTop
+      this.inlineGrooveTop = savedInlineGrooveTop
 
       // Restore eventIndex for each iteration (same indices, different baseSeed)
       // This ensures: seed = iterSeed + eventIndex gives unique seeds per iteration
@@ -804,6 +808,7 @@ export class ZeroAllocCompiler {
     this.humanizeTop = savedHumTop
     this.quantizeTop = savedQuantTop
     this.grooveTop = savedGrooveTop
+    this.inlineGrooveTop = savedInlineGrooveTop
 
     return bodyEnd + 1  // Skip LOOP_END
   }
@@ -825,6 +830,7 @@ export class ZeroAllocCompiler {
     const savedHumTop = this.humanizeTop
     const savedQuantTop = this.quantizeTop
     const savedGrooveTop = this.grooveTop
+    const savedInlineGrooveTop = this.inlineGrooveTop
 
     // Allocate STACK scope
     const stackScopeId = this.allocateScope(OP.STACK_START, branchCount, startTick, parentScopeId)
@@ -838,6 +844,7 @@ export class ZeroAllocCompiler {
       this.humanizeTop = savedHumTop
       this.quantizeTop = savedQuantTop
       this.grooveTop = savedGrooveTop
+      this.inlineGrooveTop = savedInlineGrooveTop
 
       // Allocate BRANCH scope
       const branchScopeId = this.allocateScope(OP.BRANCH_START, 0, startTick, stackScopeId)
@@ -861,6 +868,7 @@ export class ZeroAllocCompiler {
     this.humanizeTop = savedHumTop
     this.quantizeTop = savedQuantTop
     this.grooveTop = savedGrooveTop
+    this.inlineGrooveTop = savedInlineGrooveTop
 
     // Finalize stack scope
     this.finalizeScope(stackScopeId)
