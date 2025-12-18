@@ -2,7 +2,7 @@
 
 **The TypeScript Music Compiler.**
 
-SymphonyScript is a reactive composition engine. It compiles TypeScript to precise musical events in real-time. You write the melody; it drives the instruments.
+SymphonyScript is a reactive Audio Computation Engine. It compiles TypeScript to precise musical events in real-time. You write the melody; it drives the instruments.
 
 ## Why SymphonyScript?
 
