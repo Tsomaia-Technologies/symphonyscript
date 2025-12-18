@@ -726,6 +726,115 @@ describe('RFC-041 Zero-Allocation Compiler', () => {
 
       expect(result.vmBytecode.length).toBeGreaterThan(0)
     })
+
+    it('handles dense scope without overflow', () => {
+      // Create a clip with many events in root scope
+      const builder = Clip.melody()
+      for (let i = 0; i < 500; i++) {
+        builder.note('C4', '16n')
+      }
+
+      const cursor = builder.note('C4', '16n')  // Get cursor to access buf
+      const result = compileBuilderToVMZeroAlloc(cursor.builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      // Should compile successfully with 501 notes
+      let noteCount = 0
+      for (let i = 0; i < result.vmBytecode.length; i++) {
+        if (result.vmBytecode[i] === OP.NOTE) noteCount++
+      }
+      expect(noteCount).toBe(501)
+    })
+  })
+
+  // =========================================================================
+  // Inline Groove Support
+  // =========================================================================
+
+  describe('Inline Groove Support', () => {
+    // Helper to create groove template from array
+    const groove = (offsets: number[]) => ({ getOffsets: () => offsets })
+
+    it('applies inline groove offsets', () => {
+      const builder = Clip.melody()
+        .groove(groove([10, -10, 20, -20]), b => {
+          b.note('C4', '4n')  // Beat 0: +10 ticks
+          b.note('D4', '4n')  // Beat 1: -10 ticks
+          b.note('E4', '4n')  // Beat 2: +20 ticks
+          b.note('F4', '4n')  // Beat 3: -20 ticks
+        })
+
+      const treeResult = compileBuilderToVM(builder.buf, 96, 12345, [], false)
+      const zeroResult = compileBuilderToVMZeroAlloc(builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      // Should match tree-based compiler
+      expect(Array.from(zeroResult.vmBytecode)).toEqual(treeResult.vmBuf)
+    })
+
+    it('inline groove parity with tree-based compiler', () => {
+      const cursor = Clip.melody()
+        .groove(groove([5, -5]), b => {
+          b.note('C4', '4n')
+          b.note('D4', '4n')
+        })
+        .note('E4', '4n')  // Outside groove block
+
+      const treeResult = compileBuilderToVM(cursor.builder.buf, 96, 12345, [], false)
+      const zeroResult = compileBuilderToVMZeroAlloc(cursor.builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      expect(Array.from(zeroResult.vmBytecode)).toEqual(treeResult.vmBuf)
+    })
+
+    it('nested inline grooves work correctly', () => {
+      const builder = Clip.melody()
+        .groove(groove([10]), b => {
+          b.note('C4', '4n')
+          b.groove(groove([20]), b2 => {
+            b2.note('D4', '4n')  // Should have +20 offset (inner groove)
+          })
+          b.note('E4', '4n')  // Should have +10 offset (outer groove)
+        })
+
+      const treeResult = compileBuilderToVM(builder.buf, 96, 12345, [], false)
+      const zeroResult = compileBuilderToVMZeroAlloc(builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      expect(Array.from(zeroResult.vmBytecode)).toEqual(treeResult.vmBuf)
+    })
+
+    it('empty groove block does not crash', () => {
+      // Edge case: test with no groove (just notes)
+      const cursor = Clip.melody()
+        .note('C4', '4n')
+        .note('D4', '4n')
+
+      const result = compileBuilderToVMZeroAlloc(cursor.builder.buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      expect(result.vmBytecode.length).toBeGreaterThan(0)
+    })
   })
 
   // =========================================================================

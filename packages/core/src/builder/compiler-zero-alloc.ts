@@ -48,6 +48,14 @@ const MAX_SCOPES = 256
 const EVENT_STRIDE = 7  // [finalTick, opcode, arg0, arg1, arg2, scopeId, insertionOrder]
 const SCOPE_STRIDE = 9  // [structOp, count, startTick, eventStart, eventEnd, parent, firstChild, nextSibling, insertionEventIdx]
 
+// Scratch buffer size (supports ~2,340 events per scope, 64 KB memory)
+const SCRATCH_BUF_SIZE = 16384
+
+// Inline groove constants
+const MAX_INLINE_GROOVES = 32   // Max nested inline grooves
+const MAX_GROOVE_OFFSETS = 16   // Max offsets per groove
+const INLINE_GROOVE_STRIDE = 1 + MAX_GROOVE_OFFSETS  // [len, offset0, ..., offset15]
+
 // Event buffer offsets
 const EV_FINAL_TICK = 0
 const EV_OPCODE = 1
@@ -100,9 +108,16 @@ export class ZeroAllocCompiler {
   private readonly quantizeStack = new Int32Array(64)
   private quantizeTop = 0
 
-  // Groove: template indices
+  // Groove: indices (positive = template index, negative = inline groove index)
   private readonly grooveStack = new Int32Array(32)
   private grooveTop = 0
+
+  // === Inline Groove Buffer ===
+  // Stores inline groove offsets in a flat buffer
+  // Format: [len, offset0, ..., offset15] per groove
+  // Negative indices in grooveStack point here: -(inlineIdx + 1)
+  private readonly inlineGrooveBuf = new Int32Array(MAX_INLINE_GROOVES * INLINE_GROOVE_STRIDE)
+  private inlineGrooveTop = 0
 
   // === Scope Table ===
   // [structOp, count, startTick, eventStart, eventEnd, parent, firstChild, nextSibling, insertionEventIdx]
@@ -120,7 +135,7 @@ export class ZeroAllocCompiler {
   private vmBufLen = 0
 
   // === Scratch Buffer ===
-  private readonly scratchBuf = new Int32Array(2048)
+  private readonly scratchBuf = new Int32Array(SCRATCH_BUF_SIZE)
 
   // === PRNG State ===
   private prngState = 0
@@ -188,6 +203,7 @@ export class ZeroAllocCompiler {
     this.humanizeTop = 0
     this.quantizeTop = 0
     this.grooveTop = 0
+    this.inlineGrooveTop = 0
     this.scopeCount = 0
     this.vmBufLen = 0
     this.eventIndex = 0
@@ -455,33 +471,55 @@ export class ZeroAllocCompiler {
           break
 
         case BUILDER_OP.GROOVE_PUSH: {
-          // GROOVE_PUSH stores groove data inline: [op, len, ...offsets]
-          // We need to register this groove and store its index
+          // GROOVE_PUSH stores groove data inline: [op, len, offset0, ..., offsetN-1]
           const len = buf[pos + 1]
-          // For inline grooves, we'd need to register them dynamically
-          // For now, assume grooves are pre-registered via grooveTemplates
-          // This means GROOVE_PUSH actually stores [op, len, templateIdx]
-          // or the offsets directly if len > 0
-          // Let's handle both cases:
+
           if (len === 0) {
-            // Edge case: empty groove
+            // Empty groove - push sentinel
             this.grooveStack[this.grooveTop++] = -1
           } else {
-            // The groove offsets are inline, but we need an index
-            // Store the position for later lookup (hack for inline grooves)
-            // Actually, for zero-alloc, we should register inline grooves too
-            // For simplicity, assume the index is stored at pos+2
-            // This matches how MelodyBuilder stores registered grooves
-            this.grooveStack[this.grooveTop++] = this.findOrRegisterGroove(buf, pos + 2, len)
+            // Check for overflow
+            if (this.inlineGrooveTop >= MAX_INLINE_GROOVES) {
+              throw new Error(
+                `SymphonyCompilerOverflow: Too many nested inline grooves. ` +
+                `Max: ${MAX_INLINE_GROOVES}`
+              )
+            }
+            if (len > MAX_GROOVE_OFFSETS) {
+              throw new Error(
+                `SymphonyCompilerOverflow: Groove has too many offsets. ` +
+                `Found: ${len}, Max: ${MAX_GROOVE_OFFSETS}`
+              )
+            }
+
+            // Store inline groove offsets
+            const base = this.inlineGrooveTop * INLINE_GROOVE_STRIDE
+            this.inlineGrooveBuf[base] = len  // Store length first
+            for (let i = 0; i < len; i++) {
+              this.inlineGrooveBuf[base + 1 + i] = buf[pos + 2 + i]
+            }
+
+            // Push encoded index: -(inlineGrooveTop + 1) to distinguish from template indices
+            // Negative means inline (but -1 is sentinel for empty), positive means template
+            this.grooveStack[this.grooveTop++] = -(this.inlineGrooveTop + 2)
+            this.inlineGrooveTop++
           }
           pos += 2 + len
           break
         }
 
-        case BUILDER_OP.GROOVE_POP:
+        case BUILDER_OP.GROOVE_POP: {
+          if (this.grooveTop > 0) {
+            const idx = this.grooveStack[this.grooveTop - 1]
+            // If it was an inline groove (negative, not -1 sentinel), decrement inlineGrooveTop
+            if (idx < -1) {
+              this.inlineGrooveTop--
+            }
+          }
           this.grooveTop--
           pos += 1
           break
+        }
 
         // === Event: NOTE ===
         case OP.NOTE: {
@@ -535,13 +573,33 @@ export class ZeroAllocCompiler {
             finalTick = finalTick + Math.round((quantized - finalTick) * quantStr / 100)
           }
 
-          // 2. Groove
-          if (grooveIdx >= 0 && grooveIdx < this.grooveTemplates.length) {
-            const offsets = this.grooveTemplates[grooveIdx]
-            if (offsets.length > 0) {
-              const beatIdx = ((finalTick / this.ppq) | 0) % offsets.length
-              finalTick += offsets[beatIdx]
+          // 2. Groove (supports both template and inline grooves)
+          if (grooveIdx !== -1) {
+            let offsetsLen = 0
+            let offset = 0
+
+            if (grooveIdx >= 0) {
+              // Template groove (positive index)
+              if (grooveIdx < this.grooveTemplates.length) {
+                const templateOffsets = this.grooveTemplates[grooveIdx]
+                offsetsLen = templateOffsets.length
+                if (offsetsLen > 0) {
+                  const beatIdx = ((finalTick / this.ppq) | 0) % offsetsLen
+                  offset = templateOffsets[beatIdx]
+                }
+              }
+            } else {
+              // Inline groove (negative index, encoded as -(inlineIdx + 2))
+              const inlineIdx = -(grooveIdx + 2)
+              const base = inlineIdx * INLINE_GROOVE_STRIDE
+              offsetsLen = this.inlineGrooveBuf[base]
+              if (offsetsLen > 0) {
+                const beatIdx = ((finalTick / this.ppq) | 0) % offsetsLen
+                offset = this.inlineGrooveBuf[base + 1 + beatIdx]
+              }
             }
+
+            finalTick += offset
           }
 
           // 3. Humanize
@@ -836,6 +894,17 @@ export class ZeroAllocCompiler {
 
     if (sortCount <= 1) return
 
+    // Check for scratchBuf overflow before sorting
+    const scratchNeeded = sortCount * EVENT_STRIDE
+    if (scratchNeeded > SCRATCH_BUF_SIZE) {
+      const maxEvents = Math.floor(SCRATCH_BUF_SIZE / EVENT_STRIDE)
+      throw new Error(
+        `SymphonyCompilerOverflow: Too many events in single scope. ` +
+        `Found: ${sortCount}, Max: ${maxEvents}. ` +
+        `Consider splitting dense sections into separate loops or clips.`
+      )
+    }
+
     // Stable insertion sort by finalTick
     for (let i = 1; i < sortCount; i++) {
       const key = this.sortIndices[i]
@@ -860,8 +929,7 @@ export class ZeroAllocCompiler {
       this.sortIndices[j + 1] = key
     }
 
-    // Apply permutation using scratch buffer
-    const scratchNeeded = sortCount * EVENT_STRIDE
+    // Apply permutation using scratch buffer (scratchNeeded already validated above)
     // Copy sorted events to scratch
     for (let i = 0; i < sortCount; i++) {
       const srcIdx = this.sortIndices[i]
@@ -1015,22 +1083,6 @@ export class ZeroAllocCompiler {
     return maxTick
   }
 
-  // ==========================================================================
-  // Groove Helpers
-  // ==========================================================================
-
-  /**
-   * Find or register an inline groove.
-   * For simplicity, inline grooves are matched against existing templates.
-   * If not found, return -1 (groove not applied).
-   */
-  private findOrRegisterGroove(_buf: number[], _pos: number, _len: number): number {
-    // In the current builder implementation, GROOVE_PUSH stores the offsets inline
-    // but for block-scoped grooves, the builder already has the template registered
-    // For now, we assume inline grooves are not used and return -1
-    // A full implementation would need to match inline offsets against templates
-    return -1
-  }
 }
 
 // =============================================================================
