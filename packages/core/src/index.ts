@@ -93,3 +93,8 @@ export type { CodeGenOptions } from './codegen/index'
 // --- Export Module ---
 export { exportMidi, exportMusicXML, writeVLQ, secondsToTicks, bpmToMicrosPerBeat, noteNameToMidi } from './export/index'
 export type { MidiExportOptions, MidiExportResult, MusicXMLExportOptions, MusicXMLExportResult } from './export/index'
+
+// --- VM Module (RFC-038: Symphony Bytecode) ---
+export { assembleToBytecode, BytecodeVM, SBCConsumer } from './vm/index'
+export { SBC_MAGIC, SBC_VERSION, REG, REGION, OP, STATE, EVENT_TYPE, EVENT_SIZE, DEFAULT_PPQ, DEFAULT_BPM } from './vm/index'
+export type { VMEvent, VMNoteEvent, VMControlEvent, VMBendEvent, AssemblerOptions } from './vm/index'
