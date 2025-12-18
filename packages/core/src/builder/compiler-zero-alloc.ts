@@ -135,6 +135,22 @@ export class ZeroAllocCompiler {
   // === Sort Workspace ===
   private readonly sortIndices = new Int32Array(MAX_EVENTS)
 
+  // === Sorted Indices Storage (Per-Scope) ===
+  // Instead of physically reordering events in eventBuf, we store
+  // sorted indices per scope and use them directly during emission.
+
+  /** Starting offset in allSortedIndices for each scope's sorted event indices */
+  private readonly scopeSortStart = new Int32Array(MAX_SCOPES)
+
+  /** Count of sorted event indices for each scope */
+  private readonly scopeSortCount = new Int32Array(MAX_SCOPES)
+
+  /** Contiguous storage for all sorted event indices across all scopes */
+  private readonly allSortedIndices = new Int32Array(MAX_EVENTS)
+
+  /** Write cursor for allSortedIndices */
+  private allSortedTop = 0
+
   // === Output Buffer ===
   // Worst case: REST(2) + NOTE(4) + structural overhead = ~7 slots per event
   private readonly vmBuf = new Int32Array(MAX_EVENTS * 7)
@@ -213,6 +229,7 @@ export class ZeroAllocCompiler {
     this.scopeCount = 0
     this.vmBufLen = 0
     this.eventIndex = 0
+    this.allSortedTop = 0  // Reset sorted indices cursor
     // Note: We do NOT clear the arrays, just reset indices
   }
 
@@ -911,16 +928,9 @@ export class ZeroAllocCompiler {
   // ==========================================================================
 
   private sortAllScopes(): void {
+    // Process all scopes - sortEventsInScope handles empty/single-event cases
     for (let scopeId = 0; scopeId < this.scopeCount; scopeId++) {
-      // Quick check: only sort if scope might have 2+ events
-      const base = scopeId * SCOPE_STRIDE
-      const eventStart = this.scopeTable[base + SC_EVENT_START]
-      const eventEnd = this.scopeTable[base + SC_EVENT_END]
-
-      // Only sort if scope has 2+ potential events
-      if (eventEnd - eventStart >= 2) {
-        this.sortEventsInScope(scopeId)
-      }
+      this.sortEventsInScope(scopeId)
     }
   }
 
@@ -938,18 +948,43 @@ export class ZeroAllocCompiler {
       }
     }
 
-    if (sortCount <= 1) return
+    // Record where this scope's sorted indices will be stored
+    this.scopeSortStart[scopeId] = this.allSortedTop
+    this.scopeSortCount[scopeId] = sortCount
 
-    // Check for scratchBuf overflow
-    // Merge sort needs sortCount slots for indices during merge
-    // Physical reordering needs sortCount * EVENT_STRIDE slots for events
-    const scratchNeeded = sortCount * EVENT_STRIDE
-    if (scratchNeeded > SCRATCH_BUF_SIZE) {
-      const maxEvents = Math.floor(SCRATCH_BUF_SIZE / EVENT_STRIDE)
+    // Handle empty scope
+    if (sortCount === 0) {
+      return
+    }
+
+    // Handle single-event scope (no sorting needed)
+    if (sortCount === 1) {
+      // Check for overflow
+      if (this.allSortedTop >= MAX_EVENTS) {
+        throw new Error(
+          `SymphonyCompilerOverflow: Too many total events across all scopes. ` +
+          `Max: ${MAX_EVENTS}. Consider splitting into smaller clips.`
+        )
+      }
+      this.allSortedIndices[this.allSortedTop++] = this.sortIndices[0]
+      return
+    }
+
+    // Check for allSortedIndices overflow
+    if (this.allSortedTop + sortCount > MAX_EVENTS) {
       throw new Error(
-        `SymphonyCompilerOverflow: Too many events in single scope. ` +
-        `Found: ${sortCount}, Max: ${maxEvents}. ` +
-        `Consider splitting dense sections into separate loops or clips.`
+        `SymphonyCompilerOverflow: Too many total events across all scopes. ` +
+        `Current: ${this.allSortedTop}, Adding: ${sortCount}, Max: ${MAX_EVENTS}. ` +
+        `Consider splitting into smaller clips.`
+      )
+    }
+
+    // Check for scratchBuf overflow (merge sort needs sortCount slots)
+    if (sortCount > SCRATCH_BUF_SIZE) {
+      throw new Error(
+        `SymphonyCompilerOverflow: Too many events in single scope for sort. ` +
+        `Found: ${sortCount}, Max: ${SCRATCH_BUF_SIZE}. ` +
+        `Consider splitting dense sections into separate clips.`
       )
     }
 
@@ -957,33 +992,15 @@ export class ZeroAllocCompiler {
     this.mergeSortIndices(sortCount)
 
     // ========================================
-    // CRITICAL: Apply permutation to eventBuf
+    // COPY SORTED INDICES (NOT events!)
     // ========================================
-    // sortIndices now contains indices in sorted order, but eventBuf
-    // still has events in original positions. We must physically reorder
-    // events so that emitScope() (which re-collects) gets them sorted.
+    // Copy sorted indices to permanent storage.
+    // This replaces the expensive physical reordering.
+    // eventBuf is NOT modified - events stay in original positions.
+    // emitScope() will read from allSortedIndices to get correct order.
 
-    // Step 1: Copy sorted events to scratch buffer
     for (let i = 0; i < sortCount; i++) {
-      const srcIdx = this.sortIndices[i]
-      const srcBase = srcIdx * EVENT_STRIDE
-      const dstBase = i * EVENT_STRIDE
-      for (let k = 0; k < EVENT_STRIDE; k++) {
-        this.scratchBuf[dstBase + k] = this.eventBuf[srcBase + k]
-      }
-    }
-
-    // Step 2: Copy back to eventBuf at the scope's event positions (now sorted)
-    let targetIdx = 0
-    for (let i = eventStart; i < eventEnd; i++) {
-      const evBase = i * EVENT_STRIDE
-      if (this.eventBuf[evBase + EV_SCOPE_ID] === scopeId) {
-        const srcBase = targetIdx * EVENT_STRIDE
-        for (let k = 0; k < EVENT_STRIDE; k++) {
-          this.eventBuf[evBase + k] = this.scratchBuf[srcBase + k]
-        }
-        targetIdx++
-      }
+      this.allSortedIndices[this.allSortedTop++] = this.sortIndices[i]
     }
   }
 
@@ -1090,18 +1107,15 @@ export class ZeroAllocCompiler {
     const structOp = this.scopeTable[base + SC_STRUCT_OP]
     const count = this.scopeTable[base + SC_COUNT]
     const scopeStartTick = this.scopeTable[base + SC_START_TICK]
-    const eventStart = this.scopeTable[base + SC_EVENT_START]
-    const eventEnd = this.scopeTable[base + SC_EVENT_END]
     let childId = this.scopeTable[base + SC_FIRST_CHILD]
 
-    // SINGLE SCAN: Collect event indices AND count (combined for efficiency)
-    let sortCount = 0
-    for (let i = eventStart; i < eventEnd; i++) {
-      const evBase = i * EVENT_STRIDE
-      if (this.eventBuf[evBase + EV_SCOPE_ID] === scopeId) {
-        this.sortIndices[sortCount++] = i
-      }
-    }
+    // ========================================
+    // READ PRE-COMPUTED SORTED INDICES
+    // ========================================
+    // Instead of re-collecting, read from allSortedIndices which was
+    // populated during Phase 2 (sortEventsInScope).
+    const sortStart = this.scopeSortStart[scopeId]
+    const sortCount = this.scopeSortCount[scopeId]
 
     // Pre-calculate maximum bytes this scope might emit
     // Worst case: 2 (START) + sortCount * 6 (REST + NOTE) + 1 (END) + 1 (EOF)
@@ -1130,8 +1144,9 @@ export class ZeroAllocCompiler {
     let currentTick = 0
 
     // First: emit all events (sorted by finalTick)
+    // Read from allSortedIndices instead of sortIndices
     for (let sortIdx = 0; sortIdx < sortCount; sortIdx++) {
-      const evIdx = this.sortIndices[sortIdx]
+      const evIdx = this.allSortedIndices[sortStart + sortIdx]
       const evBase = evIdx * EVENT_STRIDE
       // Make tick relative to scope start (for structural blocks)
       const finalTick = this.eventBuf[evBase + EV_FINAL_TICK] - scopeStartTick
