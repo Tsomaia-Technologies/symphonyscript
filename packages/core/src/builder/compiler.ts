@@ -731,43 +731,44 @@ function deepCloneNodes(nodes: BuilderNode[]): BuilderNode[] {
 
 /**
  * Calculate the musical body duration of a set of nodes (uses original tick values).
- * Returns the difference between max end tick and min start tick.
+ * Returns the total duration accounting for loop repetitions.
  */
 function calculateBodyDuration(nodes: BuilderNode[]): number {
-  let minTick = Infinity
-  let maxEndTick = 0
+  let totalDuration = 0
 
-  function scanNodes(ns: BuilderNode[]): void {
-    for (const node of ns) {
-      switch (node.type) {
-        case 'event': {
-          const tick = node.event.tick // Use original tick, not finalTick
-          if (tick < minTick) minTick = tick
-          const duration = node.event.opcode === OP.NOTE ? node.event.args[2] : 
-                          node.event.opcode === OP.REST ? node.event.args[0] : 0
-          const endTick = tick + duration
-          if (endTick > maxEndTick) maxEndTick = endTick
-          break
-        }
-        case 'loop':
-          scanNodes(node.children)
-          break
-        case 'stack':
-          for (const branch of node.branches) {
-            scanNodes(branch.children)
-          }
-          break
-        case 'branch':
-          scanNodes(node.children)
-          break
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'event': {
+        const duration = node.event.opcode === OP.NOTE ? node.event.args[2] : 
+                        node.event.opcode === OP.REST ? node.event.args[0] : 0
+        totalDuration += duration
+        break
       }
+      case 'loop': {
+        // Recursively calculate inner body duration and multiply by count
+        const innerDuration = calculateBodyDuration(node.children)
+        totalDuration += innerDuration * node.count
+        break
+      }
+      case 'stack': {
+        // Stack duration is max of all branches
+        let maxBranchDuration = 0
+        for (const branch of node.branches) {
+          const branchDuration = calculateBodyDuration(branch.children)
+          if (branchDuration > maxBranchDuration) {
+            maxBranchDuration = branchDuration
+          }
+        }
+        totalDuration += maxBranchDuration
+        break
+      }
+      case 'branch':
+        totalDuration += calculateBodyDuration(node.children)
+        break
     }
   }
 
-  scanNodes(nodes)
-
-  if (minTick === Infinity) return 0
-  return maxEndTick - minTick
+  return totalDuration
 }
 
 /**

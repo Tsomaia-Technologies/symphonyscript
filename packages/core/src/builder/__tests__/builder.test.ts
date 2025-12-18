@@ -610,6 +610,39 @@ describe('RFC-040 Zero-Allocation Builder', () => {
       expect(vm.getTotalEventsWritten()).toBe(6)
     })
 
+    it('nested loops unroll with correct timing (no overlap)', () => {
+      // Without humanization, timing should be deterministic
+      const sab = Clip.melody()
+        .loop(2, b => b.loop(3, b2 => b2.note('C4', '4n')))
+        .build({ unroll: true })
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      expect(vm.getTotalEventsWritten()).toBe(6)
+
+      // Expected ticks: 0, 96, 192 (outer iter 0) + 288, 384, 480 (outer iter 1)
+      // Inner loop body = 96 ticks (quarter note)
+      // Inner loop total = 96 * 3 = 288 ticks
+      // Outer iter 0 starts at 0, outer iter 1 starts at 288
+      const events = []
+      for (let i = 0; i < 6; i++) {
+        events.push(vm.getEvent(i))
+      }
+
+      // Sort by tick to verify non-overlapping
+      const ticks = events.map(e => e.tick).sort((a, b) => a - b)
+      
+      // Each note should start after the previous ends (no overlap)
+      // With quarter notes at PPQ=96, each note is 96 ticks
+      expect(ticks[0]).toBe(0)
+      expect(ticks[1]).toBe(96)
+      expect(ticks[2]).toBe(192)
+      expect(ticks[3]).toBe(288)
+      expect(ticks[4]).toBe(384)
+      expect(ticks[5]).toBe(480)
+    })
+
     it('handles overlapping notes from transforms correctly', () => {
       // With aggressive humanization, notes can overlap
       const sab = Clip.melody()
