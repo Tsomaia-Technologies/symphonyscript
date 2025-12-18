@@ -31,8 +31,8 @@ const SEED = 12345
 // At 120 BPM: 1 beat = 0.5 seconds, 1 tick = 0.5/96 seconds
 const TICKS_PER_SECOND = (PPQ * BPM) / 60 // 192 ticks/second at 120 BPM
 
-// Tolerance for float→tick conversion (±1 tick)
-const TICK_TOLERANCE = 1
+// Tolerance for float→tick conversion (0 tick)
+const TICK_TOLERANCE = 0
 
 // =============================================================================
 // Normalized Note Type
