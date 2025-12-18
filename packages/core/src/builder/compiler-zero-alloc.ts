@@ -912,7 +912,15 @@ export class ZeroAllocCompiler {
 
   private sortAllScopes(): void {
     for (let scopeId = 0; scopeId < this.scopeCount; scopeId++) {
-      this.sortEventsInScope(scopeId)
+      // Quick check: only sort if scope might have 2+ events
+      const base = scopeId * SCOPE_STRIDE
+      const eventStart = this.scopeTable[base + SC_EVENT_START]
+      const eventEnd = this.scopeTable[base + SC_EVENT_END]
+
+      // Only sort if scope has 2+ potential events
+      if (eventEnd - eventStart >= 2) {
+        this.sortEventsInScope(scopeId)
+      }
     }
   }
 
@@ -932,7 +940,9 @@ export class ZeroAllocCompiler {
 
     if (sortCount <= 1) return
 
-    // Check for scratchBuf overflow before sorting
+    // Check for scratchBuf overflow
+    // Merge sort needs sortCount slots for indices during merge
+    // Physical reordering needs sortCount * EVENT_STRIDE slots for events
     const scratchNeeded = sortCount * EVENT_STRIDE
     if (scratchNeeded > SCRATCH_BUF_SIZE) {
       const maxEvents = Math.floor(SCRATCH_BUF_SIZE / EVENT_STRIDE)
@@ -943,44 +953,27 @@ export class ZeroAllocCompiler {
       )
     }
 
-    // Stable insertion sort by finalTick
-    for (let i = 1; i < sortCount; i++) {
-      const key = this.sortIndices[i]
-      const keyBase = key * EVENT_STRIDE
-      const keyTick = this.eventBuf[keyBase + EV_FINAL_TICK]
-      const keyOrder = this.eventBuf[keyBase + EV_INSERTION_ORDER]
+    // ZERO-ALLOCATION STABLE MERGE SORT (O(n log n))
+    this.mergeSortIndices(sortCount)
 
-      let j = i - 1
-      while (j >= 0) {
-        const jIdx = this.sortIndices[j]
-        const jBase = jIdx * EVENT_STRIDE
-        const jTick = this.eventBuf[jBase + EV_FINAL_TICK]
-        const jOrder = this.eventBuf[jBase + EV_INSERTION_ORDER]
+    // ========================================
+    // CRITICAL: Apply permutation to eventBuf
+    // ========================================
+    // sortIndices now contains indices in sorted order, but eventBuf
+    // still has events in original positions. We must physically reorder
+    // events so that emitScope() (which re-collects) gets them sorted.
 
-        // Primary: finalTick ascending
-        // Secondary: insertionOrder ascending (stable)
-        if (jTick < keyTick || (jTick === keyTick && jOrder <= keyOrder)) break
-
-        this.sortIndices[j + 1] = this.sortIndices[j]
-        j--
-      }
-      this.sortIndices[j + 1] = key
-    }
-
-    // Apply permutation using scratch buffer (scratchNeeded already validated above)
-    // Copy sorted events to scratch
+    // Step 1: Copy sorted events to scratch buffer
     for (let i = 0; i < sortCount; i++) {
       const srcIdx = this.sortIndices[i]
       const srcBase = srcIdx * EVENT_STRIDE
       const dstBase = i * EVENT_STRIDE
-
       for (let k = 0; k < EVENT_STRIDE; k++) {
         this.scratchBuf[dstBase + k] = this.eventBuf[srcBase + k]
       }
     }
 
-    // Copy back to event buffer at the scope's event positions
-    // We need to track which positions in eventBuf belong to this scope
+    // Step 2: Copy back to eventBuf at the scope's event positions (now sorted)
     let targetIdx = 0
     for (let i = eventStart; i < eventEnd; i++) {
       const evBase = i * EVENT_STRIDE
@@ -991,6 +984,100 @@ export class ZeroAllocCompiler {
         }
         targetIdx++
       }
+    }
+  }
+
+  // ==========================================================================
+  // Merge Sort Implementation (Zero-Allocation, Stable, O(n log n))
+  // ==========================================================================
+
+  /**
+   * Bottom-up iterative merge sort using double-buffer pattern.
+   *
+   * ZERO ALLOCATIONS: Uses pre-allocated sortIndices and scratchBuf.
+   * STABLE: Left element wins on equal keys (preserves insertion order).
+   *
+   * @param count - Number of indices to sort in sortIndices[0..count-1]
+   */
+  private mergeSortIndices(count: number): void {
+    if (count <= 1) return
+
+    // Bottom-up: merge subarrays of size 1, 2, 4, 8, ...
+    for (let width = 1; width < count; width *= 2) {
+      // Process pairs of subarrays
+      for (let left = 0; left < count; left += width * 2) {
+        const mid = Math.min(left + width, count)
+        const right = Math.min(left + width * 2, count)
+
+        // Only merge if there are two runs to merge
+        if (mid < right) {
+          this.mergeRun(left, mid, right)
+        }
+      }
+    }
+  }
+
+  /**
+   * Merge two adjacent sorted runs in sortIndices.
+   * Uses scratchBuf as temporary storage.
+   *
+   * STABLE: When keys are equal, left element wins (uses <=).
+   *
+   * @param left - Start of first run
+   * @param mid - Start of second run (end of first run)
+   * @param right - End of second run
+   */
+  private mergeRun(left: number, mid: number, right: number): void {
+    // Copy both runs to scratchBuf
+    for (let i = left; i < right; i++) {
+      this.scratchBuf[i - left] = this.sortIndices[i]
+    }
+
+    const leftLen = mid - left
+    const rightLen = right - mid
+
+    let i = 0           // Pointer into left run (in scratchBuf)
+    let j = leftLen     // Pointer into right run (in scratchBuf)
+    let k = left        // Write pointer (in sortIndices)
+
+    while (i < leftLen && j < leftLen + rightLen) {
+      const iIdx = this.scratchBuf[i]
+      const jIdx = this.scratchBuf[j]
+
+      // Read comparison keys from eventBuf
+      const iBase = iIdx * EVENT_STRIDE
+      const jBase = jIdx * EVENT_STRIDE
+
+      const iTick = this.eventBuf[iBase + EV_FINAL_TICK]
+      const jTick = this.eventBuf[jBase + EV_FINAL_TICK]
+
+      // Primary: finalTick ascending
+      if (iTick < jTick) {
+        this.sortIndices[k++] = this.scratchBuf[i++]
+      } else if (iTick > jTick) {
+        this.sortIndices[k++] = this.scratchBuf[j++]
+      } else {
+        // Equal ticks: use insertionOrder as tiebreaker
+        const iOrder = this.eventBuf[iBase + EV_INSERTION_ORDER]
+        const jOrder = this.eventBuf[jBase + EV_INSERTION_ORDER]
+
+        // STABILITY: <= ensures left element wins on equal keys
+        if (iOrder <= jOrder) {
+          this.sortIndices[k++] = this.scratchBuf[i++]
+        } else {
+          this.sortIndices[k++] = this.scratchBuf[j++]
+        }
+      }
+    }
+
+    // Copy remaining elements from left run
+    while (i < leftLen) {
+      this.sortIndices[k++] = this.scratchBuf[i++]
+    }
+
+    // Copy remaining elements from right run
+    while (j < leftLen + rightLen) {
+      this.sortIndices[k++] = this.scratchBuf[j++]
     }
   }
 
@@ -1007,17 +1094,18 @@ export class ZeroAllocCompiler {
     const eventEnd = this.scopeTable[base + SC_EVENT_END]
     let childId = this.scopeTable[base + SC_FIRST_CHILD]
 
-    // Count events in this scope for overflow check
-    let scopeEventCount = 0
+    // SINGLE SCAN: Collect event indices AND count (combined for efficiency)
+    let sortCount = 0
     for (let i = eventStart; i < eventEnd; i++) {
-      if (this.eventBuf[i * EVENT_STRIDE + EV_SCOPE_ID] === scopeId) {
-        scopeEventCount++
+      const evBase = i * EVENT_STRIDE
+      if (this.eventBuf[evBase + EV_SCOPE_ID] === scopeId) {
+        this.sortIndices[sortCount++] = i
       }
     }
 
     // Pre-calculate maximum bytes this scope might emit
-    // Worst case: 2 (START) + scopeEventCount * 6 (REST + NOTE) + 1 (END) + 1 (EOF)
-    const maxBytesNeeded = 4 + scopeEventCount * 6
+    // Worst case: 2 (START) + sortCount * 6 (REST + NOTE) + 1 (END) + 1 (EOF)
+    const maxBytesNeeded = 4 + sortCount * 6
     if (this.vmBufLen + maxBytesNeeded > this.vmBuf.length) {
       throw new Error(
         `SymphonyCompilerOverflow: VM bytecode buffer exceeded. ` +
@@ -1035,15 +1123,6 @@ export class ZeroAllocCompiler {
       this.vmBuf[this.vmBufLen++] = count
     } else if (structOp === OP.BRANCH_START) {
       this.vmBuf[this.vmBufLen++] = OP.BRANCH_START
-    }
-
-    // === Collect sorted event indices for this scope ===
-    let sortCount = 0
-    for (let i = eventStart; i < eventEnd; i++) {
-      const evBase = i * EVENT_STRIDE
-      if (this.eventBuf[evBase + EV_SCOPE_ID] === scopeId) {
-        this.sortIndices[sortCount++] = i
-      }
     }
 
     // === Tree-based emit order: ALL events first (sorted), THEN structural nodes ===
