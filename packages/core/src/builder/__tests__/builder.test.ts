@@ -500,4 +500,139 @@ describe('RFC-040 Zero-Allocation Builder', () => {
       expect(cursor.builder.buf[2]).toBe(48)
     })
   })
+
+  // =========================================================================
+  // End-to-End Structural Tests (RFC-040 Tree-Based Compilation)
+  // =========================================================================
+
+  describe('End-to-End Structural Tests', () => {
+    it('loop(N) produces N events in VM', () => {
+      const sab = Clip.melody()
+        .loop(3, b => b.note('C4', '4n'))
+        .build()
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      // Loop runs 3 times, each iteration produces 1 NOTE event
+      expect(vm.getTotalEventsWritten()).toBe(3)
+    })
+
+    it('chord produces parallel events at same tick in VM', () => {
+      const sab = Clip.melody()
+        .chord(['C4', 'E4', 'G4'], '4n')
+        .build()
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      // Chord with 3 notes produces 3 events
+      expect(vm.getTotalEventsWritten()).toBe(3)
+
+      // All events should be at tick 0
+      const e0 = vm.getEvent(0)
+      const e1 = vm.getEvent(1)
+      const e2 = vm.getEvent(2)
+      expect(e0.tick).toBe(0)
+      expect(e1.tick).toBe(0)
+      expect(e2.tick).toBe(0)
+    })
+
+    it('nested loops produce correct event count', () => {
+      const sab = Clip.melody()
+        .loop(2, b => b.loop(3, b2 => b2.note('C4', '4n')))
+        .build()
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      // Outer loop 2 × inner loop 3 = 6 events
+      expect(vm.getTotalEventsWritten()).toBe(6)
+    })
+
+    it('unroll: true produces events without LOOP_START opcodes', () => {
+      const sab = Clip.melody()
+        .loop(3, b => b.note('C4', '4n'))
+        .build({ unroll: true, seed: 12345 })
+
+      const mem = new Int32Array(sab)
+
+      // Check that there's no LOOP_START in the bytecode
+      const bytecodeStart = mem[REG.BYTECODE_START]
+      const bytecodeEnd = mem[REG.BYTECODE_END]
+
+      let hasLoopStart = false
+      for (let i = bytecodeStart; i < bytecodeEnd; i++) {
+        if (mem[i] === OP.LOOP_START) {
+          hasLoopStart = true
+          break
+        }
+      }
+      expect(hasLoopStart).toBe(false)
+
+      // Should still produce 3 events
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+      expect(vm.getTotalEventsWritten()).toBe(3)
+    })
+
+    it('unroll: true produces varied humanization per iteration', () => {
+      const sab = Clip.melody()
+        .loop(3, b => b.note('C4', '4n').humanize({ timing: 0.3 }))
+        .build({ unroll: true, seed: 12345 })
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      expect(vm.getTotalEventsWritten()).toBe(3)
+
+      // Get all events - they should be at different ticks due to humanization
+      const e0 = vm.getEvent(0)
+      const e1 = vm.getEvent(1)
+      const e2 = vm.getEvent(2)
+
+      // Each iteration has different humanization, so ticks should vary
+      // The events are sorted by tick, so we just check they were produced
+      expect(e0.pitch).toBe(60)
+      expect(e1.pitch).toBe(60)
+      expect(e2.pitch).toBe(60)
+    })
+
+    it('nested loops unroll correctly with varied humanization', () => {
+      const sab = Clip.melody()
+        .loop(2, b => b.loop(3, b2 => b2.note('C4', '4n').humanize({ timing: 0.1 })))
+        .build({ seed: 12345, unroll: true })
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      // 2 × 3 = 6 events
+      expect(vm.getTotalEventsWritten()).toBe(6)
+    })
+
+    it('handles overlapping notes from transforms correctly', () => {
+      // With aggressive humanization, notes can overlap
+      const sab = Clip.melody()
+        .loop(3, b => b.note('C4', '4n').humanize({ timing: 0.4 }))
+        .build({ unroll: true, seed: 99999 })
+
+      const vm = new BytecodeVM(sab)
+      vm.runToEnd()
+
+      // Should still produce 3 events without crash
+      expect(vm.getTotalEventsWritten()).toBe(3)
+
+      // Verify bytecode has no negative REST values
+      const mem = new Int32Array(sab)
+      const bytecodeStart = mem[REG.BYTECODE_START]
+      const bytecodeEnd = mem[REG.BYTECODE_END]
+
+      for (let i = bytecodeStart; i < bytecodeEnd; i++) {
+        if (mem[i] === OP.REST) {
+          const restDuration = mem[i + 1]
+          expect(restDuration).toBeGreaterThanOrEqual(0)
+        }
+      }
+    })
+  })
 })

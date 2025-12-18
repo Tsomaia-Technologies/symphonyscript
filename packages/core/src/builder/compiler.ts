@@ -1,5 +1,6 @@
 // =============================================================================
 // SymphonyScript - Builder-to-VM Compiler (RFC-040)
+// Tree-Based Compilation with Structural Opcode Support
 // =============================================================================
 
 import { OP } from '../vm/constants'
@@ -8,7 +9,13 @@ import type {
   ExtractedEvent,
   HumanizeContext,
   QuantizeContext,
-  GrooveContext
+  GrooveContext,
+  BuilderNode,
+  EventNode,
+  LoopNode,
+  StackNode,
+  BranchNode,
+  BuilderTree
 } from './types'
 
 /**
@@ -24,312 +31,308 @@ export interface CompileResult {
 /**
  * Compile Builder Bytecode to VM Bytecode.
  * 
- * 5-Phase compilation:
- * 1. Extract events with transform contexts (atomic overrides block)
- * 2. Apply transforms (Quantize → Groove → Humanize)
- * 3. Sort by final tick
- * 4. Emit VM bytecode with REST gaps
- * 5. Return result (SharedArrayBuffer created by caller)
+ * Tree-based compilation phases:
+ * 1. Extract tree from Builder bytecode (with transform contexts)
+ * 2. Apply transforms to tree (Quantize → Groove → Humanize)
+ * 3. Emit VM bytecode with structural opcodes and REST gaps
  * 
  * @param builderBuf - Builder bytecode buffer
  * @param ppq - Pulses per quarter note
  * @param seed - Seed for deterministic humanization
  * @param grooveTemplates - Registered groove templates for atomic groove
+ * @param unroll - If true, expand loops instead of using LOOP_START/END
  */
 export function compileBuilderToVM(
   builderBuf: number[],
   ppq: number,
   seed: number,
-  grooveTemplates: readonly number[][]
+  grooveTemplates: readonly number[][],
+  unroll: boolean = false
 ): CompileResult {
-  // Phase 1: Extract events with transform contexts
-  const { events, structural } = extractEvents(builderBuf, grooveTemplates)
-
-  // Phase 2: Apply transforms (Quantize → Groove → Humanize)
-  for (const event of events) {
-    event.finalTick = applyTransforms(event, ppq, seed)
+  // Phase 1: Extract tree from Builder bytecode
+  const parseState: ParseState = {
+    buf: builderBuf,
+    pos: 0,
+    grooveTemplates,
+    humanizeStack: [],
+    quantizeStack: [],
+    grooveStack: [],
+    eventIndex: 0
   }
+  const tree = extractTree(parseState)
 
-  // Phase 3: Sort by final tick
-  events.sort((a, b) => (a.finalTick ?? a.tick) - (b.finalTick ?? b.tick))
+  // Phase 2: Apply transforms to tree
+  // If unroll=true, store originalChildren for loops before transforming
+  applyTransformsToTree(tree, ppq, seed, unroll)
 
-  // Phase 4: Emit VM bytecode with REST gaps
-  const vmBuf = emitVMBytecode(events, structural)
+  // Phase 3: Emit VM bytecode
+  const vmBuf: number[] = []
+  const currentTick = { value: 0 }
+  emitNodes(tree, vmBuf, 0, currentTick, { ppq, seed, unroll })
 
-  // Calculate total ticks
-  let totalTicks = 0
-  for (const event of events) {
-    const tick = event.finalTick ?? event.tick
-    if (event.opcode === OP.NOTE) {
-      const endTick = tick + event.args[2] // duration is args[2]
-      if (endTick > totalTicks) totalTicks = endTick
-    } else if (tick > totalTicks) {
-      totalTicks = tick
-    }
-  }
+  // Add EOF
+  vmBuf.push(OP.EOF)
+
+  // Calculate total ticks from the tree
+  const totalTicks = calculateTotalTicks(tree)
 
   return { vmBuf, totalTicks }
 }
 
 // =============================================================================
-// Phase 1: Extract Events
+// Phase 1: Extract Tree
 // =============================================================================
 
-interface ExtractionResult {
-  events: ExtractedEvent[]
-  structural: StructuralOp[]
-}
-
-interface StructuralOp {
-  opcode: number
-  position: number // original buffer position for ordering
-  args: number[]
+interface ParseState {
+  buf: number[]
+  pos: number
+  grooveTemplates: readonly number[][]
+  humanizeStack: HumanizeContext[]
+  quantizeStack: QuantizeContext[]
+  grooveStack: GrooveContext[]
+  eventIndex: number
 }
 
 /**
- * Extract events from Builder bytecode with transform contexts.
- * Atomic modifiers (NOTE_MOD_*) override block context.
+ * Recursively extract a tree of BuilderNodes from Builder bytecode.
+ * 
+ * @param state - Parse state with buffer position and context stacks
+ * @param terminator - Optional opcode that terminates this scope
+ * @returns Array of BuilderNode at this scope level
  */
-function extractEvents(
-  buf: number[],
-  grooveTemplates: readonly number[][]
-): ExtractionResult {
-  const events: ExtractedEvent[] = []
-  const structural: StructuralOp[] = []
+function extractTree(state: ParseState, terminator?: number): BuilderTree {
+  const nodes: BuilderNode[] = []
 
-  // Context stacks for block-scoped transforms
-  const humanizeStack: HumanizeContext[] = []
-  const quantizeStack: QuantizeContext[] = []
-  const grooveStack: GrooveContext[] = []
+  while (state.pos < state.buf.length) {
+    const opcode = state.buf[state.pos]
 
-  let i = 0
-  let eventIndex = 0
-
-  while (i < buf.length) {
-    const opcode = buf[i]
+    // Check for terminator
+    if (terminator !== undefined && opcode === terminator) {
+      state.pos++ // consume terminator
+      break
+    }
 
     switch (opcode) {
       // --- Transform Context (Block-Scoped) ---
       case BUILDER_OP.HUMANIZE_PUSH:
-        humanizeStack.push({
-          timingPpt: buf[i + 1],
-          velocityPpt: buf[i + 2]
+        state.humanizeStack.push({
+          timingPpt: state.buf[state.pos + 1],
+          velocityPpt: state.buf[state.pos + 2]
         })
-        i += 3
+        state.pos += 3
         break
 
       case BUILDER_OP.HUMANIZE_POP:
-        humanizeStack.pop()
-        i += 1
+        state.humanizeStack.pop()
+        state.pos += 1
         break
 
       case BUILDER_OP.QUANTIZE_PUSH:
-        quantizeStack.push({
-          gridTicks: buf[i + 1],
-          strengthPct: buf[i + 2]
+        state.quantizeStack.push({
+          gridTicks: state.buf[state.pos + 1],
+          strengthPct: state.buf[state.pos + 2]
         })
-        i += 3
+        state.pos += 3
         break
 
       case BUILDER_OP.QUANTIZE_POP:
-        quantizeStack.pop()
-        i += 1
+        state.quantizeStack.pop()
+        state.pos += 1
         break
 
       case BUILDER_OP.GROOVE_PUSH: {
-        const len = buf[i + 1]
-        const offsets = buf.slice(i + 2, i + 2 + len)
-        grooveStack.push({ offsets })
-        i += 2 + len
+        const len = state.buf[state.pos + 1]
+        const offsets = state.buf.slice(state.pos + 2, state.pos + 2 + len)
+        state.grooveStack.push({ offsets })
+        state.pos += 2 + len
         break
       }
 
       case BUILDER_OP.GROOVE_POP:
-        grooveStack.pop()
-        i += 1
+        state.grooveStack.pop()
+        state.pos += 1
         break
 
       // --- Event: NOTE ---
       case OP.NOTE: {
-        // Builder NOTE: [opcode, tick, pitch, vel, dur]
         const event: ExtractedEvent = {
           opcode: OP.NOTE,
-          tick: buf[i + 1],
-          args: [buf[i + 2], buf[i + 3], buf[i + 4]], // pitch, vel, dur
-          originalIndex: eventIndex++,
-          // Start with block context
-          humanizeContext: humanizeStack.length > 0
-            ? { ...humanizeStack[humanizeStack.length - 1] }
+          tick: state.buf[state.pos + 1],
+          args: [state.buf[state.pos + 2], state.buf[state.pos + 3], state.buf[state.pos + 4]],
+          originalIndex: state.eventIndex++,
+          humanizeContext: state.humanizeStack.length > 0
+            ? { ...state.humanizeStack[state.humanizeStack.length - 1] }
             : undefined,
-          quantizeContext: quantizeStack.length > 0
-            ? { ...quantizeStack[quantizeStack.length - 1] }
+          quantizeContext: state.quantizeStack.length > 0
+            ? { ...state.quantizeStack[state.quantizeStack.length - 1] }
             : undefined,
-          grooveContext: grooveStack.length > 0
-            ? { offsets: [...grooveStack[grooveStack.length - 1].offsets] }
+          grooveContext: state.grooveStack.length > 0
+            ? { offsets: [...state.grooveStack[state.grooveStack.length - 1].offsets] }
             : undefined
         }
-        i += 5
+        state.pos += 5
 
-        // Check for NOTE_MOD_* following NOTE — ATOMIC OVERRIDES BLOCK
-        while (i < buf.length) {
-          const nextOp = buf[i]
+        // Check for NOTE_MOD_* — ATOMIC OVERRIDES BLOCK
+        while (state.pos < state.buf.length) {
+          const nextOp = state.buf[state.pos]
           if (nextOp === BUILDER_OP.NOTE_MOD_HUMANIZE) {
             event.humanizeContext = {
-              timingPpt: buf[i + 1],
-              velocityPpt: buf[i + 2]
+              timingPpt: state.buf[state.pos + 1],
+              velocityPpt: state.buf[state.pos + 2]
             }
-            i += 3
+            state.pos += 3
           } else if (nextOp === BUILDER_OP.NOTE_MOD_QUANTIZE) {
             event.quantizeContext = {
-              gridTicks: buf[i + 1],
-              strengthPct: buf[i + 2]
+              gridTicks: state.buf[state.pos + 1],
+              strengthPct: state.buf[state.pos + 2]
             }
-            i += 3
+            state.pos += 3
           } else if (nextOp === BUILDER_OP.NOTE_MOD_GROOVE) {
-            const grooveIdx = buf[i + 1]
-            if (grooveIdx < grooveTemplates.length) {
+            const grooveIdx = state.buf[state.pos + 1]
+            if (grooveIdx < state.grooveTemplates.length) {
               event.grooveContext = {
-                offsets: [...grooveTemplates[grooveIdx]]
+                offsets: [...state.grooveTemplates[grooveIdx]]
               }
             }
-            i += 2
+            state.pos += 2
           } else {
-            break // Not a NOTE_MOD_*, stop scanning
+            break
           }
         }
 
-        events.push(event)
+        nodes.push({ type: 'event', event })
         break
       }
 
       // --- Event: REST ---
       case OP.REST: {
-        // Builder REST: [opcode, tick, dur]
-        events.push({
-          opcode: OP.REST,
-          tick: buf[i + 1],
-          args: [buf[i + 2]], // dur
-          originalIndex: eventIndex++
+        nodes.push({
+          type: 'event',
+          event: {
+            opcode: OP.REST,
+            tick: state.buf[state.pos + 1],
+            args: [state.buf[state.pos + 2]],
+            originalIndex: state.eventIndex++
+          }
         })
-        i += 3
+        state.pos += 3
         break
       }
 
       // --- Event: TEMPO ---
       case OP.TEMPO: {
-        // Builder TEMPO: [opcode, tick, bpm]
-        events.push({
-          opcode: OP.TEMPO,
-          tick: buf[i + 1],
-          args: [buf[i + 2]], // bpm
-          originalIndex: eventIndex++
+        nodes.push({
+          type: 'event',
+          event: {
+            opcode: OP.TEMPO,
+            tick: state.buf[state.pos + 1],
+            args: [state.buf[state.pos + 2]],
+            originalIndex: state.eventIndex++
+          }
         })
-        i += 3
+        state.pos += 3
         break
       }
 
       // --- Event: CC ---
       case OP.CC: {
-        // Builder CC: [opcode, tick, ctrl, val]
-        events.push({
-          opcode: OP.CC,
-          tick: buf[i + 1],
-          args: [buf[i + 2], buf[i + 3]], // ctrl, val
-          originalIndex: eventIndex++
+        nodes.push({
+          type: 'event',
+          event: {
+            opcode: OP.CC,
+            tick: state.buf[state.pos + 1],
+            args: [state.buf[state.pos + 2], state.buf[state.pos + 3]],
+            originalIndex: state.eventIndex++
+          }
         })
-        i += 4
+        state.pos += 4
         break
       }
 
       // --- Event: BEND ---
       case OP.BEND: {
-        // Builder BEND: [opcode, tick, val]
-        events.push({
-          opcode: OP.BEND,
-          tick: buf[i + 1],
-          args: [buf[i + 2]], // val
-          originalIndex: eventIndex++
+        nodes.push({
+          type: 'event',
+          event: {
+            opcode: OP.BEND,
+            tick: state.buf[state.pos + 1],
+            args: [state.buf[state.pos + 2]],
+            originalIndex: state.eventIndex++
+          }
         })
-        i += 3
+        state.pos += 3
         break
       }
 
       // --- Structural: LOOP_START ---
       case OP.LOOP_START: {
-        // Builder LOOP_START: [opcode, tick, count]
-        structural.push({
-          opcode: OP.LOOP_START,
-          position: i,
-          args: [buf[i + 2]] // count (tick not needed in VM)
+        const startTick = state.buf[state.pos + 1]
+        const count = state.buf[state.pos + 2]
+        state.pos += 3
+
+        // Recursively extract loop body until LOOP_END
+        const children = extractTree(state, OP.LOOP_END)
+
+        nodes.push({
+          type: 'loop',
+          count,
+          startTick,
+          children
         })
-        i += 3
         break
       }
-
-      // --- Structural: LOOP_END ---
-      case OP.LOOP_END:
-        structural.push({
-          opcode: OP.LOOP_END,
-          position: i,
-          args: []
-        })
-        i += 1
-        break
 
       // --- Structural: STACK_START ---
       case OP.STACK_START: {
-        // Builder STACK_START: [opcode, tick, count]
-        structural.push({
-          opcode: OP.STACK_START,
-          position: i,
-          args: [buf[i + 2]] // count (tick not needed in VM)
+        const startTick = state.buf[state.pos + 1]
+        const branchCount = state.buf[state.pos + 2]
+        state.pos += 3
+
+        const branches: BranchNode[] = []
+
+        // Extract each branch
+        for (let i = 0; i < branchCount; i++) {
+          // Expect BRANCH_START
+          if (state.buf[state.pos] === OP.BRANCH_START) {
+            state.pos++ // consume BRANCH_START
+            const branchChildren = extractTree(state, OP.BRANCH_END)
+            branches.push({ type: 'branch', children: branchChildren })
+          }
+        }
+
+        // Consume STACK_END
+        if (state.buf[state.pos] === OP.STACK_END) {
+          state.pos++
+        }
+
+        nodes.push({
+          type: 'stack',
+          startTick,
+          branches
         })
-        i += 3
         break
       }
 
-      // --- Structural: STACK_END ---
-      case OP.STACK_END:
-        structural.push({
-          opcode: OP.STACK_END,
-          position: i,
-          args: []
-        })
-        i += 1
-        break
-
-      // --- Structural: BRANCH_START ---
-      case OP.BRANCH_START:
-        structural.push({
-          opcode: OP.BRANCH_START,
-          position: i,
-          args: []
-        })
-        i += 1
-        break
-
-      // --- Structural: BRANCH_END ---
+      // --- Structural: LOOP_END, BRANCH_END, STACK_END (handled as terminators) ---
+      case OP.LOOP_END:
       case OP.BRANCH_END:
-        structural.push({
-          opcode: OP.BRANCH_END,
-          position: i,
-          args: []
-        })
-        i += 1
+      case OP.STACK_END:
+        // If we hit these without a terminator being set, just skip them
+        state.pos++
         break
 
       default:
         // Unknown opcode, skip
-        i += 1
+        state.pos++
         break
     }
   }
 
-  return { events, structural }
+  return nodes
 }
 
 // =============================================================================
-// Phase 2: Apply Transforms
+// Phase 2: Apply Transforms to Tree
 // =============================================================================
 
 /**
@@ -347,11 +350,53 @@ function seededRandom(seed: number): () => number {
 }
 
 /**
- * Apply transforms to an event in pipeline order: Quantize → Groove → Humanize.
+ * Apply transforms to all events in a tree.
+ * Pipeline order: Quantize → Groove → Humanize
+ * 
+ * @param nodes - Tree nodes to transform
+ * @param ppq - Pulses per quarter note
+ * @param seed - Base seed for humanization
+ * @param storeOriginals - If true, store originalChildren for LoopNodes before transforming
+ */
+function applyTransformsToTree(
+  nodes: BuilderNode[],
+  ppq: number,
+  seed: number,
+  storeOriginals: boolean = false
+): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'event':
+        node.event.finalTick = applyTransformsToEvent(node.event, ppq, seed)
+        break
+
+      case 'loop':
+        // If storeOriginals, deep clone children BEFORE transforming
+        if (storeOriginals) {
+          node.originalChildren = deepCloneNodes(node.children)
+        }
+        applyTransformsToTree(node.children, ppq, seed, storeOriginals)
+        break
+
+      case 'stack':
+        for (const branch of node.branches) {
+          applyTransformsToTree(branch.children, ppq, seed, storeOriginals)
+        }
+        break
+
+      case 'branch':
+        applyTransformsToTree(node.children, ppq, seed, storeOriginals)
+        break
+    }
+  }
+}
+
+/**
+ * Apply transforms to a single event in pipeline order: Quantize → Groove → Humanize.
  * 
  * @returns Final tick position after all transforms
  */
-function applyTransforms(
+function applyTransformsToEvent(
   event: ExtractedEvent,
   ppq: number,
   seed: number
@@ -398,69 +443,428 @@ function applyTransforms(
 }
 
 // =============================================================================
-// Phase 4: Emit VM Bytecode
+// Phase 3: Emit VM Bytecode
 // =============================================================================
 
+interface EmitOptions {
+  ppq: number
+  seed: number
+  unroll: boolean
+}
+
 /**
- * Emit VM bytecode with REST gaps for timing.
+ * Emit VM bytecode from tree nodes.
+ * Handles structural opcodes (LOOP, STACK, BRANCH) and REST gaps.
  * 
- * For now, structural opcodes (LOOP, STACK, BRANCH) are NOT included
- * because they require more complex handling to interleave with events.
- * This simplified version just emits events with REST gaps.
- * 
- * TODO: Full structural opcode support requires tracking buffer positions
- * and inserting structural markers at the right places in the sorted output.
+ * @param nodes - Tree nodes to emit
+ * @param vmBuf - Output buffer
+ * @param scopeStartTick - Absolute tick where this scope starts
+ * @param currentTick - Mutable reference to current tick position (relative to scope)
+ * @param options - Emit options
  */
-function emitVMBytecode(
-  events: ExtractedEvent[],
-  _structural: StructuralOp[]
-): number[] {
-  const vmBuf: number[] = []
-  let currentTick = 0
+function emitNodes(
+  nodes: BuilderNode[],
+  vmBuf: number[],
+  scopeStartTick: number,
+  currentTick: { value: number },
+  options: EmitOptions
+): void {
+  // Sort EventNodes within this scope by finalTick (stable sort)
+  const sortedNodes = sortNodesInScope(nodes)
 
-  for (const event of events) {
-    const targetTick = event.finalTick ?? event.tick
-
-    // Insert REST to reach target tick (if needed)
-    if (targetTick > currentTick) {
-      vmBuf.push(OP.REST, targetTick - currentTick)
-      currentTick = targetTick
-    }
-
-    // Emit event in VM format (without tick field)
-    switch (event.opcode) {
-      case OP.NOTE:
-        // VM NOTE: [opcode, pitch, vel, dur]
-        vmBuf.push(OP.NOTE, event.args[0], event.args[1], event.args[2])
-        currentTick += event.args[2] // Advance by duration
+  for (const node of sortedNodes) {
+    switch (node.type) {
+      case 'event':
+        emitEvent(node.event, vmBuf, scopeStartTick, currentTick)
         break
 
-      case OP.REST:
-        // REST already handled by gap calculation, but if explicit REST...
-        // VM REST: [opcode, dur]
-        vmBuf.push(OP.REST, event.args[0])
-        currentTick += event.args[0]
+      case 'loop':
+        emitLoop(node, vmBuf, scopeStartTick, currentTick, options)
         break
 
-      case OP.TEMPO:
-        // VM TEMPO: [opcode, bpm]
-        vmBuf.push(OP.TEMPO, event.args[0])
+      case 'stack':
+        emitStack(node, vmBuf, scopeStartTick, currentTick, options)
         break
 
-      case OP.CC:
-        // VM CC: [opcode, ctrl, val]
-        vmBuf.push(OP.CC, event.args[0], event.args[1])
-        break
-
-      case OP.BEND:
-        // VM BEND: [opcode, val]
-        vmBuf.push(OP.BEND, event.args[0])
+      case 'branch':
+        // Branches are emitted inside emitStack
+        emitNodes(node.children, vmBuf, scopeStartTick, currentTick, options)
         break
     }
   }
+}
 
-  // Add EOF
-  vmBuf.push(OP.EOF)
+/**
+ * Sort nodes in scope: EventNodes sorted by finalTick, structural nodes stay in order.
+ * Uses stable sort with originalIndex as tiebreaker.
+ */
+function sortNodesInScope(nodes: BuilderNode[]): BuilderNode[] {
+  // Separate events and structural nodes
+  const events: EventNode[] = []
+  const structural: { index: number; node: BuilderNode }[] = []
 
-  return vmBuf
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    if (node.type === 'event') {
+      events.push(node)
+    } else {
+      structural.push({ index: i, node })
+    }
+  }
+
+  // Sort events by finalTick (stable)
+  events.sort((a, b) => {
+    const tickA = a.event.finalTick ?? a.event.tick
+    const tickB = b.event.finalTick ?? b.event.tick
+    if (tickA !== tickB) return tickA - tickB
+    return a.event.originalIndex - b.event.originalIndex
+  })
+
+  // Merge back: events first (in sorted order), then structural (in original order)
+  const result: BuilderNode[] = [...events]
+  for (const s of structural) {
+    result.push(s.node)
+  }
+
+  return result
+}
+
+/**
+ * Emit a single event with REST gap if needed.
+ */
+function emitEvent(
+  event: ExtractedEvent,
+  vmBuf: number[],
+  scopeStartTick: number,
+  currentTick: { value: number }
+): void {
+  const targetTick = (event.finalTick ?? event.tick) - scopeStartTick
+
+  // Insert REST to reach target tick (if needed)
+  if (targetTick > currentTick.value) {
+    vmBuf.push(OP.REST, targetTick - currentTick.value)
+    currentTick.value = targetTick
+  }
+
+  // Emit event in VM format (without tick field)
+  switch (event.opcode) {
+    case OP.NOTE:
+      vmBuf.push(OP.NOTE, event.args[0], event.args[1], event.args[2])
+      currentTick.value += event.args[2] // Advance by duration
+      break
+
+    case OP.REST:
+      vmBuf.push(OP.REST, event.args[0])
+      currentTick.value += event.args[0]
+      break
+
+    case OP.TEMPO:
+      vmBuf.push(OP.TEMPO, event.args[0])
+      break
+
+    case OP.CC:
+      vmBuf.push(OP.CC, event.args[0], event.args[1])
+      break
+
+    case OP.BEND:
+      vmBuf.push(OP.BEND, event.args[0])
+      break
+  }
+}
+
+/**
+ * Emit a loop node.
+ * If unroll=true, expand the loop; otherwise emit LOOP_START/END.
+ */
+function emitLoop(
+  node: LoopNode,
+  vmBuf: number[],
+  scopeStartTick: number,
+  currentTick: { value: number },
+  options: EmitOptions
+): void {
+  if (options.unroll) {
+    // UNROLL MODE: Flatten → Sort → Emit
+    const unrolledEvents: ExtractedEvent[] = []
+    const bodyDuration = calculateBodyDuration(node.originalChildren ?? node.children)
+
+    // Use originalChildren if available (pre-transform), otherwise children
+    const sourceChildren = node.originalChildren ?? node.children
+
+    for (let i = 0; i < node.count; i++) {
+      // Deep clone the source children for this iteration
+      const clonedChildren = deepCloneNodes(sourceChildren)
+
+      // Offset base ticks to iteration position
+      const iterOffset = bodyDuration * i
+      offsetEventTicks(clonedChildren, iterOffset)
+
+      // Apply transforms with iteration-specific seed
+      const iterSeed = options.seed + i * 1000
+      applyTransformsToTree(clonedChildren, options.ppq, iterSeed, false)
+
+      // Flatten into events list
+      flattenEventsToList(clonedChildren, unrolledEvents)
+    }
+
+    // Sort ALL unrolled events by finalTick (handles overlap!)
+    unrolledEvents.sort((a, b) => {
+      const tickA = a.finalTick ?? a.tick
+      const tickB = b.finalTick ?? b.tick
+      if (tickA !== tickB) return tickA - tickB
+      return a.originalIndex - b.originalIndex
+    })
+
+    // Emit as linear sequence with REST gaps
+    for (const event of unrolledEvents) {
+      emitEvent(event, vmBuf, scopeStartTick, currentTick)
+    }
+  } else {
+    // STRUCTURAL MODE: Emit LOOP_START, body, LOOP_END
+    vmBuf.push(OP.LOOP_START, node.count)
+
+    // Loop body is emitted ONCE; VM repeats it
+    // Tick within loop body is relative to loop start
+    const loopTick = { value: 0 }
+    emitNodes(node.children, vmBuf, node.startTick, loopTick, options)
+
+    vmBuf.push(OP.LOOP_END)
+
+    // After loop, currentTick advances by body duration * count
+    const bodyDuration = calculateBodyDuration(node.children)
+    currentTick.value += bodyDuration * node.count
+  }
+}
+
+/**
+ * Emit a stack node (parallel branches).
+ */
+function emitStack(
+  node: StackNode,
+  vmBuf: number[],
+  _scopeStartTick: number,
+  currentTick: { value: number },
+  options: EmitOptions
+): void {
+  vmBuf.push(OP.STACK_START, node.branches.length)
+
+  let maxBranchDuration = 0
+
+  for (const branch of node.branches) {
+    vmBuf.push(OP.BRANCH_START)
+
+    // Each branch starts at the stack's start tick
+    // Tick within branch is relative to stack start
+    const branchTick = { value: 0 }
+    emitNodes(branch.children, vmBuf, node.startTick, branchTick, options)
+
+    if (branchTick.value > maxBranchDuration) {
+      maxBranchDuration = branchTick.value
+    }
+
+    vmBuf.push(OP.BRANCH_END)
+  }
+
+  vmBuf.push(OP.STACK_END)
+
+  // Stack advances tick by max branch duration
+  currentTick.value += maxBranchDuration
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Deep clone an array of BuilderNodes.
+ */
+function deepCloneNodes(nodes: BuilderNode[]): BuilderNode[] {
+  return nodes.map(node => {
+    switch (node.type) {
+      case 'event':
+        return {
+          type: 'event',
+          event: {
+            ...node.event,
+            args: [...node.event.args],
+            humanizeContext: node.event.humanizeContext
+              ? { ...node.event.humanizeContext }
+              : undefined,
+            quantizeContext: node.event.quantizeContext
+              ? { ...node.event.quantizeContext }
+              : undefined,
+            grooveContext: node.event.grooveContext
+              ? { offsets: [...node.event.grooveContext.offsets] }
+              : undefined
+          }
+        } as EventNode
+
+      case 'loop':
+        return {
+          type: 'loop',
+          count: node.count,
+          startTick: node.startTick,
+          children: deepCloneNodes(node.children),
+          originalChildren: node.originalChildren
+            ? deepCloneNodes(node.originalChildren)
+            : undefined
+        } as LoopNode
+
+      case 'stack':
+        return {
+          type: 'stack',
+          startTick: node.startTick,
+          branches: node.branches.map(b => ({
+            type: 'branch',
+            children: deepCloneNodes(b.children)
+          })) as BranchNode[]
+        } as StackNode
+
+      case 'branch':
+        return {
+          type: 'branch',
+          children: deepCloneNodes(node.children)
+        } as BranchNode
+    }
+  })
+}
+
+/**
+ * Calculate the musical body duration of a set of nodes (uses original tick values).
+ * Returns the difference between max end tick and min start tick.
+ */
+function calculateBodyDuration(nodes: BuilderNode[]): number {
+  let minTick = Infinity
+  let maxEndTick = 0
+
+  function scanNodes(ns: BuilderNode[]): void {
+    for (const node of ns) {
+      switch (node.type) {
+        case 'event': {
+          const tick = node.event.tick // Use original tick, not finalTick
+          if (tick < minTick) minTick = tick
+          const duration = node.event.opcode === OP.NOTE ? node.event.args[2] : 
+                          node.event.opcode === OP.REST ? node.event.args[0] : 0
+          const endTick = tick + duration
+          if (endTick > maxEndTick) maxEndTick = endTick
+          break
+        }
+        case 'loop':
+          scanNodes(node.children)
+          break
+        case 'stack':
+          for (const branch of node.branches) {
+            scanNodes(branch.children)
+          }
+          break
+        case 'branch':
+          scanNodes(node.children)
+          break
+      }
+    }
+  }
+
+  scanNodes(nodes)
+
+  if (minTick === Infinity) return 0
+  return maxEndTick - minTick
+}
+
+/**
+ * Add offset to all event ticks in a tree (mutates in place).
+ */
+function offsetEventTicks(nodes: BuilderNode[], offset: number): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'event':
+        node.event.tick += offset
+        break
+      case 'loop':
+        node.startTick += offset
+        offsetEventTicks(node.children, offset)
+        break
+      case 'stack':
+        node.startTick += offset
+        for (const branch of node.branches) {
+          offsetEventTicks(branch.children, offset)
+        }
+        break
+      case 'branch':
+        offsetEventTicks(node.children, offset)
+        break
+    }
+  }
+}
+
+/**
+ * Extract all events from tree into flat list (for unroll sorting).
+ * IMPORTANT: Recursively unrolls nested loops!
+ */
+function flattenEventsToList(nodes: BuilderNode[], list: ExtractedEvent[]): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'event':
+        list.push(node.event)
+        break
+      case 'loop':
+        // Recursively unroll nested loops
+        for (let i = 0; i < node.count; i++) {
+          const cloned = deepCloneNodes(node.children)
+          offsetEventTicks(cloned, calculateBodyDuration(node.children) * i)
+          flattenEventsToList(cloned, list)
+        }
+        break
+      case 'stack':
+        for (const branch of node.branches) {
+          flattenEventsToList(branch.children, list)
+        }
+        break
+      case 'branch':
+        flattenEventsToList(node.children, list)
+        break
+    }
+  }
+}
+
+/**
+ * Calculate total ticks from the tree (for TOTAL_LENGTH register).
+ */
+function calculateTotalTicks(nodes: BuilderNode[]): number {
+  let maxTick = 0
+
+  function scan(ns: BuilderNode[], baseOffset: number = 0): void {
+    for (const node of ns) {
+      switch (node.type) {
+        case 'event': {
+          const tick = (node.event.finalTick ?? node.event.tick)
+          const duration = node.event.opcode === OP.NOTE ? node.event.args[2] :
+                          node.event.opcode === OP.REST ? node.event.args[0] : 0
+          const endTick = tick + duration
+          if (endTick > maxTick) maxTick = endTick
+          break
+        }
+        case 'loop': {
+          // For loops, multiply body by count
+          const bodyDuration = calculateBodyDuration(node.children)
+          const loopEnd = node.startTick + bodyDuration * node.count
+          if (loopEnd > maxTick) maxTick = loopEnd
+          // Also scan children for any events that extend beyond
+          scan(node.children, node.startTick)
+          break
+        }
+        case 'stack': {
+          for (const branch of node.branches) {
+            scan(branch.children, node.startTick)
+          }
+          break
+        }
+        case 'branch':
+          scan(node.children, baseOffset)
+          break
+      }
+    }
+  }
+
+  scan(nodes)
+  return maxTick
 }

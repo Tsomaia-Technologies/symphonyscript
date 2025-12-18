@@ -289,7 +289,8 @@ export class ClipBuilder {
       ppq = this._ppq,
       eventCapacity = 10000,
       tempoCapacity = 100,
-      seed = Date.now()
+      seed = Date.now(),
+      unroll = false
     } = options ?? {}
 
     // Compile Builder Bytecode → VM Bytecode
@@ -297,7 +298,8 @@ export class ClipBuilder {
       this.buf,
       ppq,
       seed,
-      this._grooveTemplates
+      this._grooveTemplates,
+      unroll
     )
 
     // Calculate sizes

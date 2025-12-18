@@ -494,7 +494,120 @@ const var2 = base.clone().note('G4', '4n');
 
 ---
 
-## 11. Success Criteria
+## 11. Structural Opcode Emission
+
+The compiler **must** emit structural opcodes (LOOP, STACK, BRANCH) to VM bytecode. This requires a tree-based compilation approach rather than flat extraction.
+
+### 11.1 Tree-Based Compilation
+
+Replace flat arrays with a proper AST:
+
+```typescript
+type BuilderNode = EventNode | LoopNode | StackNode | BranchNode
+
+interface LoopNode {
+  type: 'loop'
+  count: number
+  startTick: number
+  children: BuilderNode[]
+}
+
+interface StackNode {
+  type: 'stack'
+  startTick: number
+  branches: BranchNode[]
+}
+```
+
+### 11.2 Tick Semantics
+
+| Structure | Tick Behavior |
+|-----------|---------------|
+| **Loop** | Body emitted ONCE. VM repeats via LOOP_END jump. Tick accumulates across iterations. |
+| **Stack** | Each branch starts at stack's entry tick. Stack advances by max branch duration. |
+| **Branch** | BRANCH_START resets tick to stack's startTick. |
+
+### 11.3 Scope-Relative REST Gaps
+
+Each structural block tracks its own `scopeStartTick` and `currentTick`:
+- REST gap = `event.finalTick - scopeStartTick - currentTick`
+- Never emit negative REST (skip if gap ≤ 0)
+
+---
+
+## 12. Humanization in Loops (Design Trade-off)
+
+### 12.1 The "Frozen Humanization" Problem
+
+When a loop contains humanized notes, timing offsets are calculated **once** during compilation and baked into the loop body. This creates a "sample loop" effect.
+
+```typescript
+// User expects: 4 different timing offsets (natural variation)
+Clip.melody()
+  .loop(4, b => b.note('C4', '4n').humanize({ timing: 0.1 }))
+  .build()
+
+// Reality: Same offset 4 times (robotic sample loop)
+```
+
+**Why it happens:**
+1. Humanize calculates `finalTick = tick + randomOffset` during `build()`
+2. Loop body bytecode is emitted **once** with baked-in timing
+3. VM plays identical bytecode 4 times
+
+### 12.2 Compilation Modes
+
+| Mode | Behavior | Bytecode Size | Sound |
+|------|----------|---------------|-------|
+| Default | Loop body emitted once | Small | Sample loop (identical timing) |
+| `unroll: true` | Loop expanded to N copies | N × body size | Live player (varied timing) |
+
+### 12.3 The `unroll` Build Option
+
+```typescript
+export interface BuildOptions {
+  bpm?: number
+  ppq?: number
+  eventCapacity?: number
+  tempoCapacity?: number
+  seed?: number
+  /** Unroll loops for per-iteration humanization. Default: false */
+  unroll?: boolean
+}
+```
+
+### 12.4 Example
+
+```typescript
+// Default: Frozen humanization (same offset every iteration)
+Clip.melody()
+  .loop(4, b => b.note('C4').humanize({ timing: 0.1 }))
+  .build()
+// VM plays: NOTE with offset +3 ticks → 4 identical iterations
+
+// Unrolled: Fresh humanization per iteration  
+Clip.melody()
+  .loop(4, b => b.note('C4').humanize({ timing: 0.1 }))
+  .build({ unroll: true })
+// Emits: NOTE +3, NOTE -5, NOTE +8, NOTE -2 (4 different offsets)
+```
+
+### 12.5 Implementation
+
+When `unroll: true`:
+1. During tree emission, expand LoopNodes instead of emitting LOOP_START/END
+2. Each unrolled copy gets a fresh seed: `baseSeed + iterationIndex`
+3. Transform application runs independently per copy
+4. Result: Larger bytecode, but natural timing variation
+
+### 12.6 When to Use
+
+- **Default (no unroll)**: Live performance, real-time playback, memory-constrained
+- **`unroll: true`**: Studio composition, natural feel, offline rendering
+
+---
+
+## 13. Success Criteria
 
 - [ ] Zero allocations during fluent chain (no `new` except constructor/clone)
 - [ ] `buf` contains only integers (no objects)
@@ -511,12 +624,16 @@ const var2 = base.clone().note('G4', '4n');
 - [ ] `build()` compiles Builder → VM bytecode
 - [ ] `build()` returns `SharedArrayBuffer`
 - [ ] Output compatible with RFC-038 `BytecodeVM`
+- [ ] **Structural opcodes (LOOP, STACK, BRANCH) emitted to VM bytecode**
+- [ ] **`loop(N)` produces N events in VM execution**
+- [ ] **`chord([...])` produces parallel events at same tick**
+- [ ] **`unroll: true` produces varied humanization per iteration**
 - [ ] All tests pass
 - [ ] `npx tsc --noEmit` passes
 
 ---
 
-## 12. Approval
+## 14. Approval
 
 - [ ] Approved for implementation
 - [ ] Requires revision (see comments)

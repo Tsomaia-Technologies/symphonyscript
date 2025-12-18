@@ -19,6 +19,12 @@ export interface BuildOptions {
   tempoCapacity?: number
   /** Seed for deterministic humanization (default: Date.now()) */
   seed?: number
+  /** 
+   * If true, loops are "unrolled" (expanded) instead of using LOOP_START/END opcodes.
+   * Each unrolled iteration gets fresh humanization with a unique seed.
+   * (default: false)
+   */
+  unroll?: boolean
 }
 
 /**
@@ -109,6 +115,66 @@ export interface BuilderGrooveTemplate {
   /** Get offset values in ticks */
   getOffsets(): number[]
 }
+
+// =============================================================================
+// Tree Node Types (for compiler AST)
+// =============================================================================
+
+/**
+ * An event node in the builder AST.
+ */
+export interface EventNode {
+  type: 'event'
+  event: ExtractedEvent
+}
+
+/**
+ * A loop node in the builder AST.
+ */
+export interface LoopNode {
+  type: 'loop'
+  /** Number of iterations */
+  count: number
+  /** Tick when loop starts */
+  startTick: number
+  /** Children after transforms applied */
+  children: BuilderNode[]
+  /** 
+   * Original children BEFORE transforms (used for unroll mode).
+   * Deep clone of children stored when storeOriginals=true in applyTransformsToTree.
+   */
+  originalChildren?: BuilderNode[]
+}
+
+/**
+ * A stack node in the builder AST (parallel branches).
+ */
+export interface StackNode {
+  type: 'stack'
+  /** Tick when stack starts */
+  startTick: number
+  /** Branches to execute in parallel */
+  branches: BranchNode[]
+}
+
+/**
+ * A branch node in the builder AST.
+ */
+export interface BranchNode {
+  type: 'branch'
+  /** Children within this branch */
+  children: BuilderNode[]
+}
+
+/**
+ * Union of all builder AST node types.
+ */
+export type BuilderNode = EventNode | LoopNode | StackNode | BranchNode
+
+/**
+ * A tree of builder nodes (array of top-level nodes).
+ */
+export type BuilderTree = BuilderNode[]
 
 /**
  * Re-export for convenience.
