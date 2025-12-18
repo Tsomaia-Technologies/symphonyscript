@@ -9,7 +9,14 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": [
+    "src/**/*",
+    "vite.config.ts",
+    "../core/src/**/*",
+    "../runtime-webaudio/src/**/*",
+    "../live/src/**/*",
+    "../midi-backend-web/src/**/*"
+  ]
 }
 
 

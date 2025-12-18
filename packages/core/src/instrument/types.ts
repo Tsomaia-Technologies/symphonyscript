@@ -43,8 +43,8 @@ export interface SerializedSidechainConfig {
   release?: number
 }
 
-/** Synth-specific configuration */
-export interface SynthConfig {
+/** Synth-specific configuration (serialized format) */
+export interface SerializedSynthConfig {
   type: 'synth'
   oscillator?: OscillatorType
   attack?: number
@@ -59,16 +59,16 @@ export interface SynthConfig {
   pitchBendRange?: number
 }
 
-/** Sampler-specific configuration */
-export interface SamplerConfig {
+/** Sampler-specific configuration (serialized format) */
+export interface SerializedSamplerConfig {
   type: 'sampler'
   samples?: Record<NoteName, string>  // Note to sample URL mapping
   drumMap?: Record<string, NoteName>  // Drum name to note mapping
   pitchBendRange?: number
 }
 
-/** Combined instrument configuration */
-export type InstrumentConfig = (SynthConfig | SamplerConfig) & {
+/** Combined instrument configuration (serialized format) */
+export type SerializedInstrumentConfigType = (SerializedSynthConfig | SerializedSamplerConfig) & {
   routing?: RoutingConfig
   sidechain?: SidechainConfig
 }
@@ -77,7 +77,7 @@ export type InstrumentConfig = (SynthConfig | SamplerConfig) & {
 export interface InstrumentNode {
   id: InstrumentId
   name: string
-  config: InstrumentConfig
+  config: SerializedInstrumentConfigType
 }
 
 /**
@@ -86,7 +86,7 @@ export interface InstrumentNode {
 export interface SerializedInstrumentConfig {
   type: 'synth' | 'sampler'
   name: string
-  config: SynthConfig | SamplerConfig
+  config: SerializedSynthConfig | SerializedSamplerConfig
   routing?: RoutingConfig
   sidechain?: SerializedSidechainConfig  // ID-based, not object
 }

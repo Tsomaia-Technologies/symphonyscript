@@ -23,6 +23,14 @@ export type {
   InstrumentConfig
 } from './Instrument'
 
+// Re-export serialized types with explicit names to avoid conflicts
+export type {
+  SerializedSynthConfig,
+  SerializedSamplerConfig,
+  SerializedInstrumentConfig,
+  SerializedSidechainConfig
+} from './types'
+
 // Import for factory namespace
 import {sampler, synth} from './Instrument'
 

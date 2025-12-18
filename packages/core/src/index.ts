@@ -68,7 +68,7 @@ export type { SessionNode, TrackNode } from './session/types'
 
 // --- Effects Domain ---
 export type { EffectType, BaseEffectParams, DelayParams, ReverbParams, DistortionParams, FilterParams, CompressorParams, EqParams, ChorusParams, EffectParamsFor, InsertEffect, SendConfig, EffectBusConfig } from './effects/types'
-export type { InstrumentConfig, SynthConfig, SamplerConfig, AudioRouting, SidechainConfig } from './instrument/Instrument'
+// Instrument types (InstrumentConfig, SynthConfig, SamplerConfig, AudioRouting, SidechainConfig) are already exported from './instrument/index' above
 
 // --- Compiler types ---
 export type { CompiledOutput, AudioEvent, NoteOnEvent, ControlEvent, TempoEvent, TempoChange } from './compiler/types'
