@@ -10,7 +10,7 @@
 // we normalize both to a common NormalizedNote[] format and compare.
 // =============================================================================
 
-import { describe, it, expect } from '@jest/globals'
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { compileClip } from '../../compiler/pipeline'
 import type { CompiledClip } from '../../compiler/pipeline/types'
 import { compileBuilderToVMZeroAlloc } from '../compiler-zero-alloc'
@@ -328,11 +328,11 @@ const PITCH_TESTS: LegacyParityTest[] = [
         'A#4',
         'B4'
       ] as const
-      let cursor = Clip.melody().setVelocity(1.0)
+      const builder = Clip.melody().setVelocity(1.0)
       for (const note of notes) {
-        cursor = cursor.note(note, '8n')
+        builder.note(note, '8n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   },
   {
@@ -374,11 +374,11 @@ const SCALE_TESTS: LegacyParityTest[] = [
       return builder.build()
     },
     createBuilder: () => {
-      let cursor = Clip.melody().setVelocity(1.0)
+      const builder = Clip.melody().setVelocity(1.0)
       for (let i = 0; i < 50; i++) {
-        cursor = cursor.note('C4', '8n')
+        builder.note('C4', '8n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   },
   {
@@ -391,11 +391,11 @@ const SCALE_TESTS: LegacyParityTest[] = [
       return builder.build()
     },
     createBuilder: () => {
-      let cursor = Clip.melody().setVelocity(1.0)
+      const builder = Clip.melody().setVelocity(1.0)
       for (let i = 0; i < 100; i++) {
-        cursor = cursor.note('C4', '16n')
+        builder.note('C4', '16n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   }
 ]
@@ -530,16 +530,16 @@ describe('Legacy AST vs Zero-Alloc Parity', () => {
         legacyBuilder = legacyBuilder.note(p, '4n').commit() as MelodyBuilder<any>
       }
 
-      let cursor = Clip.melody().setVelocity(1.0)
+      const builder = Clip.melody().setVelocity(1.0)
       for (const p of pitches) {
-        cursor = cursor.note(p, '4n')
+        builder.note(p, '4n')
       }
 
       const legacyResult = compileClip(legacyBuilder.build(), {
         bpm: BPM,
         seed: SEED
       })
-      const zeroResult = compileBuilderToVMZeroAlloc(cursor.builder.buf, {
+      const zeroResult = compileBuilderToVMZeroAlloc(builder.buf, {
         ppq: PPQ,
         seed: SEED,
         grooveTemplates: [],

@@ -9,7 +9,7 @@
 // DO NOT deprecate any compiler until ALL tests pass.
 // =============================================================================
 
-import { describe, it, expect } from '@jest/globals'
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { compileBuilderToVM } from '../compiler'
 import { compileBuilderToVMZeroAlloc } from '../compiler-zero-alloc'
 import { Clip } from '../index'
@@ -383,34 +383,34 @@ const SCALE_TESTS: ParityTest[] = [
   {
     name: 'medium scale (100 notes)',
     createBuilder: () => {
-      let cursor = Clip.melody()
+      const builder = Clip.melody()
       for (let i = 0; i < 100; i++) {
         const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'] as const
-        cursor = cursor.note(notes[i % 7], '8n')
+        builder.note(notes[i % 7], '8n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   },
   {
     name: 'large scale (500 notes)',
     createBuilder: () => {
-      let cursor = Clip.melody()
+      const builder = Clip.melody()
       for (let i = 0; i < 500; i++) {
         const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'] as const
-        cursor = cursor.note(notes[i % 7], '16n')
+        builder.note(notes[i % 7], '16n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   },
   {
     name: 'stress scale (1000 notes)',
     createBuilder: () => {
-      let cursor = Clip.melody()
+      const builder = Clip.melody()
       for (let i = 0; i < 1000; i++) {
         const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'] as const
-        cursor = cursor.note(notes[i % 7], '16n')
+        builder.note(notes[i % 7], '16n')
       }
-      return { buf: cursor.builder.buf, grooveTemplates: [] }
+      return { buf: builder.buf, grooveTemplates: [] }
     }
   }
 ]

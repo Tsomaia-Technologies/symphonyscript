@@ -2,7 +2,7 @@
 // SymphonyScript - Builder Tests (RFC-040)
 // =============================================================================
 
-import { describe, it, expect } from '@jest/globals'
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { Clip, MelodyBuilder, ClipBuilder, NoteCursor, BUILDER_OP } from '../index'
 import { OP, SBC_MAGIC, SBC_VERSION, REG, REGION } from '../../vm/constants'
 import { BytecodeVM } from '../../vm/runtime'
