@@ -134,6 +134,7 @@ export class ZeroAllocCompiler {
 
   // === Sort Workspace ===
   private readonly sortIndices = new Int32Array(MAX_EVENTS)
+  private readonly sortIndicesTmp = new Int32Array(MAX_EVENTS)  // Ping-pong buffer
 
   // === Sorted Indices Storage (Per-Scope) ===
   // Instead of physically reordering events in eventBuf, we store
@@ -1005,11 +1006,57 @@ export class ZeroAllocCompiler {
   }
 
   // ==========================================================================
-  // Merge Sort Implementation (Zero-Allocation, Stable, O(n log n))
+  // Sort Implementations (Zero-Allocation, Stable)
   // ==========================================================================
 
   /**
-   * Bottom-up iterative merge sort using double-buffer pattern.
+   * Inline insertion sort for small arrays.
+   * O(n²) but with very low constant factors - faster than merge sort for n < 16.
+   *
+   * STABLE: Equal elements maintain relative order (only shifts if strictly greater).
+   * ZERO ALLOCATIONS: Operates directly on sortIndices.
+   *
+   * @param count - Number of indices to sort in sortIndices[0..count-1]
+   */
+  private insertionSortIndices(count: number): void {
+    for (let i = 1; i < count; i++) {
+      const keyIdx = this.sortIndices[i]
+      const keyBase = keyIdx * EVENT_STRIDE
+      const keyTick = this.eventBuf[keyBase + EV_FINAL_TICK]
+      const keyOrder = this.eventBuf[keyBase + EV_INSERTION_ORDER]
+
+      let j = i - 1
+
+      // Shift elements that are greater than key
+      while (j >= 0) {
+        const jIdx = this.sortIndices[j]
+        const jBase = jIdx * EVENT_STRIDE
+        const jTick = this.eventBuf[jBase + EV_FINAL_TICK]
+
+        // Compare: is sortIndices[j] > key?
+        let shouldShift = false
+        if (jTick > keyTick) {
+          shouldShift = true
+        } else if (jTick === keyTick) {
+          const jOrder = this.eventBuf[jBase + EV_INSERTION_ORDER]
+          // STABILITY: only shift if strictly greater (not equal)
+          if (jOrder > keyOrder) {
+            shouldShift = true
+          }
+        }
+
+        if (!shouldShift) break
+
+        this.sortIndices[j + 1] = this.sortIndices[j]
+        j--
+      }
+
+      this.sortIndices[j + 1] = keyIdx
+    }
+  }
+
+  /**
+   * Bottom-up iterative merge sort using PING-PONG double-buffer pattern.
    *
    * ZERO ALLOCATIONS: Uses pre-allocated sortIndices and scratchBuf.
    * STABLE: Left element wins on equal keys (preserves insertion order).
@@ -1019,6 +1066,19 @@ export class ZeroAllocCompiler {
   private mergeSortIndices(count: number): void {
     if (count <= 1) return
 
+    // Hybrid threshold: use insertion sort for small arrays
+    // Insertion sort has lower constant factors for n < 16
+    if (count < 16) {
+      this.insertionSortIndices(count)
+      return
+    }
+
+    // Ping-pong pattern: alternate source/dest buffers per pass
+    // This eliminates the per-run copy tax of the old approach
+    let src = this.sortIndices
+    let dst = this.sortIndicesTmp
+    let passCount = 0
+
     // Bottom-up: merge subarrays of size 1, 2, 4, 8, ...
     for (let width = 1; width < count; width *= 2) {
       // Process pairs of subarrays
@@ -1026,40 +1086,58 @@ export class ZeroAllocCompiler {
         const mid = Math.min(left + width, count)
         const right = Math.min(left + width * 2, count)
 
-        // Only merge if there are two runs to merge
         if (mid < right) {
-          this.mergeRun(left, mid, right)
+          // Merge src[left..mid) and src[mid..right) into dst[left..right)
+          this.mergeRunPingPong(src, dst, left, mid, right)
+        } else {
+          // Only one run - copy directly to dst
+          for (let i = left; i < mid; i++) {
+            dst[i] = src[i]
+          }
         }
+      }
+
+      // Swap buffers for next pass
+      const tmp = src
+      src = dst
+      dst = tmp
+      passCount++
+    }
+
+    // If odd number of passes, result is in sortIndicesTmp - copy back
+    if (passCount % 2 === 1) {
+      for (let i = 0; i < count; i++) {
+        this.sortIndices[i] = this.sortIndicesTmp[i]
       }
     }
   }
 
   /**
-   * Merge two adjacent sorted runs in sortIndices.
-   * Uses scratchBuf as temporary storage.
+   * Merge two adjacent sorted runs from src into dst.
+   * NO intermediate buffer copy - direct source-to-destination merge.
    *
    * STABLE: When keys are equal, left element wins (uses <=).
    *
-   * @param left - Start of first run
-   * @param mid - Start of second run (end of first run)
-   * @param right - End of second run
+   * @param src - Source buffer (sortIndices or sortIndicesTmp)
+   * @param dst - Destination buffer (sortIndicesTmp or sortIndices)
+   * @param left - Start of first run in src
+   * @param mid - Start of second run (end of first run) in src
+   * @param right - End of second run in src
    */
-  private mergeRun(left: number, mid: number, right: number): void {
-    // Copy both runs to scratchBuf
-    for (let i = left; i < right; i++) {
-      this.scratchBuf[i - left] = this.sortIndices[i]
-    }
+  private mergeRunPingPong(
+    src: Int32Array,
+    dst: Int32Array,
+    left: number,
+    mid: number,
+    right: number
+  ): void {
+    let i = left      // Pointer into left run
+    let j = mid       // Pointer into right run
+    let k = left      // Write pointer into dst
 
-    const leftLen = mid - left
-    const rightLen = right - mid
-
-    let i = 0           // Pointer into left run (in scratchBuf)
-    let j = leftLen     // Pointer into right run (in scratchBuf)
-    let k = left        // Write pointer (in sortIndices)
-
-    while (i < leftLen && j < leftLen + rightLen) {
-      const iIdx = this.scratchBuf[i]
-      const jIdx = this.scratchBuf[j]
+    while (i < mid && j < right) {
+      const iIdx = src[i]
+      const jIdx = src[j]
 
       // Read comparison keys from eventBuf
       const iBase = iIdx * EVENT_STRIDE
@@ -1070,9 +1148,9 @@ export class ZeroAllocCompiler {
 
       // Primary: finalTick ascending
       if (iTick < jTick) {
-        this.sortIndices[k++] = this.scratchBuf[i++]
+        dst[k++] = src[i++]
       } else if (iTick > jTick) {
-        this.sortIndices[k++] = this.scratchBuf[j++]
+        dst[k++] = src[j++]
       } else {
         // Equal ticks: use insertionOrder as tiebreaker
         const iOrder = this.eventBuf[iBase + EV_INSERTION_ORDER]
@@ -1080,21 +1158,21 @@ export class ZeroAllocCompiler {
 
         // STABILITY: <= ensures left element wins on equal keys
         if (iOrder <= jOrder) {
-          this.sortIndices[k++] = this.scratchBuf[i++]
+          dst[k++] = src[i++]
         } else {
-          this.sortIndices[k++] = this.scratchBuf[j++]
+          dst[k++] = src[j++]
         }
       }
     }
 
     // Copy remaining elements from left run
-    while (i < leftLen) {
-      this.sortIndices[k++] = this.scratchBuf[i++]
+    while (i < mid) {
+      dst[k++] = src[i++]
     }
 
     // Copy remaining elements from right run
-    while (j < leftLen + rightLen) {
-      this.sortIndices[k++] = this.scratchBuf[j++]
+    while (j < right) {
+      dst[k++] = src[j++]
     }
   }
 
