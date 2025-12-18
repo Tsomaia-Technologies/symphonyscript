@@ -10,5 +10,6 @@
       "cache": true
     }
   },
-  "defaultBase": "main"
+  "defaultBase": "main",
+  "defaultProject": "playground"
 }

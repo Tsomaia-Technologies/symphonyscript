@@ -1,0 +1,27 @@
+{
+  "name": "playground",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vite",
+        "cwd": "packages/playground"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vite build",
+        "cwd": "packages/playground"
+      },
+      "outputs": ["packages/playground/dist"]
+    },
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vite preview",
+        "cwd": "packages/playground"
+      }
+    }
+  }
+}
