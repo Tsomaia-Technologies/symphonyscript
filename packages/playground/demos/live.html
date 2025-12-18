@@ -206,6 +206,8 @@
           backend
         })
 
+        await live.init()
+
         // Subscribe to beat events
         live.on('beat', (b) => {
           beatEl.textContent = `Beat: ${b} | Bar: ${live.getCurrentBar()}`
@@ -248,10 +250,10 @@
       if (live) live.setTempo(+e.target.value)
     }
 
-    document.getElementById('eval-btn').onclick = () => {
+    document.getElementById('eval-btn').onclick = async () => {
       clearError()
       const code = document.getElementById('code').value
-      const result = live.eval(code)
+      const result = await live.eval(code)
       if (!result.success) {
         showError(`Eval error: ${result.error?.message}`)
       } else {
