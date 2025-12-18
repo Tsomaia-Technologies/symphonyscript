@@ -2,11 +2,12 @@
 // SymphonyScript - Compiler Performance Comparison Benchmark (Jest Runner)
 // =============================================================================
 //
-// Run with: npm test -- compiler-comparison.bench.test.ts
+// Run with: npm run bench
 //
 // =============================================================================
 
-import { describe, it, expect } from '@jest/globals'
+/* eslint-disable @typescript-eslint/no-require-imports */
+// Use Jest globals (injected by Jest runtime)
 
 import {
   benchmark,

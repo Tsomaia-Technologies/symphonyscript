@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts && esbuild src/index.ts --bundle --format=iife --global-name=SymphonyScript --outfile=dist/index.umd.js",
     "test": "jest --config jest.config.js",
-    "bench": "jest --no-cache src/__benchmarks__/compiler-comparison.bench.test.ts --verbose"
+    "bench": "jest --no-cache --testMatch='**/__benchmarks__/**/*.test.ts' --verbose"
   },
   "devDependencies": {
     "tsup": "^8.5.1"
