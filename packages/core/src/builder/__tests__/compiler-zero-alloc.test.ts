@@ -752,6 +752,120 @@ describe('RFC-041 Zero-Allocation Compiler', () => {
   })
 
   // =========================================================================
+  // Context Stack Overflow Protection
+  // =========================================================================
+
+  describe('Context Stack Overflow Protection', () => {
+    // Import BUILDER_OP for raw bytecode construction
+    const BUILDER_OP = {
+      HUMANIZE_PUSH: 0x60,
+      HUMANIZE_POP: 0x61,
+      QUANTIZE_PUSH: 0x62,
+      QUANTIZE_POP: 0x63,
+      GROOVE_PUSH: 0x64,
+      GROOVE_POP: 0x65
+    }
+
+    it('throws on too many nested humanize blocks', () => {
+      const compiler = new ZeroAllocCompiler()
+
+      // Build bytecode with 33 nested HUMANIZE_PUSH without matching POPs
+      const buf: number[] = []
+      for (let i = 0; i < 33; i++) {
+        buf.push(BUILDER_OP.HUMANIZE_PUSH, 100, 100)
+      }
+      buf.push(OP.NOTE, 0, 60, 100, 96)  // One note
+
+      expect(() => compiler.compile(buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })).toThrow(/Too many nested humanize blocks/)
+    })
+
+    it('throws on too many nested quantize blocks', () => {
+      const compiler = new ZeroAllocCompiler()
+
+      const buf: number[] = []
+      for (let i = 0; i < 33; i++) {
+        buf.push(BUILDER_OP.QUANTIZE_PUSH, 48, 100)
+      }
+      buf.push(OP.NOTE, 0, 60, 100, 96)
+
+      expect(() => compiler.compile(buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })).toThrow(/Too many nested quantize blocks/)
+    })
+
+    it('throws on too many nested groove blocks', () => {
+      const compiler = new ZeroAllocCompiler()
+
+      const buf: number[] = []
+      for (let i = 0; i < 33; i++) {
+        buf.push(BUILDER_OP.GROOVE_PUSH, 1, 10)  // 1 offset
+      }
+      buf.push(OP.NOTE, 0, 60, 100, 96)
+
+      expect(() => compiler.compile(buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })).toThrow(/Too many nested groove blocks/)
+    })
+
+    it('allows maximum nesting depth (32)', () => {
+      const compiler = new ZeroAllocCompiler()
+
+      const buf: number[] = []
+      // 32 nested humanize (at the limit)
+      for (let i = 0; i < 32; i++) {
+        buf.push(BUILDER_OP.HUMANIZE_PUSH, 100, 100)
+      }
+      buf.push(OP.NOTE, 0, 60, 100, 96)
+      for (let i = 0; i < 32; i++) {
+        buf.push(BUILDER_OP.HUMANIZE_POP)
+      }
+
+      // Should not throw
+      expect(() => compiler.compile(buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })).not.toThrow()
+    })
+
+    it('handles large output without vmBuf overflow', () => {
+      const compiler = new ZeroAllocCompiler()
+
+      // 1000 notes with gaps between them
+      const buf: number[] = []
+      for (let i = 0; i < 1000; i++) {
+        buf.push(OP.NOTE, i * 1000, 60, 100, 96)  // Notes at tick 0, 1000, 2000, ...
+      }
+
+      const result = compiler.compile(buf, {
+        ppq: 96,
+        seed: 12345,
+        grooveTemplates: [],
+        unroll: false
+      })
+
+      // Verify all notes are present
+      let noteCount = 0
+      for (let i = 0; i < result.vmBytecode.length; i++) {
+        if (result.vmBytecode[i] === OP.NOTE) noteCount++
+      }
+      expect(noteCount).toBe(1000)
+    })
+  })
+
+  // =========================================================================
   // Inline Groove Support
   // =========================================================================
 

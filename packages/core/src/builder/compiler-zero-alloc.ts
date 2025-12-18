@@ -56,6 +56,11 @@ const MAX_INLINE_GROOVES = 32   // Max nested inline grooves
 const MAX_GROOVE_OFFSETS = 16   // Max offsets per groove
 const INLINE_GROOVE_STRIDE = 1 + MAX_GROOVE_OFFSETS  // [len, offset0, ..., offset15]
 
+// Context stack depth limits
+const MAX_HUMANIZE_DEPTH = 32   // Max nested humanize blocks (64 / 2 pairs)
+const MAX_QUANTIZE_DEPTH = 32   // Max nested quantize blocks (64 / 2 pairs)
+const MAX_GROOVE_DEPTH = 32     // Max nested groove blocks
+
 // Event buffer offsets
 const EV_FINAL_TICK = 0
 const EV_OPCODE = 1
@@ -131,7 +136,8 @@ export class ZeroAllocCompiler {
   private readonly sortIndices = new Int32Array(MAX_EVENTS)
 
   // === Output Buffer ===
-  private readonly vmBuf = new Int32Array(MAX_EVENTS * 5)
+  // Worst case: REST(2) + NOTE(4) + structural overhead = ~7 slots per event
+  private readonly vmBuf = new Int32Array(MAX_EVENTS * 7)
   private vmBufLen = 0
 
   // === Scratch Buffer ===
@@ -448,22 +454,38 @@ export class ZeroAllocCompiler {
 
       switch (opcode) {
         // === Transform Context Management ===
-        case BUILDER_OP.HUMANIZE_PUSH:
+        case BUILDER_OP.HUMANIZE_PUSH: {
+          // Check for stack overflow (each entry uses 2 slots)
+          if (this.humanizeTop >= MAX_HUMANIZE_DEPTH * 2) {
+            throw new Error(
+              `SymphonyCompilerOverflow: Too many nested humanize blocks. ` +
+              `Max depth: ${MAX_HUMANIZE_DEPTH}`
+            )
+          }
           this.humanizeStack[this.humanizeTop++] = buf[pos + 1]  // timingPpt
           this.humanizeStack[this.humanizeTop++] = buf[pos + 2]  // velocityPpt
           pos += 3
           break
+        }
 
         case BUILDER_OP.HUMANIZE_POP:
           this.humanizeTop -= 2
           pos += 1
           break
 
-        case BUILDER_OP.QUANTIZE_PUSH:
+        case BUILDER_OP.QUANTIZE_PUSH: {
+          // Check for stack overflow (each entry uses 2 slots)
+          if (this.quantizeTop >= MAX_QUANTIZE_DEPTH * 2) {
+            throw new Error(
+              `SymphonyCompilerOverflow: Too many nested quantize blocks. ` +
+              `Max depth: ${MAX_QUANTIZE_DEPTH}`
+            )
+          }
           this.quantizeStack[this.quantizeTop++] = buf[pos + 1]  // gridTicks
           this.quantizeStack[this.quantizeTop++] = buf[pos + 2]  // strengthPct
           pos += 3
           break
+        }
 
         case BUILDER_OP.QUANTIZE_POP:
           this.quantizeTop -= 2
@@ -474,11 +496,19 @@ export class ZeroAllocCompiler {
           // GROOVE_PUSH stores groove data inline: [op, len, offset0, ..., offsetN-1]
           const len = buf[pos + 1]
 
+          // Check for grooveStack overflow
+          if (this.grooveTop >= MAX_GROOVE_DEPTH) {
+            throw new Error(
+              `SymphonyCompilerOverflow: Too many nested groove blocks. ` +
+              `Max depth: ${MAX_GROOVE_DEPTH}`
+            )
+          }
+
           if (len === 0) {
             // Empty groove - push sentinel
             this.grooveStack[this.grooveTop++] = -1
           } else {
-            // Check for overflow
+            // Check for inline groove buffer overflow
             if (this.inlineGrooveTop >= MAX_INLINE_GROOVES) {
               throw new Error(
                 `SymphonyCompilerOverflow: Too many nested inline grooves. ` +
@@ -976,6 +1006,25 @@ export class ZeroAllocCompiler {
     const eventStart = this.scopeTable[base + SC_EVENT_START]
     const eventEnd = this.scopeTable[base + SC_EVENT_END]
     let childId = this.scopeTable[base + SC_FIRST_CHILD]
+
+    // Count events in this scope for overflow check
+    let scopeEventCount = 0
+    for (let i = eventStart; i < eventEnd; i++) {
+      if (this.eventBuf[i * EVENT_STRIDE + EV_SCOPE_ID] === scopeId) {
+        scopeEventCount++
+      }
+    }
+
+    // Pre-calculate maximum bytes this scope might emit
+    // Worst case: 2 (START) + scopeEventCount * 6 (REST + NOTE) + 1 (END) + 1 (EOF)
+    const maxBytesNeeded = 4 + scopeEventCount * 6
+    if (this.vmBufLen + maxBytesNeeded > this.vmBuf.length) {
+      throw new Error(
+        `SymphonyCompilerOverflow: VM bytecode buffer exceeded. ` +
+        `Position: ${this.vmBufLen}, Needed: ${maxBytesNeeded}, ` +
+        `Capacity: ${this.vmBuf.length}. Consider splitting into multiple clips.`
+      )
+    }
 
     // === Emit START opcode ===
     if (structOp === OP.LOOP_START) {
