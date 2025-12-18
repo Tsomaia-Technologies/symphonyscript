@@ -29,6 +29,17 @@ export type {
 export { compileBuilderToVM } from './compiler'
 export type { CompileResult } from './compiler'
 
+// --- Zero-Allocation Compiler (RFC-041) ---
+export {
+  ZeroAllocCompiler,
+  compileBuilderToVMZeroAlloc,
+  getZeroAllocCompiler,
+} from './compiler-zero-alloc'
+export type {
+  ZeroAllocCompileResult,
+  ZeroAllocCompileOptions
+} from './compiler-zero-alloc'
+
 // --- Factory ---
 import { ClipBuilder } from './ClipBuilder'
 import { MelodyBuilder } from './MelodyBuilder'
