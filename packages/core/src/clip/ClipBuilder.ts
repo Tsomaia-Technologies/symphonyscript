@@ -170,6 +170,10 @@ export class ClipBuilder<P extends ClipParams = ClipParams> implements Operation
   ): this {
     let operations: ClipOperation[]
 
+    if (!content) {
+      throw new Error(`loop() expects a content argument (Builder, Function, or Clip), but got ${content}.`)
+    }
+
     if (typeof content === 'function') {
       // Case 1: Builder function
       const loopContext = this._createEmptyClone('LoopContext')

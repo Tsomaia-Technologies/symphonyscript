@@ -15,10 +15,15 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts && esbuild src/index.ts --bundle --format=iife --global-name=SymphonyScript --outfile=dist/index.umd.js",
     "test": "jest --config jest.config.js"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1"
   }
 }

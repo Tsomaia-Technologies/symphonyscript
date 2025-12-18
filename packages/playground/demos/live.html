@@ -154,12 +154,13 @@
   <h3>Live Code</h3>
   <textarea id="code" rows="10">track('lead', t => t.clip(
   Clip.melody()
-    .note('C4', '8n')
-    .note('E4', '8n')
-    .note('G4', '4n')
-    .note('E4', '8n')
-    .note('C4', '2n')
-    .loop(4)
+    .loop(4, b => b
+        .note('C4', '8n')
+        .note('E4', '8n')
+        .note('G4', '4n')
+        .note('E4', '8n')
+        .note('C4', '2n')
+    )
 ))</textarea>
   <button id="eval-btn" class="eval-btn" disabled>▶ Eval Code</button>
 

@@ -36,7 +36,11 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.2)
 
   packages/live:
     devDependencies:
@@ -46,6 +50,9 @@ importers:
       '@symphonyscript/runtime-webaudio':
         specifier: workspace:*
         version: link:../runtime-webaudio
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.2)
 
   packages/midi-backend-node:
     dependencies:

@@ -1,5 +1,6 @@
 {
   "name": "playground",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -14,7 +15,9 @@
         "command": "vite build",
         "cwd": "packages/playground"
       },
-      "outputs": ["packages/playground/dist"]
+      "outputs": [
+        "{projectRoot}/dist"
+      ]
     },
     "preview": {
       "executor": "nx:run-commands",

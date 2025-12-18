@@ -13,7 +13,9 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts && esbuild src/index.ts --bundle --format=iife --global-name=SymphonyScript.Live --external:@symphonyscript/core --outfile=dist/index.umd.js",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@symphonyscript/core": "workspace:*",
-    "@symphonyscript/runtime-webaudio": "workspace:*"
+    "@symphonyscript/runtime-webaudio": "workspace:*",
+    "tsup": "^8.5.1"
   }
 }
