@@ -87,3 +87,8 @@ export type {
   PatchType,
   SiliconBridgeOptions
 } from './silicon-bridge'
+
+// Live Mirror pattern (RFC-043 Phase 4)
+export { LiveClipBuilder } from './LiveClipBuilder'
+export { LiveSession, executeUserScript } from './LiveSession'
+export { Clip } from './Clip'
