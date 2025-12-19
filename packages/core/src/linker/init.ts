@@ -15,7 +15,8 @@ import {
   ERROR,
   NULL_PTR,
   calculateSABSize,
-  HEAP_START_OFFSET
+  HEAP_START_OFFSET,
+  NODE_SIZE_BYTES
 } from './constants'
 import { FreeList } from './free-list'
 import type { LinkerConfig } from './types'
@@ -65,7 +66,7 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
 
   // Initialize groove template region (zeroed by default in SAB)
   // Groove templates start after the node heap
-  const grooveStart = HEAP_START_OFFSET + cfg.nodeCapacity * 24 // 24 bytes per node
+  const grooveStart = HEAP_START_OFFSET + cfg.nodeCapacity * NODE_SIZE_BYTES
   sab[HDR.GROOVE_START] = grooveStart
 
   return buffer

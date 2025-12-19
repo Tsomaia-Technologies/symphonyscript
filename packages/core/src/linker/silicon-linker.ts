@@ -181,9 +181,10 @@ export class SiliconLinker implements ISiliconLinker {
    * 1. Check safe zone
    * 2. Allocate NoteX from Free List
    * 3. Write all attributes to NoteX
-   * 4. Link Future: NoteX.NEXT_PTR = NoteB
-   * 5. Atomic Splice: NoteA.NEXT_PTR = NoteX
-   * 6. Signal COMMIT_FLAG
+   * 4. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
+   * 5. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
+   * 6. Atomic Splice: NoteA.NEXT_PTR = NoteX
+   * 7. Signal COMMIT_FLAG
    *
    * @param afterPtr - Node to insert after
    * @param data - New node data
@@ -207,14 +208,21 @@ export class SiliconLinker implements ISiliconLinker {
     // 3. Write all attributes
     this.writeNodeData(newOffset, data)
 
-    // 4. Link Future: NoteX.NEXT_PTR = NoteB
+    // 4. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
     const noteBPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
     Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, noteBPtr)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
 
-    // 5. Atomic Splice: NoteA.NEXT_PTR = NoteX
+    // 5. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
+    if (noteBPtr !== NULL_PTR) {
+      const noteBOffset = this.nodeOffset(noteBPtr)
+      Atomics.store(this.sab, noteBOffset + NODE.PREV_PTR, newPtr)
+    }
+
+    // 6. Atomic Splice: NoteA.NEXT_PTR = NoteX
     Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
 
-    // 6. Signal structural change
+    // 7. Signal structural change
     Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
     return newPtr
@@ -243,6 +251,13 @@ export class SiliconLinker implements ISiliconLinker {
     // Link to current head
     const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
     Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+
+    // Update old head's PREV_PTR to point to new head
+    if (currentHead !== NULL_PTR) {
+      const currentHeadOffset = this.nodeOffset(currentHead)
+      Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+    }
 
     // Atomic: become new head
     Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
@@ -256,8 +271,7 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Delete a node from the chain.
    *
-   * Note: This requires knowing the previous node to update its NEXT_PTR.
-   * For efficiency, consider using a doubly-linked list in future versions.
+   * O(1) deletion using PREV_PTR (doubly-linked list).
    *
    * @param ptr - Node to delete
    * @throws SafeZoneViolationError if too close to playhead
@@ -269,29 +283,24 @@ export class SiliconLinker implements ISiliconLinker {
     const targetTick = this.sab[offset + NODE.BASE_TICK]
     this.checkSafeZone(targetTick)
 
-    // Find the previous node
-    const head = Atomics.load(this.sab, HDR.HEAD_PTR)
+    // Read prev and next pointers
+    const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
+    const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
 
-    if (head === ptr) {
+    // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
+    if (prevPtr === NULL_PTR) {
       // Deleting head - update HEAD_PTR
-      const next = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-      Atomics.store(this.sab, HDR.HEAD_PTR, next)
+      Atomics.store(this.sab, HDR.HEAD_PTR, nextPtr)
     } else {
-      // Find previous node
-      let prevPtr = head
-      while (prevPtr !== NULL_PTR) {
-        const prevOffset = this.nodeOffset(prevPtr)
-        const prevNext = Atomics.load(this.sab, prevOffset + NODE.NEXT_PTR)
+      // Update previous node's NEXT_PTR to skip over deleted node
+      const prevOffset = this.nodeOffset(prevPtr)
+      Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, nextPtr)
+    }
 
-        if (prevNext === ptr) {
-          // Found it - update previous node's NEXT_PTR
-          const targetNext = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-          Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, targetNext)
-          break
-        }
-
-        prevPtr = prevNext
-      }
+    // Update next's PREV_PTR (if next exists)
+    if (nextPtr !== NULL_PTR) {
+      const nextOffset = this.nodeOffset(nextPtr)
+      Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
     }
 
     // Free the node

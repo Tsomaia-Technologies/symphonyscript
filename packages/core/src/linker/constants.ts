@@ -112,19 +112,24 @@ export const REG = {
 } as const
 
 // =============================================================================
-// Node Heap Layout
+// Node Heap Layout (Doubly-Linked List)
 // =============================================================================
 
 /**
- * Node structure offsets (6 × i32 = 24 bytes per node).
+ * Node structure offsets (8 × i32 = 32 bytes per node).
+ *
+ * 32-byte stride provides optimal cache alignment and room for
+ * doubly-linked list pointers enabling O(1) deletion.
  *
  * Layout:
  * - [+0] PACKED_A: (opcode << 24) | (pitch << 16) | (velocity << 8) | flags
  * - [+1] BASE_TICK: Grid-aligned timing (pre-transform)
  * - [+2] DURATION: Duration in ticks
  * - [+3] NEXT_PTR: Byte offset to next node (0 = end of chain)
- * - [+4] SOURCE_ID: Editor location hash for bidirectional mapping
- * - [+5] SEQ_FLAGS: (sequence << 8) | flags_extended
+ * - [+4] PREV_PTR: Byte offset to previous node (0 = head of chain)
+ * - [+5] SOURCE_ID: Editor location hash for bidirectional mapping
+ * - [+6] SEQ_FLAGS: (sequence << 8) | flags_extended
+ * - [+7] RESERVED: Future expansion
  */
 export const NODE = {
   /** Packed opcode, pitch, velocity, flags */
@@ -135,16 +140,20 @@ export const NODE = {
   DURATION: 2,
   /** Next pointer (byte offset, 0 = end) */
   NEXT_PTR: 3,
+  /** Previous pointer (byte offset, 0 = head) */
+  PREV_PTR: 4,
   /** Source ID (editor location hash) */
-  SOURCE_ID: 4,
+  SOURCE_ID: 5,
   /** Sequence counter (upper 24 bits) + extended flags (lower 8 bits) */
-  SEQ_FLAGS: 5
+  SEQ_FLAGS: 6,
+  /** Reserved for future use */
+  RESERVED: 7
 } as const
 
 /**
  * Node size in i32 units.
  */
-export const NODE_SIZE_I32 = 6
+export const NODE_SIZE_I32 = 8
 
 /**
  * Node size in bytes.

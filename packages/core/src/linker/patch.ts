@@ -3,7 +3,7 @@
 // =============================================================================
 // Immediate attribute patching with SEQ counter updates for ABA protection.
 
-import { NODE, PACKED, SEQ, FLAG, NULL_PTR, HEAP_START_OFFSET } from './constants'
+import { NODE, NODE_SIZE_I32, PACKED, SEQ, FLAG, NULL_PTR, HEAP_START_OFFSET } from './constants'
 import type { NodePtr } from './types'
 import { InvalidPointerError } from './types'
 
@@ -53,12 +53,12 @@ export class AttributePatcher {
     }
 
     const i32Index = this.ptrToI32Index(ptr)
-    const nodeIndex = (i32Index - this.heapStartI32) / 6 // NODE_SIZE_I32
+    const nodeIndex = (i32Index - this.heapStartI32) / NODE_SIZE_I32
 
     if (
       nodeIndex < 0 ||
       nodeIndex >= this.nodeCapacity ||
-      (i32Index - this.heapStartI32) % 6 !== 0
+      (i32Index - this.heapStartI32) % NODE_SIZE_I32 !== 0
     ) {
       throw new InvalidPointerError(ptr)
     }
