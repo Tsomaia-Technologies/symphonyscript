@@ -78,3 +78,12 @@ export { AttributePatcher } from './patch'
 // Testing utilities
 export { MockConsumer } from './mock-consumer'
 export type { ConsumerNoteEvent } from './mock-consumer'
+
+// Editor integration (RFC-043 Phase 4)
+export { SiliconBridge, createSiliconBridge } from './silicon-bridge'
+export type {
+  SourceLocation,
+  EditorNoteData,
+  PatchType,
+  SiliconBridgeOptions
+} from './silicon-bridge'
