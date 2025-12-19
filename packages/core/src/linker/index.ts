@@ -1,0 +1,83 @@
+// =============================================================================
+// SymphonyScript - Silicon Linker Module (RFC-043)
+// =============================================================================
+// Direct-to-Silicon Mirroring for zero-latency live coding.
+
+// Main class
+export { SiliconLinker } from './silicon-linker'
+
+// Constants
+export {
+  // Magic & Version
+  SL_MAGIC,
+  SL_VERSION,
+  // Defaults
+  DEFAULT_PPQ,
+  DEFAULT_BPM,
+  DEFAULT_SAFE_ZONE_TICKS,
+  NULL_PTR,
+  // Header offsets
+  HDR,
+  // Register offsets
+  REG,
+  // Node structure
+  NODE,
+  NODE_SIZE_I32,
+  NODE_SIZE_BYTES,
+  // Packed field layouts
+  PACKED,
+  SEQ,
+  // Flags
+  FLAG,
+  // Opcodes
+  OPCODE,
+  // Commit protocol
+  COMMIT,
+  // Error codes
+  ERROR,
+  // Memory calculation
+  calculateSABSize,
+  HEAP_START_OFFSET,
+  HEAP_START_I32
+} from './constants'
+
+// Types
+export type {
+  NodePtr,
+  NodeData,
+  NodeView,
+  LinkerConfig,
+  EditResult,
+  ISiliconLinker,
+  Opcode,
+  CommitState,
+  ErrorCode,
+  NodeFlag
+} from './constants'
+
+export type {
+  NodePtr as NodePointer,
+  NodeData as NodeCreateData,
+  NodeView as NodeReadView,
+  LinkerConfig as SiliconLinkerConfig
+} from './types'
+
+export {
+  HeapExhaustedError,
+  SafeZoneViolationError,
+  InvalidPointerError
+} from './types'
+
+// Initialization
+export {
+  createLinkerSAB,
+  validateLinkerSAB,
+  getLinkerConfig,
+  resetLinkerSAB,
+  writeGrooveTemplate,
+  readGrooveTemplate
+} from './init'
+
+// Low-level components (for advanced use)
+export { FreeList } from './free-list'
+export { AttributePatcher } from './patch'
