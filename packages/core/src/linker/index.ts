@@ -41,27 +41,20 @@ export {
   HEAP_START_I32
 } from './constants'
 
-// Types
+// Types from constants
+export type { Opcode, CommitState, ErrorCode, NodeFlag } from './constants'
+
+// Types from types module
 export type {
   NodePtr,
   NodeData,
   NodeView,
   LinkerConfig,
   EditResult,
-  ISiliconLinker,
-  Opcode,
-  CommitState,
-  ErrorCode,
-  NodeFlag
-} from './constants'
-
-export type {
-  NodePtr as NodePointer,
-  NodeData as NodeCreateData,
-  NodeView as NodeReadView,
-  LinkerConfig as SiliconLinkerConfig
+  ISiliconLinker
 } from './types'
 
+// Error classes
 export {
   HeapExhaustedError,
   SafeZoneViolationError,
