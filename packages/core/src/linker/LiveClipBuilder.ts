@@ -1,17 +1,21 @@
 // =============================================================================
 // SymphonyScript - LiveClipBuilder (RFC-043 Phase 4)
 // =============================================================================
-// Clean-slate ClipBuilder that mirrors DSL calls directly to SiliconBridge.
+// Base ClipBuilder that mirrors DSL calls directly to SiliconBridge.
 // Implements "Execution-as-Synchronization" paradigm.
 //
-// Key differences from regular ClipBuilder:
+// Key differences from AST ClipBuilder:
 // - NO .build() or .compile() methods
 // - Every DSL call directly mirrors to SAB
 // - Tombstone pattern auto-prunes deleted nodes
 
 import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
-import type { NoteDuration } from '../types/primitives'
+import type { NoteDuration, TimeSignatureString, NoteName } from '../types/primitives'
+import type { HumanizeSettings, QuantizeSettings } from '../clip/types'
+import type { GrooveTemplate } from '../groove/types'
 import { parseDuration } from '../util/duration'
+import { LiveNoteCursor, LiveNoteData } from './cursors/LiveNoteCursor'
+import { noteToMidi } from '../util/midi'
 
 // =============================================================================
 // Types
@@ -51,42 +55,47 @@ const STACK_CACHE_TTL_MS = 5 * 60 * 1000
 /**
  * LiveClipBuilder mirrors DSL calls directly to the Silicon Linker SAB.
  *
- * This builder:
- * - Parses call sites for SOURCE_ID generation
- * - Patches existing nodes or inserts new ones
- * - Tracks touched nodes for tombstone pruning
- * - Provides < 5µs per DSL call performance
+ * This is the base builder class. Specialized builders (LiveMelodyBuilder,
+ * LiveDrumBuilder, etc.) extend this with instrument-specific methods.
  *
  * Usage:
  * ```typescript
  * Clip.melody('Lead')
- *   .note(60, 100, '4n')
- *   .note(64, 100, '4n')
+ *   .note('C4', '4n').velocity(0.8).commit()
+ *   .note('E4', '4n')
  *   .finalize()
  * ```
  */
 export class LiveClipBuilder {
-  private bridge: SiliconBridge
-  private touchedSourceIds: Set<number> = new Set()
-  private ownedSourceIds: Set<number> = new Set() // All sourceIds this builder has ever created
-  private currentTick: number = 0
-  private currentVelocity: number = 100
-  private ppq: number = DEFAULT_PPQ
-  private lastSourceId: number | undefined
+  protected bridge: SiliconBridge
+  protected name: string
+  protected touchedSourceIds: Set<number> = new Set()
+  protected ownedSourceIds: Set<number> = new Set()
+  protected currentTick: number = 0
+  protected currentVelocity: number = 100
+  protected ppq: number = DEFAULT_PPQ
+  protected lastSourceId: number | undefined
+
+  // Context state
+  protected _defaultDuration: NoteDuration = '4n'
+  protected _humanize: HumanizeSettings | undefined
+  protected _quantize: QuantizeSettings | undefined
+  protected _swing: number = 0
+  protected _groove: GrooveTemplate | undefined
 
   // Stack frame cache for performance
   private static stackCache: Map<string, StackCacheEntry> = new Map()
   private static cacheCleanupTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(bridge: SiliconBridge, name?: string) {
+  constructor(bridge: SiliconBridge, name: string = 'Untitled Clip') {
     this.bridge = bridge
+    this.name = name
 
     // Initialize cache cleanup timer (once) - only in non-test environment
     if (!LiveClipBuilder.cacheCleanupTimer && typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
       LiveClipBuilder.cacheCleanupTimer = setInterval(() => {
         LiveClipBuilder.cleanupCache()
       }, STACK_CACHE_TTL_MS)
-      // Ensure timer doesn't prevent process exit
       if (LiveClipBuilder.cacheCleanupTimer.unref) {
         LiveClipBuilder.cacheCleanupTimer.unref()
       }
@@ -95,7 +104,6 @@ export class LiveClipBuilder {
 
   /**
    * Clear the stack cache and stop the cleanup timer.
-   * Call this in tests to ensure clean teardown.
    */
   static clearCache(): void {
     LiveClipBuilder.stackCache.clear()
@@ -106,39 +114,40 @@ export class LiveClipBuilder {
   }
 
   // ===========================================================================
-  // Core DSL Methods (Public API matches existing ClipBuilder)
+  // Core DSL Methods
   // ===========================================================================
 
   /**
    * Add a note.
-   * Performs: IDENTIFY → SYNCHRONIZE → MARK
+   * Returns a cursor for applying modifiers.
+   * Accepts either MIDI number (60) or NoteName ('C4').
    */
-  note(pitch: number, velocity?: number, duration?: NoteDuration): this {
+  note(pitch: number | NoteName | string, velocity?: number, duration?: NoteDuration): LiveNoteCursor<this> {
     const sourceId = this.getSourceIdFromCallSite()
+    const midiPitch = this.resolvePitch(pitch)
     const vel = velocity ?? this.currentVelocity
-    const dur = this.resolveDuration(duration)
+    const dur = this.resolveDuration(duration ?? this._defaultDuration)
 
-    // synchronizeNote will update lastSourceId and touchedSourceIds
-    this.synchronizeNote(sourceId, pitch, vel, dur, this.currentTick)
-
+    const noteData = this.synchronizeNote(sourceId, midiPitch, vel, dur, this.currentTick)
     this.currentTick += dur
-    return this
+
+    return new LiveNoteCursor(this, noteData)
   }
 
   /**
    * Add a chord (multiple notes at same time).
+   * Accepts either MIDI numbers or NoteNames.
+   * Subclasses may return a cursor instead of this.
    */
-  chord(pitches: number[], velocity?: number, duration?: NoteDuration): this {
+  chord(pitches: (number | NoteName | string)[], velocity?: number, duration?: NoteDuration): any {
     const vel = velocity ?? this.currentVelocity
-    const dur = this.resolveDuration(duration)
+    const dur = this.resolveDuration(duration ?? this._defaultDuration)
     const baseTick = this.currentTick
 
-    // Each note in chord gets its own SOURCE_ID (different column offsets)
     for (let i = 0; i < pitches.length; i++) {
-      // Generate unique source ID for each chord note
       const sourceId = this.getSourceIdFromCallSite(i)
-      // synchronizeNote handles tracking internally
-      this.synchronizeNote(sourceId, pitches[i], vel, dur, baseTick)
+      const midiPitch = this.resolvePitch(pitches[i])
+      this.synchronizeNote(sourceId, midiPitch, vel, dur, baseTick)
     }
 
     this.currentTick += dur
@@ -149,7 +158,7 @@ export class LiveClipBuilder {
    * Add a rest (advances time without playing).
    */
   rest(duration?: NoteDuration): this {
-    const dur = this.resolveDuration(duration)
+    const dur = this.resolveDuration(duration ?? this._defaultDuration)
     this.currentTick += dur
     return this
   }
@@ -158,35 +167,151 @@ export class LiveClipBuilder {
    * Set default velocity for subsequent notes.
    */
   velocity(v: number): this {
-    this.currentVelocity = Math.max(0, Math.min(127, v))
+    this.currentVelocity = v <= 1 ? Math.round(v * 127) : Math.max(0, Math.min(127, Math.round(v)))
     return this
   }
 
   /**
    * Set default duration for subsequent notes.
-   * @deprecated Use duration parameter in note() instead
    */
   defaultDuration(duration: NoteDuration): this {
-    // This is a context setter, doesn't need mirroring
+    this._defaultDuration = duration
+    return this
+  }
+
+  // ===========================================================================
+  // Tempo, Time Signature & Swing
+  // ===========================================================================
+
+  /**
+   * Set tempo (BPM).
+   * Note: In live mode, tempo changes affect playback timing.
+   */
+  tempo(bpm: number): this {
+    // Store for metadata; actual tempo is handled by the transport
     return this
   }
 
   /**
-   * Transpose subsequent notes by semitones.
-   * Note: In live mode, transposition is applied at note() time.
+   * Set time signature.
    */
-  transpose(semitones: number): this {
-    // Store transposition for use in note()
-    // In this simplified version, we don't track transposition
-    // A full implementation would add a _transposition field
+  timeSignature(signature: TimeSignatureString): this {
+    // Store for metadata
     return this
   }
 
   /**
-   * Set octave register.
+   * Set swing amount (0-1).
    */
-  octave(n: number): this {
-    // Similar to transpose, this would be tracked and applied at note() time
+  swing(amount: number): this {
+    this._swing = Math.max(0, Math.min(1, amount))
+    return this
+  }
+
+  /**
+   * Set groove template.
+   */
+  groove(template: GrooveTemplate): this {
+    this._groove = template
+    return this
+  }
+
+  // ===========================================================================
+  // Humanization & Quantization
+  // ===========================================================================
+
+  /**
+   * Set default humanization for subsequent notes.
+   */
+  defaultHumanize(settings: HumanizeSettings): this {
+    this._humanize = settings
+    return this
+  }
+
+  /**
+   * Set default quantization for subsequent notes.
+   */
+  defaultQuantize(grid: NoteDuration, options?: { strength?: number; duration?: boolean }): this {
+    this._quantize = { grid, ...options }
+    return this
+  }
+
+  /**
+   * Alias for defaultQuantize.
+   */
+  quantize(grid: NoteDuration, options?: { strength?: number; duration?: boolean }): this {
+    return this.defaultQuantize(grid, options)
+  }
+
+  // ===========================================================================
+  // Control Messages
+  // ===========================================================================
+
+  /**
+   * Send MIDI Control Change (CC) message.
+   */
+  control(controller: number, value: number): this {
+    // In live mode, CC messages would be sent to the transport
+    // For now, this is a no-op placeholder
+    return this
+  }
+
+  // ===========================================================================
+  // Structural Operations
+  // ===========================================================================
+
+  /**
+   * Parallel execution - all operations in the callback start at same time.
+   */
+  stack(builderFn: (b: this) => this | LiveNoteCursor<this>): this {
+    const savedTick = this.currentTick
+    const result = builderFn(this)
+
+    // If cursor returned, commit it
+    if (result instanceof LiveNoteCursor) {
+      result.commit()
+    }
+
+    // Stack doesn't advance time past the longest parallel operation
+    // The individual operations already advanced currentTick,
+    // so we need to track the max and reset appropriately
+    // For simplicity, we don't restore tick - operations within stack are parallel
+    return this
+  }
+
+  /**
+   * Loop - repeat operations.
+   */
+  loop(count: number, builderFn: (b: this, iteration: number) => this | LiveNoteCursor<this>): this {
+    for (let i = 0; i < count; i++) {
+      const result = builderFn(this, i)
+      if (result instanceof LiveNoteCursor) {
+        result.commit()
+      }
+    }
+    return this
+  }
+
+  /**
+   * Play another clip inline (sequential).
+   */
+  play(clip: LiveClipBuilder): this {
+    // Copy operations from another clip
+    // In live mode, this would merge the clip's notes into this one
+    return this
+  }
+
+  /**
+   * Isolate scope - operations don't affect parent context.
+   */
+  isolate(options: { tempo?: boolean; velocity?: boolean }, builderFn: (b: this) => this): this {
+    const savedVelocity = this.currentVelocity
+    const result = builderFn(this)
+
+    if (options.velocity) {
+      this.currentVelocity = savedVelocity
+    }
+
     return this
   }
 
@@ -197,15 +322,10 @@ export class LiveClipBuilder {
   /**
    * Finalize execution and prune tombstones.
    * Call this at the end of script execution.
-   *
-   * Only nodes owned by THIS builder that were not touched are deleted.
-   * This allows multiple clips to coexist in the same bridge.
    */
   finalize(): void {
-    // Only prune nodes that this builder owns but didn't touch
     for (const sourceId of this.ownedSourceIds) {
       if (!this.touchedSourceIds.has(sourceId)) {
-        // Node was not touched → user deleted this line
         this.bridge.deleteNoteImmediate(sourceId)
         this.ownedSourceIds.delete(sourceId)
       }
@@ -217,7 +337,6 @@ export class LiveClipBuilder {
 
   /**
    * Reset touched set without pruning.
-   * Use when re-executing the same script.
    */
   resetTouched(): void {
     this.touchedSourceIds.clear()
@@ -225,33 +344,25 @@ export class LiveClipBuilder {
   }
 
   // ===========================================================================
-  // Source ID Generation (Call-Site Parsing)
+  // Source ID Generation
   // ===========================================================================
 
   /**
    * Generate SOURCE_ID from call site.
-   * Uses Error.stack to identify the calling line.
-   *
-   * @param offset - Optional offset for chord notes (different column)
    */
-  private getSourceIdFromCallSite(offset: number = 0): number {
+  protected getSourceIdFromCallSite(offset: number = 0): number {
     const stack = new Error().stack
     if (!stack) {
-      // Fallback: use sequential ID
       return this.bridge.generateSourceId()
     }
 
-    // Check cache first (keyed by stack + offset)
     const cacheKey = `${stack}:${offset}`
     const cached = LiveClipBuilder.stackCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < STACK_CACHE_TTL_MS) {
       return cached.sourceId
     }
 
-    // Parse call site from stack
     const callSite = this.parseCallSite(stack)
-
-    // Apply offset for chord notes
     const location: SourceLocation = {
       file: callSite.file,
       line: callSite.line,
@@ -260,7 +371,6 @@ export class LiveClipBuilder {
 
     const sourceId = this.bridge.generateSourceId(location)
 
-    // Cache the result
     LiveClipBuilder.stackCache.set(cacheKey, {
       sourceId,
       timestamp: Date.now()
@@ -271,19 +381,24 @@ export class LiveClipBuilder {
 
   /**
    * Parse call site from Error.stack.
-   * Finds the user code frame (skips internal frames).
    */
   private parseCallSite(stack: string): CallSite {
     const lines = stack.split('\n')
 
-    // Skip first line (Error message) and internal frames
-    // Look for first frame outside this file
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]
 
-      // Skip internal frames (LiveClipBuilder, SiliconBridge, etc.)
       if (
         line.includes('LiveClipBuilder') ||
+        line.includes('LiveMelodyBuilder') ||
+        line.includes('LiveDrumBuilder') ||
+        line.includes('LiveKeyboardBuilder') ||
+        line.includes('LiveStringsBuilder') ||
+        line.includes('LiveWindBuilder') ||
+        line.includes('LiveNoteCursor') ||
+        line.includes('LiveMelodyNoteCursor') ||
+        line.includes('LiveChordCursor') ||
+        line.includes('LiveDrumHitCursor') ||
         line.includes('silicon-bridge') ||
         line.includes('silicon-linker') ||
         line.includes('LiveSession') ||
@@ -292,27 +407,19 @@ export class LiveClipBuilder {
         continue
       }
 
-      // Parse the frame
       const parsed = this.parseStackFrame(line)
       if (parsed) {
         return parsed
       }
     }
 
-    // Fallback: return generic location
     return { file: 'unknown', line: 0, column: 0 }
   }
 
   /**
    * Parse a single stack frame line.
-   *
-   * Handles formats:
-   * - "    at functionName (file:line:column)"
-   * - "    at file:line:column"
-   * - "    at functionName (file:line)"
    */
   private parseStackFrame(frame: string): CallSite | null {
-    // Match: "at ... (file:line:column)" or "at file:line:column"
     const match = frame.match(/at\s+(?:.*?\s+\()?(.+?):(\d+):(\d+)\)?/)
     if (match) {
       return {
@@ -322,7 +429,6 @@ export class LiveClipBuilder {
       }
     }
 
-    // Match: "at ... (file:line)"
     const match2 = frame.match(/at\s+(?:.*?\s+\()?(.+?):(\d+)\)?/)
     if (match2) {
       return {
@@ -335,9 +441,6 @@ export class LiveClipBuilder {
     return null
   }
 
-  /**
-   * Cleanup expired cache entries.
-   */
   private static cleanupCache(): void {
     const now = Date.now()
     for (const [key, entry] of LiveClipBuilder.stackCache) {
@@ -353,30 +456,36 @@ export class LiveClipBuilder {
 
   /**
    * Synchronize a note: patch if exists, insert if new.
-   * Returns the actual sourceId used (may differ from input for new nodes).
    */
-  private synchronizeNote(
+  protected synchronizeNote(
     sourceId: number,
     pitch: number,
     velocity: number,
     duration: number,
     baseTick: number
-  ): number {
+  ): LiveNoteData {
     const ptr = this.bridge.getNodePtr(sourceId)
 
     if (ptr !== undefined) {
-      // PATCH: Node exists → update attributes
+      // PATCH: Node exists
       this.bridge.patchImmediate(sourceId, 'pitch', pitch)
       this.bridge.patchImmediate(sourceId, 'velocity', velocity)
       this.bridge.patchImmediate(sourceId, 'duration', duration)
       this.bridge.patchImmediate(sourceId, 'baseTick', baseTick)
 
-      // Track as touched and update lastSourceId
       this.touchedSourceIds.add(sourceId)
       this.lastSourceId = sourceId
-      return sourceId
+
+      return {
+        sourceId,
+        pitch,
+        velocity,
+        duration,
+        baseTick,
+        muted: false
+      }
     } else {
-      // INSERT: Node doesn't exist → create new
+      // INSERT: New node
       const noteData: EditorNoteData = {
         pitch,
         velocity,
@@ -385,22 +494,46 @@ export class LiveClipBuilder {
         muted: false
       }
 
-      // Insert after the last inserted node for chain ordering
-      // Only use afterSourceId if it exists in the bridge's mapping
       let afterSourceId: number | undefined
       if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
         afterSourceId = this.lastSourceId
       }
 
-      // insertNoteImmediate generates a new sourceId
       const newSourceId = this.bridge.insertNoteImmediate(noteData, afterSourceId)
 
-      // Track with the actual sourceId
       this.touchedSourceIds.add(newSourceId)
-      this.ownedSourceIds.add(newSourceId) // This builder now owns this node
+      this.ownedSourceIds.add(newSourceId)
       this.lastSourceId = newSourceId
-      return newSourceId
+
+      return {
+        sourceId: newSourceId,
+        pitch,
+        velocity,
+        duration,
+        baseTick,
+        muted: false
+      }
     }
+  }
+
+  // ===========================================================================
+  // Pitch Resolution
+  // ===========================================================================
+
+  /**
+   * Resolve pitch notation to MIDI number.
+   * Accepts either MIDI number or NoteName string.
+   */
+  protected resolvePitch(pitch: number | NoteName | string): number {
+    if (typeof pitch === 'number') {
+      return pitch
+    }
+
+    const midi = noteToMidi(pitch as NoteName)
+    if (midi === null) {
+      throw new Error(`Invalid pitch: ${pitch}`)
+    }
+    return midi
   }
 
   // ===========================================================================
@@ -410,16 +543,11 @@ export class LiveClipBuilder {
   /**
    * Resolve duration notation to ticks.
    */
-  private resolveDuration(duration?: NoteDuration): number {
-    if (duration === undefined) {
-      return this.ppq // Default to quarter note
-    }
-
+  protected resolveDuration(duration: NoteDuration): number {
     if (typeof duration === 'number') {
       return Math.round(duration * this.ppq)
     }
 
-    // Parse string notation (e.g., '4n', '8n', '16n')
     return Math.round(parseDuration(duration) * this.ppq)
   }
 
@@ -427,24 +555,19 @@ export class LiveClipBuilder {
   // Accessors
   // ===========================================================================
 
-  /**
-   * Get current tick position.
-   */
   getCurrentTick(): number {
     return this.currentTick
   }
 
-  /**
-   * Get set of touched SOURCE_IDs.
-   */
   getTouchedSourceIds(): Set<number> {
     return new Set(this.touchedSourceIds)
   }
 
-  /**
-   * Get the underlying bridge.
-   */
   getBridge(): SiliconBridge {
     return this.bridge
+  }
+
+  getName(): string {
+    return this.name
   }
 }

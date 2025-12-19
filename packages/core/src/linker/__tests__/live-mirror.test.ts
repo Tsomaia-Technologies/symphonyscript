@@ -368,13 +368,15 @@ describe('LiveClipBuilder - Tombstone Pattern', () => {
 // =============================================================================
 
 describe('LiveClipBuilder - API Compatibility', () => {
-  test('note() method exists and returns this', () => {
+  test('note() method exists and returns cursor', () => {
     const bridge = createTestBridge()
     const builder = new LiveClipBuilder(bridge)
 
-    const result = builder.note(60, 100, '4n')
+    const cursor = builder.note(60, 100, '4n')
 
-    expect(result).toBe(builder)
+    // note() now returns a cursor, not the builder
+    expect(cursor).not.toBe(builder)
+    expect(cursor.commit()).toBe(builder)
   })
 
   test('chord() method exists and returns this', () => {
@@ -429,14 +431,14 @@ describe('LiveClipBuilder - API Compatibility', () => {
     const bridge = createTestBridge()
     const builder = new LiveClipBuilder(bridge)
 
-    const result = builder
+    // With cursor pattern, use commit() or escape methods to chain
+    builder
       .velocity(80)
-      .note(60, undefined, '4n')
-      .note(64, undefined, '4n')
+      .note(60, undefined, '4n').commit()
+      .note(64, undefined, '4n').commit()
       .rest('4n')
-      .note(67, undefined, '4n')
+      .note(67, undefined, '4n').commit()
 
-    expect(result).toBe(builder)
     expect(bridge.getMappingCount()).toBe(3)
   })
 })
@@ -454,11 +456,11 @@ describe('LiveClipBuilder - Full User Flow', () => {
     const { bridge, consumer } = createTestEnvironment()
     LiveSession.init(bridge)
 
-    // User code (unchanged from existing API)
+    // User code with cursor pattern - note() returns cursor
     Clip.melody('Lead')
-      .note(60, 100, '4n')
-      .note(64, 100, '4n')
-      .note(67, 100, '4n')
+      .note('C4' as any, '4n').commit()
+      .note('E4' as any, '4n').commit()
+      .note('G4' as any, '4n').commit()
       .finalize()
 
     expect(bridge.getMappingCount()).toBe(3)
@@ -473,9 +475,10 @@ describe('LiveClipBuilder - Full User Flow', () => {
     const { bridge, consumer } = createTestEnvironment()
 
     const builder = executeUserScript(() => {
-      return Clip.melody('Lead')
-        .note(60, 100, '4n')
-        .note(64, 100, '4n')
+      const melody = Clip.melody('Lead')
+      melody.note('C4' as any, '4n').commit()
+      melody.note('E4' as any, '4n').commit()
+      return melody
     }, bridge)
 
     expect(builder).toBeInstanceOf(LiveClipBuilder)
@@ -486,15 +489,15 @@ describe('LiveClipBuilder - Full User Flow', () => {
     const { bridge, consumer } = createTestEnvironment()
     LiveSession.init(bridge)
 
-    // Create multiple clips
+    // Create multiple clips with cursor pattern
     Clip.melody('Lead')
-      .note(60, 100, '4n')
-      .note(64, 100, '4n')
+      .note('C4' as any, '4n').commit()
+      .note('E4' as any, '4n').commit()
       .finalize()
 
     Clip.bass('Bass')
-      .note(36, 100, '4n')
-      .note(40, 100, '4n')
+      .note('C2' as any, '4n').commit()
+      .note('E2' as any, '4n').commit()
       .finalize()
 
     // All notes should be in SAB
@@ -538,9 +541,9 @@ describe('LiveClipBuilder - Edge Cases', () => {
     const builder = new LiveClipBuilder(bridge)
 
     builder
-      .note(60, 100, '4n')
+      .note(60, 100, '4n').commit()
       .rest('4n')
-      .note(64, 100, '4n')
+      .note(64, 100, '4n').commit()
 
     // Only 2 notes, rest doesn't create node
     expect(bridge.getMappingCount()).toBe(2)
@@ -556,8 +559,8 @@ describe('LiveClipBuilder - Edge Cases', () => {
 
     builder
       .velocity(80)
-      .note(60, undefined, '4n')
-      .note(64, undefined, '4n')
+      .note(60, undefined, '4n').commit()
+      .note(64, undefined, '4n').commit()
 
     consumer.runUntilTick(960)
     const events = consumer.getEvents()

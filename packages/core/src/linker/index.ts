@@ -90,5 +90,22 @@ export type {
 
 // Live Mirror pattern (RFC-043 Phase 4)
 export { LiveClipBuilder } from './LiveClipBuilder'
+export { LiveMelodyBuilder } from './LiveMelodyBuilder'
+export { LiveDrumBuilder } from './LiveDrumBuilder'
+export { LiveKeyboardBuilder } from './LiveKeyboardBuilder'
+export { LiveStringsBuilder } from './LiveStringsBuilder'
+export { LiveWindBuilder } from './LiveWindBuilder'
 export { LiveSession, executeUserScript } from './LiveSession'
 export { Clip } from './Clip'
+
+// Live Cursors (RFC-043 Phase 4)
+export {
+  LiveNoteCursor,
+  LiveMelodyNoteCursor,
+  LiveChordCursor,
+  LiveDrumHitCursor,
+  type LiveNoteData,
+  type LiveMelodyNoteData,
+  type LiveChordData,
+  type LiveDrumHitData
+} from './cursors'
