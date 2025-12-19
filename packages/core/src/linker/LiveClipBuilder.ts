@@ -131,7 +131,7 @@ export class LiveClipBuilder {
     const noteData = this.synchronizeNote(sourceId, midiPitch, vel, dur, this.currentTick)
     this.currentTick += dur
 
-    return new LiveNoteCursor(this, noteData)
+    return new LiveNoteCursor(this, noteData) // todo: reuse same cursor, do not re-create
   }
 
   /**
