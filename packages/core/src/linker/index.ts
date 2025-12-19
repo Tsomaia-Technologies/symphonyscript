@@ -74,3 +74,7 @@ export {
 // Low-level components (for advanced use)
 export { FreeList } from './free-list'
 export { AttributePatcher } from './patch'
+
+// Testing utilities
+export { MockConsumer } from './mock-consumer'
+export type { ConsumerNoteEvent } from './mock-consumer'
