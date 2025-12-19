@@ -212,6 +212,7 @@ export class MockConsumer {
 
     if (groovePtr !== NULL_PTR && grooveLen > 0) {
       const grooveOffset = groovePtr / 4
+      // Groove step index based on tick position (per RFC-043 §7.9)
       const stepIndex = baseTick % grooveLen
       triggerTick += this.sab[grooveOffset + 1 + stepIndex] // +1 for length field
     }

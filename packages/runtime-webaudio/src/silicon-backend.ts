@@ -8,6 +8,11 @@ import type { SiliconMidiEvent, SiliconNoteEvent, PlayheadHandler } from './sili
 import { getAudioContext, ensureAudioContextRunning } from './context'
 import { pitchToFrequency, type SynthConfig, type ADSR } from './synth'
 
+// SAB Header offsets (must match @symphonyscript/core/linker/constants.ts)
+const HDR_PPQ = 2
+const HDR_BPM = 3
+const HDR_PLAYHEAD_TICK = 7
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -153,9 +158,9 @@ export class SiliconBackend {
   private scheduleNote(event: SiliconNoteEvent, baseTime: number): void {
     if (!this.sab) return
 
-    const ppq = this.sab[2] // HDR.PPQ
-    const bpm = this.sab[3] // HDR.BPM
-    const playheadTick = Atomics.load(this.sab, 7) // HDR.PLAYHEAD_TICK
+    const ppq = this.sab[HDR_PPQ]
+    const bpm = this.sab[HDR_BPM]
+    const playheadTick = Atomics.load(this.sab, HDR_PLAYHEAD_TICK)
 
     // Convert tick offset to seconds
     const ticksPerSecond = (bpm / 60) * ppq
@@ -387,7 +392,7 @@ export class SiliconBackend {
    */
   getPlayheadTick(): number {
     if (!this.sab) return 0
-    return Atomics.load(this.sab, 7) // HDR.PLAYHEAD_TICK
+    return Atomics.load(this.sab, HDR_PLAYHEAD_TICK)
   }
 
   /**

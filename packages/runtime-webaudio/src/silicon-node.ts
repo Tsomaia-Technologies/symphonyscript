@@ -5,6 +5,9 @@
 
 import { getAudioContext, ensureAudioContextRunning } from './context'
 
+// SAB Header offset (must match @symphonyscript/core/linker/constants.ts)
+const HDR_PLAYHEAD_TICK = 7
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -229,7 +232,7 @@ export class SiliconNode {
 
     // Set playhead tick in SAB
     const sab = new Int32Array(this.buffer)
-    Atomics.store(sab, 7, tick) // HDR.PLAYHEAD_TICK = 7
+    Atomics.store(sab, HDR_PLAYHEAD_TICK, tick)
 
     // Tell processor to re-sync
     this.workletNode.port.postMessage({ type: 'seek' })

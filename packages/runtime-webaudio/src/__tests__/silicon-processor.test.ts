@@ -6,7 +6,129 @@
 
 import { SiliconLinker } from '@symphonyscript/core/linker'
 import { MockConsumer } from '@symphonyscript/core/linker/mock-consumer'
-import { OPCODE } from '@symphonyscript/core/linker/constants'
+import {
+  OPCODE,
+  HDR,
+  REG,
+  NODE,
+  PACKED,
+  FLAG,
+  COMMIT,
+  NULL_PTR
+} from '@symphonyscript/core/linker/constants'
+
+// =============================================================================
+// Constants Sync Verification
+// =============================================================================
+// These tests verify that the duplicated constants in silicon-processor.ts
+// match the canonical constants in @symphonyscript/core/linker/constants.ts.
+
+describe('Constants Sync Verification', () => {
+  // Expected values from silicon-processor.ts (must match constants.ts)
+  const PROCESSOR_HDR = {
+    MAGIC: 0,
+    VERSION: 1,
+    PPQ: 2,
+    BPM: 3,
+    HEAD_PTR: 4,
+    FREE_LIST_PTR: 5,
+    COMMIT_FLAG: 6,
+    PLAYHEAD_TICK: 7,
+    SAFE_ZONE_TICKS: 8,
+    ERROR_FLAG: 9,
+    NODE_COUNT: 10,
+    FREE_COUNT: 11,
+    NODE_CAPACITY: 12,
+    HEAP_START: 13,
+    GROOVE_START: 14
+  }
+
+  const PROCESSOR_REG = {
+    GROOVE_PTR: 16,
+    GROOVE_LEN: 17,
+    HUMAN_TIMING_PPT: 18,
+    HUMAN_VEL_PPT: 19,
+    TRANSPOSE: 20,
+    VELOCITY_MULT: 21,
+    PRNG_SEED: 22
+  }
+
+  const PROCESSOR_NODE = {
+    PACKED_A: 0,
+    BASE_TICK: 1,
+    DURATION: 2,
+    NEXT_PTR: 3,
+    PREV_PTR: 4,
+    SOURCE_ID: 5,
+    SEQ_FLAGS: 6,
+    RESERVED: 7
+  }
+
+  it('HDR constants should match', () => {
+    expect(HDR.MAGIC).toBe(PROCESSOR_HDR.MAGIC)
+    expect(HDR.VERSION).toBe(PROCESSOR_HDR.VERSION)
+    expect(HDR.PPQ).toBe(PROCESSOR_HDR.PPQ)
+    expect(HDR.BPM).toBe(PROCESSOR_HDR.BPM)
+    expect(HDR.HEAD_PTR).toBe(PROCESSOR_HDR.HEAD_PTR)
+    expect(HDR.FREE_LIST_PTR).toBe(PROCESSOR_HDR.FREE_LIST_PTR)
+    expect(HDR.COMMIT_FLAG).toBe(PROCESSOR_HDR.COMMIT_FLAG)
+    expect(HDR.PLAYHEAD_TICK).toBe(PROCESSOR_HDR.PLAYHEAD_TICK)
+    expect(HDR.SAFE_ZONE_TICKS).toBe(PROCESSOR_HDR.SAFE_ZONE_TICKS)
+    expect(HDR.ERROR_FLAG).toBe(PROCESSOR_HDR.ERROR_FLAG)
+    expect(HDR.NODE_COUNT).toBe(PROCESSOR_HDR.NODE_COUNT)
+    expect(HDR.FREE_COUNT).toBe(PROCESSOR_HDR.FREE_COUNT)
+    expect(HDR.NODE_CAPACITY).toBe(PROCESSOR_HDR.NODE_CAPACITY)
+    expect(HDR.HEAP_START).toBe(PROCESSOR_HDR.HEAP_START)
+    expect(HDR.GROOVE_START).toBe(PROCESSOR_HDR.GROOVE_START)
+  })
+
+  it('REG constants should match', () => {
+    expect(REG.GROOVE_PTR).toBe(PROCESSOR_REG.GROOVE_PTR)
+    expect(REG.GROOVE_LEN).toBe(PROCESSOR_REG.GROOVE_LEN)
+    expect(REG.HUMAN_TIMING_PPT).toBe(PROCESSOR_REG.HUMAN_TIMING_PPT)
+    expect(REG.HUMAN_VEL_PPT).toBe(PROCESSOR_REG.HUMAN_VEL_PPT)
+    expect(REG.TRANSPOSE).toBe(PROCESSOR_REG.TRANSPOSE)
+    expect(REG.VELOCITY_MULT).toBe(PROCESSOR_REG.VELOCITY_MULT)
+    expect(REG.PRNG_SEED).toBe(PROCESSOR_REG.PRNG_SEED)
+  })
+
+  it('NODE constants should match', () => {
+    expect(NODE.PACKED_A).toBe(PROCESSOR_NODE.PACKED_A)
+    expect(NODE.BASE_TICK).toBe(PROCESSOR_NODE.BASE_TICK)
+    expect(NODE.DURATION).toBe(PROCESSOR_NODE.DURATION)
+    expect(NODE.NEXT_PTR).toBe(PROCESSOR_NODE.NEXT_PTR)
+    expect(NODE.PREV_PTR).toBe(PROCESSOR_NODE.PREV_PTR)
+    expect(NODE.SOURCE_ID).toBe(PROCESSOR_NODE.SOURCE_ID)
+    expect(NODE.SEQ_FLAGS).toBe(PROCESSOR_NODE.SEQ_FLAGS)
+    expect(NODE.RESERVED).toBe(PROCESSOR_NODE.RESERVED)
+  })
+
+  it('PACKED constants should match', () => {
+    expect(PACKED.OPCODE_SHIFT).toBe(24)
+    expect(PACKED.OPCODE_MASK).toBe(0xff000000)
+    expect(PACKED.PITCH_SHIFT).toBe(16)
+    expect(PACKED.PITCH_MASK).toBe(0x00ff0000)
+    expect(PACKED.VELOCITY_SHIFT).toBe(8)
+    expect(PACKED.VELOCITY_MASK).toBe(0x0000ff00)
+    expect(PACKED.FLAGS_MASK).toBe(0x000000ff)
+  })
+
+  it('FLAG constants should match', () => {
+    expect(FLAG.ACTIVE).toBe(0x01)
+    expect(FLAG.MUTED).toBe(0x02)
+    expect(FLAG.DIRTY).toBe(0x04)
+  })
+
+  it('COMMIT constants should match', () => {
+    expect(COMMIT.IDLE).toBe(0)
+    expect(COMMIT.PENDING).toBe(1)
+    expect(COMMIT.ACK).toBe(2)
+  })
+
+  it('NULL_PTR should match', () => {
+    expect(NULL_PTR).toBe(0)
+  })
+})
 
 // Use safeZoneTicks: 0 to allow insertions at any tick for testing
 const TEST_CONFIG = { nodeCapacity: 100, safeZoneTicks: 0 }

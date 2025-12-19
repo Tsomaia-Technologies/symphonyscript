@@ -29,7 +29,20 @@ declare function registerProcessor(
 ): void
 
 // =============================================================================
-// Constants (duplicated from linker/constants.ts for worklet isolation)
+// Constants (duplicated from @symphonyscript/core/linker/constants.ts)
+// =============================================================================
+//
+// IMPORTANT: AudioWorklet processors run in an isolated context and cannot
+// import from external modules. These constants MUST be kept in sync with
+// packages/core/src/linker/constants.ts.
+//
+// Sync Strategy:
+// 1. Any changes to constants.ts must be manually reflected here
+// 2. Run `npm test -- silicon-processor` to verify sync via shared tests
+// 3. The integration tests use the same SiliconLinker + MockConsumer,
+//    ensuring the constants produce identical behavior
+//
+// Future: Consider a build-time code generation step to auto-sync constants.
 // =============================================================================
 
 const HDR = {
@@ -282,10 +295,9 @@ class SiliconProcessor extends AudioWorkletProcessor {
     }
 
     const grooveOffset = groovePtr / 4
-    const ppq = this.sab[HDR.PPQ]
 
-    // Groove step index based on beat position
-    const stepIndex = Math.floor(baseTick / ppq) % grooveLen
+    // Groove step index based on tick position (per RFC-043 §7.9)
+    const stepIndex = baseTick % grooveLen
 
     // Read groove offset for this step
     const tickOffset = this.sab[grooveOffset + 1 + stepIndex]
