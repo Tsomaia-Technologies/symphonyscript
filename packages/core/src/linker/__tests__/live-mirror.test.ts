@@ -49,6 +49,17 @@ function createTestEnvironment() {
   return { linker, bridge, consumer }
 }
 
+// Helper to collect notes from traverseNotes into an array for test assertions
+function collectNotes(
+  bridge: SiliconBridge
+): Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> {
+  const notes: Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> = []
+  bridge.traverseNotes((sourceId, note) => {
+    notes.push({ sourceId, note })
+  })
+  return notes
+}
+
 // =============================================================================
 // LiveSession Tests
 // =============================================================================
@@ -542,7 +553,7 @@ describe('LiveClipBuilder - Edge Cases', () => {
     expect(bridge.getMappingCount()).toBe(2)
 
     // Verify tick positions
-    const notes = Array.from(bridge.iterateNotes())
+    const notes = collectNotes(bridge)
     expect(notes.length).toBe(2)
   })
 

@@ -41,6 +41,15 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Helper to collect notes from traverseNotes into an array for test assertions
+function collectNotes(bridge: SiliconBridge): Array<{ sourceId: number; note: EditorNoteData }> {
+  const notes: Array<{ sourceId: number; note: EditorNoteData }> = []
+  bridge.traverseNotes((sourceId, note) => {
+    notes.push({ sourceId, note })
+  })
+  return notes
+}
+
 // =============================================================================
 // Source ID Generation Tests
 // =============================================================================
@@ -195,7 +204,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const id3 = bridge.insertNoteImmediate(createTestNote({ baseTick: 480 }), id1)
 
     // Verify chain order via iteration
-    const notes = Array.from(bridge.iterateNotes())
+    const notes = collectNotes(bridge)
     const ticks = notes.map((n) => n.note.baseTick)
 
     // insertHead prepends, so order depends on insertion order
@@ -478,7 +487,7 @@ describe('SiliconBridge - Batch Operations', () => {
     bridge.loadClip(notes)
 
     // Iterate and verify order
-    const iterated = Array.from(bridge.iterateNotes())
+    const iterated = collectNotes(bridge)
     const ticks = iterated.map((n) => n.note.baseTick)
 
     expect(ticks).toEqual([0, 480, 960])
@@ -549,7 +558,7 @@ describe('SiliconBridge - Read Operations', () => {
     expect(readNote!.muted).toBe(true)
   })
 
-  test('iterateNotes yields all notes in chain order', () => {
+  test('traverseNotes yields all notes in chain order', () => {
     const bridge = createTestBridge()
 
     bridge.loadClip([
@@ -558,7 +567,7 @@ describe('SiliconBridge - Read Operations', () => {
       createTestNote({ baseTick: 960, pitch: 67 })
     ])
 
-    const notes = Array.from(bridge.iterateNotes())
+    const notes = collectNotes(bridge)
 
     expect(notes.length).toBe(3)
     expect(notes[0].note.pitch).toBe(60)
@@ -566,12 +575,12 @@ describe('SiliconBridge - Read Operations', () => {
     expect(notes[2].note.pitch).toBe(67)
   })
 
-  test('iterateNotes includes sourceId with each note', () => {
+  test('traverseNotes includes sourceId with each note', () => {
     const bridge = createTestBridge()
 
     const sourceIds = bridge.loadClip([createTestNote({ baseTick: 0 })])
 
-    const notes = Array.from(bridge.iterateNotes())
+    const notes = collectNotes(bridge)
 
     expect(notes[0].sourceId).toBe(sourceIds[0])
   })
@@ -675,7 +684,7 @@ describe('SiliconBridge - Integration', () => {
     expect(bridge.getMappingCount()).toBe(2)
 
     // Verify remaining notes
-    const notes = Array.from(bridge.iterateNotes())
+    const notes = collectNotes(bridge)
     expect(notes.length).toBe(2)
     expect(notes[0].note.baseTick).toBe(480)
     expect(notes[1].note.baseTick).toBe(960)

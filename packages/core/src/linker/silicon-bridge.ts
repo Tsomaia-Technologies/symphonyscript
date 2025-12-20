@@ -117,6 +117,9 @@ export class SiliconBridge {
   // Source ID generation
   private nextSourceId: number = 1
 
+  // Traverse callback state (for zero-alloc traverseNotes)
+  private traverseNotesCallback: ((sourceId: number, note: EditorNoteData) => void) | null = null
+
   constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
     this.linker = linker
     this.attributeDebounceMs = options.attributeDebounceMs ?? 10
@@ -542,29 +545,45 @@ export class SiliconBridge {
   }
 
   /**
-   * Iterate all notes in chain order.
+   * Hoisted traverse callback handler (zero-allocation).
+   * CRITICAL: This method is pre-bound to avoid object allocation in traverse().
    */
-  *iterateNotes(): Generator<{ sourceId: number; note: EditorNoteData }> {
-    const results: Array<{ sourceId: number; note: EditorNoteData }> = []
+  private handleTraverseNode = (
+    ptr: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    flags: number,
+    sourceId: number,
+    seq: number
+  ): void => {
+    if (sourceId !== 0 && this.traverseNotesCallback) {
+      // Reconstruct EditorNoteData and call user callback directly
+      this.traverseNotesCallback(sourceId, {
+        pitch,
+        velocity,
+        duration,
+        baseTick,
+        muted: (flags & 0x02) !== 0,
+        source: this.sourceIdToLocation.get(sourceId)
+      })
+    }
+  }
 
-    this.linker.traverse((ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq) => {
-      if (sourceId !== 0) {
-        results.push({
-          sourceId,
-          note: {
-            pitch,
-            velocity,
-            duration,
-            baseTick,
-            muted: (flags & 0x02) !== 0,
-            source: this.sourceIdToLocation.get(sourceId)
-          }
-        })
-      }
-    })
-
-    for (const item of results) {
-      yield item
+  /**
+   * Traverse all notes in chain order with zero-allocation callback pattern.
+   *
+   * CRITICAL: This method adheres to the Zero-Alloc policy.
+   * It uses a pre-bound handler to avoid inline arrow function allocation.
+   */
+  traverseNotes(cb: (sourceId: number, note: EditorNoteData) => void): void {
+    this.traverseNotesCallback = cb
+    try {
+      this.linker.traverse(this.handleTraverseNode)
+    } finally {
+      this.traverseNotesCallback = null
     }
   }
 

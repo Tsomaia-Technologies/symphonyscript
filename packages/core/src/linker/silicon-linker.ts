@@ -548,10 +548,12 @@ export class SiliconLinker implements ISiliconLinker {
    * Passing inline arrow functions will allocate objects and defeat the Zero-Alloc purpose.
    *
    * **Contention Handling:** If a node read experiences contention, this method will retry
-   * indefinitely until a consistent read is obtained. Data integrity is prioritized over
-   * performance in high-contention scenarios.
+   * until a consistent read is obtained. Data integrity is prioritized over performance.
+   * However, a safety bailout throws an error after 1,000 failed read attempts to prevent
+   * indefinite main thread freezes during pathological contention scenarios.
    *
    * @param cb - Callback function receiving node data as primitive arguments
+   * @throws Error if a single node experiences >1,000 read contention retries
    */
   traverse(
     cb: (
@@ -578,8 +580,17 @@ export class SiliconLinker implements ISiliconLinker {
         baseTick: number,
         nextPtr: number,
         sourceId: number
+      let readAttempts = 0
 
       do {
+        // Safety bailout: prevent infinite loop on severe contention
+        if (readAttempts >= 1000) {
+          throw new Error(
+            'SiliconLinker: Traversal read timeout - severe contention ' +
+              `(node ptr=${ptr}, ${readAttempts} failed read attempts)`
+          )
+        }
+
         // Read SEQ before reading fields (version number)
         seq1 =
           (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
@@ -596,7 +607,7 @@ export class SiliconLinker implements ISiliconLinker {
           (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
 
         // If SEQ changed, writer was mutating during our read - retry
-        // NOTE: Infinite retry on contention - data integrity is priority
+        readAttempts++
       } while (seq1 !== seq2)
 
       // SEQ is stable - extract opcode/pitch/velocity/flags from packed field
