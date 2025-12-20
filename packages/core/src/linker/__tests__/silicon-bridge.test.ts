@@ -53,6 +53,15 @@ function collectNotes(bridge: SiliconBridge): Array<{ sourceId: number; note: Ed
   return notes
 }
 
+// Helper to read a note using the callback pattern and return EditorNoteData for test assertions
+function readNoteData(bridge: SiliconBridge, sourceId: number): EditorNoteData | undefined {
+  let result: EditorNoteData | undefined
+  const success = bridge.readNote(sourceId, (pitch, velocity, duration, baseTick, muted) => {
+    result = { pitch, velocity, duration, baseTick, muted }
+  })
+  return success ? result : undefined
+}
+
 // =============================================================================
 // Source ID Generation Tests
 // =============================================================================
@@ -190,7 +199,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const note = createTestNote({ pitch: 64, velocity: 80, duration: 240, baseTick: 100 })
     const sourceId = bridge.insertNoteImmediate(note)
 
-    const readNote = bridge.readNote(sourceId)
+    const readNote = readNoteData(bridge, sourceId)
 
     expect(readNote).toBeDefined()
     expect(readNote!.pitch).toBe(64)
@@ -231,7 +240,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote())
     bridge.deleteNoteImmediate(sourceId)
 
-    expect(bridge.readNote(sourceId)).toBeUndefined()
+    expect(readNoteData(bridge, sourceId)).toBeUndefined()
   })
 
   test('deleteNoteImmediate with invalid sourceId throws', () => {
@@ -248,7 +257,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
     bridge.patchImmediate(sourceId, 'pitch', 72)
 
-    expect(bridge.readNote(sourceId)!.pitch).toBe(72)
+    expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
   })
 
   test('patchImmediate updates velocity', () => {
@@ -257,7 +266,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ velocity: 100 }))
     bridge.patchImmediate(sourceId, 'velocity', 64)
 
-    expect(bridge.readNote(sourceId)!.velocity).toBe(64)
+    expect(readNoteData(bridge, sourceId)!.velocity).toBe(64)
   })
 
   test('patchImmediate updates duration', () => {
@@ -266,7 +275,7 @@ describe('SiliconBridge - Immediate Operations', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ duration: 480 }))
     bridge.patchImmediate(sourceId, 'duration', 240)
 
-    expect(bridge.readNote(sourceId)!.duration).toBe(240)
+    expect(readNoteData(bridge, sourceId)!.duration).toBe(240)
   })
 
   test('patchImmediate updates baseTick', () => {
@@ -275,20 +284,20 @@ describe('SiliconBridge - Immediate Operations', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
     bridge.patchImmediate(sourceId, 'baseTick', 960)
 
-    expect(bridge.readNote(sourceId)!.baseTick).toBe(960)
+    expect(readNoteData(bridge, sourceId)!.baseTick).toBe(960)
   })
 
   test('patchImmediate updates muted state', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ muted: false }))
-    expect(bridge.readNote(sourceId)!.muted).toBe(false)
+    expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
 
     bridge.patchImmediate(sourceId, 'muted', true)
-    expect(bridge.readNote(sourceId)!.muted).toBe(true)
+    expect(readNoteData(bridge, sourceId)!.muted).toBe(true)
 
     bridge.patchImmediate(sourceId, 'muted', false)
-    expect(bridge.readNote(sourceId)!.muted).toBe(false)
+    expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
   })
 
   test('patchImmediate with invalid sourceId throws', () => {
@@ -332,7 +341,7 @@ describe('SiliconBridge - Debounced Operations', () => {
     await wait(20)
 
     // Final value should be 64
-    expect(bridge.readNote(sourceId)!.pitch).toBe(64)
+    expect(readNoteData(bridge, sourceId)!.pitch).toBe(64)
   })
 
   test('patchDebounced does not coalesce different fields', async () => {
@@ -349,8 +358,8 @@ describe('SiliconBridge - Debounced Operations', () => {
     // Wait for debounce
     await wait(20)
 
-    expect(bridge.readNote(sourceId)!.pitch).toBe(72)
-    expect(bridge.readNote(sourceId)!.velocity).toBe(80)
+    expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
+    expect(readNoteData(bridge, sourceId)!.velocity).toBe(80)
   })
 
   test('flushPatches applies all pending patches', () => {
@@ -365,8 +374,8 @@ describe('SiliconBridge - Debounced Operations', () => {
     bridge.flushPatches()
 
     expect(bridge.getPendingPatchCount()).toBe(0)
-    expect(bridge.readNote(sourceId)!.pitch).toBe(72)
-    expect(bridge.readNote(sourceId)!.velocity).toBe(80)
+    expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
+    expect(readNoteData(bridge, sourceId)!.velocity).toBe(80)
   })
 
   test('onPatchApplied callback is called', () => {
@@ -473,9 +482,9 @@ describe('SiliconBridge - Batch Operations', () => {
     const sourceIds = bridge.loadClip(notes)
 
     // Verify each sourceId maps to correct note
-    expect(bridge.readNote(sourceIds[0])!.pitch).toBe(60)
-    expect(bridge.readNote(sourceIds[1])!.pitch).toBe(64)
-    expect(bridge.readNote(sourceIds[2])!.pitch).toBe(67)
+    expect(readNoteData(bridge, sourceIds[0])!.pitch).toBe(60)
+    expect(readNoteData(bridge, sourceIds[1])!.pitch).toBe(64)
+    expect(readNoteData(bridge, sourceIds[2])!.pitch).toBe(67)
   })
 
   test('loadClip creates sorted chain', () => {
@@ -533,10 +542,10 @@ describe('SiliconBridge - Batch Operations', () => {
 // =============================================================================
 
 describe('SiliconBridge - Read Operations', () => {
-  test('readNote returns undefined for invalid sourceId', () => {
+  test('readNote returns false for invalid sourceId', () => {
     const bridge = createTestBridge()
 
-    expect(bridge.readNote(99999)).toBeUndefined()
+    expect(readNoteData(bridge, 99999)).toBeUndefined()
   })
 
   test('readNote returns complete note data', () => {
@@ -551,7 +560,7 @@ describe('SiliconBridge - Read Operations', () => {
     })
     const sourceId = bridge.insertNoteImmediate(note)
 
-    const readNote = bridge.readNote(sourceId)
+    const readNote = readNoteData(bridge, sourceId)
 
     expect(readNote).toBeDefined()
     expect(readNote!.pitch).toBe(64)
@@ -650,7 +659,7 @@ describe('SiliconBridge - Factory Function', () => {
     // Wait shorter than default but longer than custom
     await wait(10)
 
-    expect(bridge.readNote(sourceId)!.pitch).toBe(72)
+    expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
   })
 })
 
@@ -680,7 +689,7 @@ describe('SiliconBridge - Integration', () => {
     bridge.patchDebounced(sourceIds[1], 'pitch', 65)
     await wait(10)
 
-    expect(bridge.readNote(sourceIds[1])!.pitch).toBe(65)
+    expect(readNoteData(bridge, sourceIds[1])!.pitch).toBe(65)
 
     // Delete
     bridge.deleteNoteImmediate(sourceIds[0])
@@ -714,7 +723,7 @@ describe('SiliconBridge - Integration', () => {
     await wait(10)
 
     // Final values
-    const note = bridge.readNote(sourceId)!
+    const note = readNoteData(bridge, sourceId)!
     expect(note.pitch).toBe(60 + (99 % 12)) // 60 + 3 = 63
     expect(note.velocity).toBe(50 + (99 % 50)) // 50 + 49 = 99
   })
@@ -733,8 +742,11 @@ describe('SiliconBridge - Integration', () => {
     // Patch the note
     bridge.patchImmediate(sourceId, 'pitch', 72)
 
-    // Read back and verify source is preserved
-    const readNote = bridge.readNote(sourceId)
-    expect(readNote?.source).toEqual(source)
+    // Read back and verify note data is correct
+    const readNote = readNoteData(bridge, sourceId)
+    expect(readNote?.pitch).toBe(72)
+
+    // Source location is accessed separately (not in SAB, stored in Bridge's Map)
+    expect(bridge.getSourceLocation(sourceId)).toEqual(source)
   })
 })

@@ -37,21 +37,43 @@ function createTestLinker(nodeCapacity = 64): SiliconLinker {
 }
 
 /**
- * Create minimal note data for testing.
+ * Create minimal note data for testing - returns parameters array for insertHead.
  */
 function noteData(
   pitch: number,
   baseTick: number,
   duration = 96
-): Parameters<SiliconLinker['insertHead']>[0] {
-  return {
-    opcode: OPCODE.NOTE,
-    pitch,
-    velocity: 100,
-    duration,
-    baseTick,
-    sourceId: pitch * 1000 + baseTick
-  }
+): [number, number, number, number, number, number, number] {
+  return [
+    OPCODE.NOTE,  // opcode
+    pitch,        // pitch
+    100,          // velocity
+    duration,     // duration
+    baseTick,     // baseTick
+    pitch * 1000 + baseTick, // sourceId
+    FLAG.ACTIVE   // flags
+  ]
+}
+
+/**
+ * Helper to read a node using callback pattern.
+ */
+function readNodeData(linker: SiliconLinker, ptr: number): {
+  opcode: number
+  pitch: number
+  velocity: number
+  duration: number
+  baseTick: number
+  nextPtr: number
+  sourceId: number
+  flags: number
+  seq: number
+} | undefined {
+  let result: ReturnType<typeof readNodeData>
+  const success = linker.readNode(ptr, (p, opcode, pitch, velocity, duration, baseTick, nextPtr, sourceId, flags, seq) => {
+    result = { opcode, pitch, velocity, duration, baseTick, nextPtr, sourceId, flags, seq }
+  })
+  return success ? result : undefined
 }
 
 /**
@@ -158,8 +180,8 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker(32)
 
       // Insert some nodes
-      linker.insertHead(noteData(60, 0))
-      linker.insertHead(noteData(64, 96))
+      linker.insertHead(...noteData(60, 0))
+      linker.insertHead(...noteData(64, 96))
       expect(linker.getNodeCount()).toBe(2)
 
       // Reset
@@ -240,7 +262,7 @@ describe('RFC-043: Silicon Linker', () => {
     it('should insert node at head', () => {
       const linker = createTestLinker()
 
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
       expect(ptr).not.toBe(NULL_PTR)
       expect(linker.getHead()).toBe(ptr)
       expect(linker.getNodeCount()).toBe(1)
@@ -250,9 +272,9 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker()
 
       // Insert three notes (they'll be in reverse order at head)
-      const ptr1 = linker.insertHead(noteData(60, 0))
-      const ptr2 = linker.insertHead(noteData(64, 96))
-      const ptr3 = linker.insertHead(noteData(67, 192))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
+      const ptr2 = linker.insertHead(...noteData(64, 96))
+      const ptr3 = linker.insertHead(...noteData(67, 192))
 
       expect(linker.getHead()).toBe(ptr3)
       expect(linker.getNodeCount()).toBe(3)
@@ -269,19 +291,19 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker()
 
       // Insert first node
-      const ptr1 = linker.insertHead(noteData(60, 0))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
 
       // Insert second node after first
-      const ptr2 = linker.insertNode(ptr1, noteData(64, 96))
+      const ptr2 = linker.insertNode(ptr1, ...noteData(64, 96))
 
       expect(linker.getNodeCount()).toBe(2)
 
       // Verify chain: ptr1 -> ptr2 -> NULL
-      const node1 = linker.readNode(ptr1)
-      expect(node1.nextPtr).toBe(ptr2)
+      const node1 = readNodeData(linker, ptr1)
+      expect(node1?.nextPtr).toBe(ptr2)
 
-      const node2 = linker.readNode(ptr2)
-      expect(node2.nextPtr).toBe(NULL_PTR)
+      const node2 = readNodeData(linker, ptr2)
+      expect(node2?.nextPtr).toBe(NULL_PTR)
     })
 
     it('should set COMMIT_FLAG after structural change', () => {
@@ -290,7 +312,7 @@ describe('RFC-043: Silicon Linker', () => {
 
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
 
-      linker.insertHead(noteData(60, 0))
+      linker.insertHead(...noteData(60, 0))
 
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
     })
@@ -303,8 +325,8 @@ describe('RFC-043: Silicon Linker', () => {
     it('should delete head node', () => {
       const linker = createTestLinker()
 
-      const ptr1 = linker.insertHead(noteData(60, 0))
-      const ptr2 = linker.insertHead(noteData(64, 96))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
+      const ptr2 = linker.insertHead(...noteData(64, 96))
 
       expect(linker.getHead()).toBe(ptr2)
 
@@ -317,29 +339,29 @@ describe('RFC-043: Silicon Linker', () => {
     it('should delete middle node', () => {
       const linker = createTestLinker()
 
-      const ptr1 = linker.insertHead(noteData(60, 0))
-      const ptr2 = linker.insertNode(ptr1, noteData(64, 96))
-      const ptr3 = linker.insertNode(ptr2, noteData(67, 192))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
+      const ptr2 = linker.insertNode(ptr1, ...noteData(64, 96))
+      const ptr3 = linker.insertNode(ptr2, ...noteData(67, 192))
 
       // Chain: ptr1 -> ptr2 -> ptr3
       linker.deleteNode(ptr2)
 
       // Chain should now be: ptr1 -> ptr3
-      const node1 = linker.readNode(ptr1)
-      expect(node1.nextPtr).toBe(ptr3)
+      const node1 = readNodeData(linker, ptr1)
+      expect(node1?.nextPtr).toBe(ptr3)
       expect(linker.getNodeCount()).toBe(2)
     })
 
     it('should delete tail node', () => {
       const linker = createTestLinker()
 
-      const ptr1 = linker.insertHead(noteData(60, 0))
-      const ptr2 = linker.insertNode(ptr1, noteData(64, 96))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
+      const ptr2 = linker.insertNode(ptr1, ...noteData(64, 96))
 
       linker.deleteNode(ptr2)
 
-      const node1 = linker.readNode(ptr1)
-      expect(node1.nextPtr).toBe(NULL_PTR)
+      const node1 = readNodeData(linker, ptr1)
+      expect(node1?.nextPtr).toBe(NULL_PTR)
       expect(linker.getNodeCount()).toBe(1)
     })
   })
@@ -350,71 +372,71 @@ describe('RFC-043: Silicon Linker', () => {
   describe('5. Attribute Patching', () => {
     it('should patch pitch immediately', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       linker.patchPitch(ptr, 72)
 
-      const node = linker.readNode(ptr)
-      expect(node.pitch).toBe(72)
+      const node = readNodeData(linker, ptr)
+      expect(node?.pitch).toBe(72)
     })
 
     it('should patch velocity immediately', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       linker.patchVelocity(ptr, 50)
 
-      const node = linker.readNode(ptr)
-      expect(node.velocity).toBe(50)
+      const node = readNodeData(linker, ptr)
+      expect(node?.velocity).toBe(50)
     })
 
     it('should patch duration immediately', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0, 96))
+      const ptr = linker.insertHead(...noteData(60, 0, 96))
 
       linker.patchDuration(ptr, 192)
 
-      const node = linker.readNode(ptr)
-      expect(node.duration).toBe(192)
+      const node = readNodeData(linker, ptr)
+      expect(node?.duration).toBe(192)
     })
 
     it('should patch baseTick immediately', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       linker.patchBaseTick(ptr, 480)
 
-      const node = linker.readNode(ptr)
-      expect(node.baseTick).toBe(480)
+      const node = readNodeData(linker, ptr)
+      expect(node?.baseTick).toBe(480)
     })
 
     it('should patch muted flag', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       linker.patchMuted(ptr, true)
-      let node = linker.readNode(ptr)
-      expect(node.flags & FLAG.MUTED).toBe(FLAG.MUTED)
+      let node = readNodeData(linker, ptr)
+      expect((node?.flags ?? 0) & FLAG.MUTED).toBe(FLAG.MUTED)
 
       linker.patchMuted(ptr, false)
-      node = linker.readNode(ptr)
-      expect(node.flags & FLAG.MUTED).toBe(0)
+      node = readNodeData(linker, ptr)
+      expect((node?.flags ?? 0) & FLAG.MUTED).toBe(0)
     })
 
     it('should clamp pitch to MIDI range', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       linker.patchPitch(ptr, 200) // Over max
-      expect(linker.readNode(ptr).pitch).toBe(127)
+      expect(readNodeData(linker, ptr)!.pitch).toBe(127)
 
       linker.patchPitch(ptr, -10) // Under min
-      expect(linker.readNode(ptr).pitch).toBe(0)
+      expect(readNodeData(linker, ptr)!.pitch).toBe(0)
     })
 
     it('should NOT set COMMIT_FLAG for attribute patches', () => {
       const linker = createTestLinker()
-      const ptr = linker.insertHead(noteData(60, 0))
+      const ptr = linker.insertHead(...noteData(60, 0))
 
       // Clear the commit flag set by insertHead
       const sab = new Int32Array(linker.getSAB())
@@ -442,7 +464,7 @@ describe('RFC-043: Silicon Linker', () => {
 
       // First, insert a node far in the future (outside safe zone)
       // Playhead starts at 0, so tick 2000 is safe (2000 - 0 = 2000 >= 960)
-      const ptr1 = linker.insertHead(noteData(60, 2000))
+      const ptr1 = linker.insertHead(...noteData(60, 2000))
 
       // Now move playhead closer to that node
       // Set playhead at tick 1500, so target tick 2000 is within safe zone
@@ -451,7 +473,7 @@ describe('RFC-043: Silicon Linker', () => {
 
       // Try to insert after ptr1 - target tick is ptr1's tick (2000)
       expect(() => {
-        linker.insertNode(ptr1, noteData(67, 2500))
+        linker.insertNode(ptr1, ...noteData(67, 2500))
       }).toThrow(SafeZoneViolationError)
     })
 
@@ -467,10 +489,10 @@ describe('RFC-043: Silicon Linker', () => {
       sab[HDR.PLAYHEAD_TICK] = 0
 
       // Insert node at tick 2000 (well outside safe zone of 960)
-      const ptr1 = linker.insertHead(noteData(60, 2000))
+      const ptr1 = linker.insertHead(...noteData(60, 2000))
 
       // Should succeed - target tick 2000 - playhead 0 = 2000 >= 960
-      const ptr2 = linker.insertNode(ptr1, noteData(64, 2500))
+      const ptr2 = linker.insertNode(ptr1, ...noteData(64, 2500))
       expect(ptr2).not.toBe(NULL_PTR)
     })
 
@@ -481,8 +503,8 @@ describe('RFC-043: Silicon Linker', () => {
       sab[HDR.PLAYHEAD_TICK] = 50
 
       // Should succeed even when close to playhead
-      const ptr1 = linker.insertHead(noteData(60, 100))
-      const ptr2 = linker.insertNode(ptr1, noteData(64, 150))
+      const ptr1 = linker.insertHead(...noteData(60, 100))
+      const ptr2 = linker.insertNode(ptr1, ...noteData(64, 150))
       expect(ptr2).not.toBe(NULL_PTR)
     })
   })
@@ -619,11 +641,11 @@ describe('RFC-043: Silicon Linker', () => {
     it('should throw HeapExhaustedError on insertHead when full', () => {
       const linker = createTestLinker(2)
 
-      linker.insertHead(noteData(60, 0))
-      linker.insertHead(noteData(64, 96))
+      linker.insertHead(...noteData(60, 0))
+      linker.insertHead(...noteData(64, 96))
 
       expect(() => {
-        linker.insertHead(noteData(67, 192))
+        linker.insertHead(...noteData(67, 192))
       }).toThrow(HeapExhaustedError)
     })
   })
@@ -643,9 +665,9 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker()
 
       // Insert in reverse tick order so chain is tick-ascending
-      linker.insertHead(noteData(67, 192))
-      linker.insertHead(noteData(64, 96))
-      linker.insertHead(noteData(60, 0))
+      linker.insertHead(...noteData(67, 192))
+      linker.insertHead(...noteData(64, 96))
+      linker.insertHead(...noteData(60, 0))
 
       const nodes = collectNodes(linker)
       expect(nodes).toHaveLength(3)
@@ -657,14 +679,7 @@ describe('RFC-043: Silicon Linker', () => {
     it('should read correct node attributes', () => {
       const linker = createTestLinker()
 
-      linker.insertHead({
-        opcode: OPCODE.NOTE,
-        pitch: 60,
-        velocity: 80,
-        duration: 96,
-        baseTick: 0,
-        sourceId: 12345
-      })
+      linker.insertHead(OPCODE.NOTE, 60, 80, 96, 0, 12345, FLAG.ACTIVE)
 
       const nodes = collectNodes(linker)
       expect(nodes[0].opcode).toBe(OPCODE.NOTE)
@@ -685,7 +700,7 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker()
       const sab = new Int32Array(linker.getSAB())
 
-      linker.insertHead(noteData(60, 0))
+      linker.insertHead(...noteData(60, 0))
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
 
       // Simulate consumer acknowledging
@@ -700,7 +715,7 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker()
       const sab = new Int32Array(linker.getSAB())
 
-      linker.insertHead(noteData(60, 0))
+      linker.insertHead(...noteData(60, 0))
 
       // Don't simulate ACK - let it timeout
       linker.syncAck()

@@ -49,6 +49,15 @@ function createTestEnvironment() {
   return { linker, bridge, consumer }
 }
 
+// Helper to read a note using the callback pattern
+function readNoteData(bridge: SiliconBridge, sourceId: number): { pitch: number; velocity: number; duration: number; baseTick: number; muted: boolean } | undefined {
+  let result: { pitch: number; velocity: number; duration: number; baseTick: number; muted: boolean } | undefined
+  const success = bridge.readNote(sourceId, (pitch, velocity, duration, baseTick, muted) => {
+    result = { pitch, velocity, duration, baseTick, muted }
+  })
+  return success ? result : undefined
+}
+
 // Helper to collect notes from traverseNotes into an array for test assertions
 function collectNotes(
   bridge: SiliconBridge
@@ -233,7 +242,7 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     })
 
     // Verify initial state
-    let note = bridge.readNote(sourceId)
+    let note = readNoteData(bridge, sourceId)
     expect(note?.pitch).toBe(60)
     expect(note?.velocity).toBe(100)
 
@@ -243,7 +252,7 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     bridge.patchImmediate(sourceId, 'duration', 240)
 
     // Verify patched state
-    note = bridge.readNote(sourceId)
+    note = readNoteData(bridge, sourceId)
     expect(note?.pitch).toBe(72)
     expect(note?.velocity).toBe(64)
     expect(note?.duration).toBe(240)

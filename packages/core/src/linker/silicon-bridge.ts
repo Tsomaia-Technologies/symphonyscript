@@ -129,9 +129,10 @@ export class SiliconBridge {
       ) => void)
     | null = null
 
-  // ReadNote callback state (for zero-alloc readNode)
-  private readNoteResult: EditorNoteData | undefined = undefined
-  private readNoteSourceId: number = 0
+  // ReadNote callback state (for zero-alloc readNote)
+  private readNoteCallback:
+    | ((pitch: number, velocity: number, duration: number, baseTick: number, muted: boolean) => void)
+    | null = null
 
   constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
     this.linker = linker
@@ -574,19 +575,17 @@ export class SiliconBridge {
   /**
    * Clear all notes and mappings.
    *
-   * **Zero-Alloc Loop**: Uses Array.from to convert Map keys to array once,
-   * then standard for loop to avoid iterator allocation in the hot path.
+   * **Zero-Alloc Loop**: Uses forEach to iterate Map without Array.from allocation.
    */
   clear(): void {
-    // ZERO-ALLOC: Convert to array once, then use standard for loop
-    const ptrs = Array.from(this.ptrToSourceId.keys())
-    for (let i = 0; i < ptrs.length; i++) {
+    // ZERO-ALLOC: forEach does not allocate (uses internal iterator)
+    this.ptrToSourceId.forEach((_sourceId, ptr) => {
       try {
-        this.linker.deleteNode(ptrs[i])
+        this.linker.deleteNode(ptr)
       } catch {
         // Node may already be deleted
       }
-    }
+    })
 
     this.sourceIdToPtr.clear()
     this.ptrToSourceId.clear()
@@ -612,8 +611,9 @@ export class SiliconBridge {
   /**
    * Hoisted readNode callback handler (zero-allocation).
    * CRITICAL: This method is pre-bound to avoid object allocation in readNode().
+   * Invokes the user-supplied callback stored in readNoteCallback with primitives.
    */
-  private handleReadNode = (
+  private handleReadNoteNode = (
     _ptr: number,
     _opcode: number,
     pitch: number,
@@ -625,41 +625,46 @@ export class SiliconBridge {
     flags: number,
     _seq: number
   ): void => {
-    // Store result in instance state (accessed after callback returns)
-    this.readNoteResult = {
-      pitch,
-      velocity,
-      duration,
-      baseTick,
-      muted: (flags & 0x02) !== 0,
-      source: this.sourceIdToLocation.get(this.readNoteSourceId)
+    // ZERO-ALLOC: Invoke user callback with primitives directly
+    if (this.readNoteCallback) {
+      this.readNoteCallback(pitch, velocity, duration, baseTick, (flags & 0x02) !== 0)
     }
   }
 
   /**
-   * Read note data by SOURCE_ID.
+   * Read note data by SOURCE_ID with zero-allocation callback pattern.
    *
-   * **Zero-Alloc Kernel Path**: Uses pre-bound callback handler to avoid
-   * allocating objects during the linker read operation.
+   * **Zero-Alloc Kernel Path**: Uses callback with argument explosion to
+   * eliminate all object allocations in the read path.
+   *
+   * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
+   * DO NOT pass inline arrow functions - they allocate objects.
+   *
+   * @param sourceId - Source ID to read
+   * @param cb - Callback receiving note data as primitive arguments
+   * @returns true if read succeeded, false if not found or contention detected
    */
-  readNote(sourceId: number): EditorNoteData | undefined {
+  readNote(
+    sourceId: number,
+    cb: (pitch: number, velocity: number, duration: number, baseTick: number, muted: boolean) => void
+  ): boolean {
     const ptr = this.sourceIdToPtr.get(sourceId)
-    if (ptr === undefined) return undefined
+    if (ptr === undefined) return false
 
     try {
-      // Reset result state
-      this.readNoteResult = undefined
-      this.readNoteSourceId = sourceId
+      // Store callback for hoisted handler
+      this.readNoteCallback = cb
 
       // ZERO-ALLOC: Use pre-bound callback handler
-      const success = this.linker.readNode(ptr, this.handleReadNode)
+      const success = this.linker.readNode(ptr, this.handleReadNoteNode)
 
-      // Handle contention - return undefined if node read failed
-      if (!success) return undefined
+      // Clear callback reference
+      this.readNoteCallback = null
 
-      return this.readNoteResult
+      return success
     } catch {
-      return undefined
+      this.readNoteCallback = null
+      return false
     }
   }
 

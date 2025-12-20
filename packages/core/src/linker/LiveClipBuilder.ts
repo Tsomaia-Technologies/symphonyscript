@@ -97,6 +97,9 @@ export class LiveClipBuilder {
   private static stackCache: Map<string, StackCacheEntry> = new Map()
   private static cacheCleanupTimer: ReturnType<typeof setInterval> | null = null
 
+  // Sync read state for hoisted callback (zero-allocation pattern)
+  private _syncReadMuted: boolean = false
+
   constructor(bridge: SiliconBridge, name: string = 'Untitled Clip') {
     this.bridge = bridge
     this.name = name
@@ -569,6 +572,21 @@ export class LiveClipBuilder {
   // ===========================================================================
 
   /**
+   * Hoisted callback handler for reading note data during synchronization.
+   * CRITICAL: This method is pre-bound to avoid closure allocation.
+   * Captures muted state into _syncReadMuted for zero-alloc pattern.
+   */
+  private handleSyncReadNote = (
+    _pitch: number,
+    _velocity: number,
+    _duration: number,
+    _baseTick: number,
+    muted: boolean
+  ): void => {
+    this._syncReadMuted = muted
+  }
+
+  /**
    * Apply quantization to a tick value.
    */
   private applyQuantize(tick: number): number {
@@ -608,6 +626,9 @@ export class LiveClipBuilder {
   /**
    * Synchronize a note: patch if exists, insert if new.
    * Applies quantization and swing transformations.
+   *
+   * **Zero-Alloc Read Path**: Uses hoisted callback handler (handleSyncReadNote)
+   * with bridge.readNote to read existing note state without allocations.
    */
   protected synchronizeNote(
     sourceId: number,
@@ -632,11 +653,17 @@ export class LiveClipBuilder {
     const ptr = this.bridge.getNodePtr(sourceId)
 
     if (ptr !== undefined) {
-      // PATCH: Node exists
+      // PATCH: Node exists - read current state first (zero-alloc callback pattern)
+      this._syncReadMuted = false
+      this.bridge.readNote(sourceId, this.handleSyncReadNote)
+      const existingMuted = this._syncReadMuted
+
+      // Patch attributes
       this.bridge.patchImmediate(sourceId, 'pitch', pitch)
       this.bridge.patchImmediate(sourceId, 'velocity', velocity)
       this.bridge.patchImmediate(sourceId, 'duration', transformedDuration)
       this.bridge.patchImmediate(sourceId, 'baseTick', transformedTick)
+      // Note: muted state is preserved, not patched
 
       this.touchedSourceIds.add(sourceId)
       this.lastSourceId = sourceId
@@ -647,7 +674,7 @@ export class LiveClipBuilder {
         velocity,
         duration: transformedDuration,
         baseTick: transformedTick,
-        muted: false
+        muted: existingMuted
       }
     } else {
       // INSERT: New node

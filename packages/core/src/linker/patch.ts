@@ -10,9 +10,7 @@ import {
   SEQ,
   FLAG,
   NULL_PTR,
-  HEAP_START_OFFSET,
-  HDR,
-  CONCURRENCY
+  HEAP_START_OFFSET
 } from './constants'
 import type { NodePtr } from './types'
 import { InvalidPointerError } from './types'
@@ -277,98 +275,4 @@ export class AttributePatcher {
     }
   }
 
-  /**
-   * Read current attribute values from a node with versioned read protection.
-   *
-   * This implements the versioned-read loop (v1.5) to prevent "torn reads"
-   * where a writer mutates fields mid-read. The sequence counter (SEQ_FLAGS)
-   * acts as a version number that's incremented before/after mutations.
-   *
-   * **Zero-Alloc, Audio-Realtime Variant**:
-   * - NO yielding or sleeping (pure spin loop)
-   * - NO Promise allocation
-   * - Returns `null` if contention exceeds 50 spins
-   *
-   * **Critical Constraint**: Caller MUST handle null gracefully by skipping
-   * processing for one frame rather than blocking (AudioWorklet requirement).
-   *
-   * Concurrency Model:
-   * - Reads SEQ before reading fields
-   * - Reads all node fields
-   * - Reads SEQ again
-   * - If SEQ changed, retry (writer was mutating during our read)
-   * - Max 50 spins before returning null (contention detected)
-   *
-   * @param ptr - Node byte pointer
-   * @returns Attribute data or null if contention detected
-   */
-  readAttributes(
-    ptr: NodePtr
-  ): {
-    opcode: number
-    pitch: number
-    velocity: number
-    flags: number
-    duration: number
-    baseTick: number
-    nextPtr: NodePtr
-    sourceId: number
-    seq: number
-  } | null {
-    this.validatePtr(ptr)
-    const offset = this.nodeOffset(ptr)
-
-    let seq1: number, seq2: number
-    let packed: number,
-      duration: number,
-      baseTick: number,
-      nextPtr: NodePtr,
-      sourceId: number
-    let spinCount = 0
-
-    // **AUDIO-REALTIME CONSTRAINT**: Max 50 spins, no yield
-    const MAX_SPINS = 50
-
-    do {
-      // Contention exceeded threshold - return null to skip this node
-      if (spinCount >= MAX_SPINS) {
-        return null
-      }
-
-      // Read SEQ before reading fields (version number)
-      seq1 =
-        (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>>
-        SEQ.SEQ_SHIFT
-
-      // Read all fields atomically
-      packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
-      duration = Atomics.load(this.sab, offset + NODE.DURATION)
-      baseTick = Atomics.load(this.sab, offset + NODE.BASE_TICK)
-      nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-      sourceId = Atomics.load(this.sab, offset + NODE.SOURCE_ID)
-
-      // Read SEQ after reading fields
-      seq2 =
-        (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>>
-        SEQ.SEQ_SHIFT
-
-      // If SEQ changed, writer was mutating during our read - retry
-      if (seq1 !== seq2) {
-        spinCount++
-      }
-    } while (seq1 !== seq2)
-
-    // SEQ is stable - safe to return data
-    return {
-      opcode: (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT,
-      pitch: (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT,
-      velocity: (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT,
-      flags: packed & PACKED.FLAGS_MASK,
-      duration,
-      baseTick,
-      nextPtr,
-      sourceId,
-      seq: seq1 // Return the stable sequence number
-    }
-  }
 }

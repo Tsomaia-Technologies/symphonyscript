@@ -17,6 +17,7 @@ import {
   HEAP_START_OFFSET,
   CONCURRENCY
 } from './constants'
+// Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
 import { AttributePatcher } from './patch'
 import { createLinkerSAB } from './init'
@@ -531,8 +532,9 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Read node data at pointer with zero-allocation callback pattern.
    *
-   * This method uses the versioned read loop (v1.5) implemented in AttributePatcher
-   * to prevent torn reads during concurrent attribute mutations.
+   * This method implements the versioned-read loop (v1.5) INTERNALLY using
+   * local stack variables to prevent torn reads during concurrent attribute
+   * mutations. NO object allocations occur during this read.
    *
    * **Zero-Alloc, Audio-Realtime**: Returns false if contention detected (>50 spins).
    * Caller must handle false return gracefully by skipping processing for one frame.
@@ -564,26 +566,49 @@ export class SiliconLinker implements ISiliconLinker {
       throw new InvalidPointerError(ptr)
     }
 
-    const attrs = this.patcher.readAttributes(ptr)
+    const offset = this.nodeOffset(ptr)
 
-    // Contention detected - caller must retry
-    if (attrs === null) {
-      return false
-    }
+    // Local stack variables for versioned read (ZERO ALLOCATION)
+    let seq1: number, seq2: number
+    let packed: number, duration: number, baseTick: number, nextPtr: number, sourceId: number
+    let retries = 0
+
+    // **AUDIO-REALTIME CONSTRAINT**: Max 50 spins, no yield
+    const MAX_SPINS = 50
+
+    do {
+      // Contention exceeded threshold - return false to skip this node
+      if (retries >= MAX_SPINS) {
+        return false
+      }
+
+      // Read SEQ before reading fields (version number)
+      seq1 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+      // Read all fields atomically
+      packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
+      duration = Atomics.load(this.sab, offset + NODE.DURATION)
+      baseTick = Atomics.load(this.sab, offset + NODE.BASE_TICK)
+      nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+      sourceId = Atomics.load(this.sab, offset + NODE.SOURCE_ID)
+
+      // Read SEQ after reading fields
+      seq2 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+      // If SEQ changed, writer was mutating during our read - retry
+      if (seq1 !== seq2) {
+        retries++
+      }
+    } while (seq1 !== seq2)
+
+    // SEQ is stable - extract fields from packed and invoke callback
+    const opcode = (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT
+    const pitch = (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT
+    const velocity = (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT
+    const flags = packed & PACKED.FLAGS_MASK
 
     // Invoke callback with stack variables (zero allocation)
-    cb(
-      ptr,
-      attrs.opcode,
-      attrs.pitch,
-      attrs.velocity,
-      attrs.duration,
-      attrs.baseTick,
-      attrs.nextPtr,
-      attrs.sourceId,
-      attrs.flags,
-      attrs.seq
-    )
+    cb(ptr, opcode, pitch, velocity, duration, baseTick, nextPtr, sourceId, flags, seq1)
 
     return true
   }

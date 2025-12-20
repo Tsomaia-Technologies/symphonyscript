@@ -426,8 +426,8 @@ export const CONCURRENCY = {
   MUTEX_LOCKED: 1,
   /** CPU yield threshold: yield after this many spins */
   YIELD_AFTER_SPINS: 100,
-  /** Dead-Man's Switch: panic after this many mutex acquisition attempts (100ms with 1ms yields) */
-  MUTEX_PANIC_THRESHOLD: 1_000
+  /** Dead-Man's Switch: panic after this many mutex acquisition attempts (~200ms with 1ms yields) */
+  MUTEX_PANIC_THRESHOLD: 200
 } as const
 
 // =============================================================================
