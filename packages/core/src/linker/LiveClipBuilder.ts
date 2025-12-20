@@ -9,6 +9,7 @@
 // - Tombstone pattern auto-prunes deleted nodes
 
 import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
+import type { NodePtr } from './types'
 import type { NoteDuration, TimeSignatureString, NoteName } from '../types/primitives'
 import type { HumanizeSettings, QuantizeSettings } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { GrooveTemplate } from '../groove/types'
@@ -312,6 +313,12 @@ export class LiveClipBuilder {
 
   /**
    * Synchronize a CC event: patch if exists, insert if new.
+   *
+   * **Zero-Alloc Write Path**: Uses primitive-based linker methods (RFC-043/05)
+   * instead of allocating NodeData objects in the hot path.
+   *
+   * NOTE: This method manages sourceIds externally and must access Bridge internals
+   * until RFC-044 refactors sourceId generation into a pluggable strategy.
    */
   private synchronizeCC(
     sourceId: number,
@@ -328,8 +335,7 @@ export class LiveClipBuilder {
       linker.patchBaseTick(ptr, baseTick)
       this.touchedSourceIds.add(sourceId)
     } else {
-      // INSERT: New CC node
-      // ZERO-ALLOC: Pass primitives directly instead of creating nodeData object
+      // INSERT: New CC node (ZERO-ALLOC: primitive parameters only)
       const opcode = OPCODE.CC
       const pitch = controller
       const velocity = value
@@ -337,7 +343,7 @@ export class LiveClipBuilder {
       const flags = 0
 
       // Insert at head or after last node
-      let newPtr
+      let newPtr: NodePtr
       if (this.lastSourceId !== undefined) {
         const afterPtr = this.bridge.getNodePtr(this.lastSourceId)
         if (afterPtr !== undefined) {
@@ -349,7 +355,7 @@ export class LiveClipBuilder {
         newPtr = linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
       }
 
-      // Register the mapping manually since we bypassed bridge
+      // Register the mapping (encapsulation-breaking until RFC-044)
       ;(this.bridge as any).sourceIdToPtr.set(sourceId, newPtr)
       ;(this.bridge as any).ptrToSourceId.set(newPtr, sourceId)
 

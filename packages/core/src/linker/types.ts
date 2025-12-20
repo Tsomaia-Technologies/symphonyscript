@@ -11,32 +11,6 @@ import type { Opcode } from './constants'
 export type NodePtr = number
 
 /**
- * Read-only view of a node's data.
- */
-export interface NodeView {
-  /** Byte offset of this node */
-  ptr: NodePtr
-  /** Node opcode */
-  opcode: Opcode
-  /** MIDI pitch / controller number */
-  pitch: number
-  /** Velocity / value */
-  velocity: number
-  /** Duration in ticks */
-  duration: number
-  /** Base tick */
-  baseTick: number
-  /** Next node pointer (0 = end) */
-  nextPtr: NodePtr
-  /** Source ID */
-  sourceId: number
-  /** Flags (ACTIVE, MUTED, DIRTY) */
-  flags: number
-  /** Sequence counter for ABA detection */
-  seq: number
-}
-
-/**
  * Silicon Linker configuration options.
  */
 export interface LinkerConfig {
@@ -182,8 +156,28 @@ export interface ISiliconLinker {
 
   // --- Read Operations ---
 
-  /** Read node data at pointer. Returns null if contention detected. */
-  readNode(ptr: NodePtr): NodeView | null
+  /**
+   * Read node data at pointer with zero-allocation callback pattern.
+   * Returns false if contention detected, true if read succeeded.
+   *
+   * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
+   * DO NOT pass inline arrow functions - they allocate objects.
+   */
+  readNode(
+    ptr: NodePtr,
+    cb: (
+      ptr: number,
+      opcode: number,
+      pitch: number,
+      velocity: number,
+      duration: number,
+      baseTick: number,
+      nextPtr: number,
+      sourceId: number,
+      flags: number,
+      seq: number
+    ) => void
+  ): boolean
 
   /** Get head of chain. */
   getHead(): NodePtr

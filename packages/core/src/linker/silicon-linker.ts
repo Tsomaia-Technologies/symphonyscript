@@ -22,7 +22,6 @@ import { AttributePatcher } from './patch'
 import { createLinkerSAB } from './init'
 import type {
   NodePtr,
-  NodeView,
   LinkerConfig,
   ISiliconLinker
 } from './types'
@@ -530,42 +529,63 @@ export class SiliconLinker implements ISiliconLinker {
   // ===========================================================================
 
   /**
-   * Read node data at pointer with versioned read protection.
+   * Read node data at pointer with zero-allocation callback pattern.
    *
    * This method uses the versioned read loop (v1.5) implemented in AttributePatcher
    * to prevent torn reads during concurrent attribute mutations.
    *
-   * **Zero-Alloc, Audio-Realtime**: Returns null if contention detected (>50 spins).
-   * Caller must handle null gracefully by skipping processing for one frame.
+   * **Zero-Alloc, Audio-Realtime**: Returns false if contention detected (>50 spins).
+   * Caller must handle false return gracefully by skipping processing for one frame.
+   *
+   * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
+   * DO NOT pass inline arrow functions - they allocate objects.
    *
    * @param ptr - Node byte pointer
-   * @returns Node view or null if contention detected
+   * @param cb - Callback receiving node data as primitive arguments
+   * @returns true if read succeeded, false if contention detected
    * @throws InvalidPointerError if pointer is NULL or invalid
    */
-  readNode(ptr: NodePtr): NodeView | null {
+  readNode(
+    ptr: NodePtr,
+    cb: (
+      ptr: number,
+      opcode: number,
+      pitch: number,
+      velocity: number,
+      duration: number,
+      baseTick: number,
+      nextPtr: number,
+      sourceId: number,
+      flags: number,
+      seq: number
+    ) => void
+  ): boolean {
     if (ptr === NULL_PTR) {
       throw new InvalidPointerError(ptr)
     }
 
     const attrs = this.patcher.readAttributes(ptr)
 
-    // Contention detected - caller must skip this node
+    // Contention detected - caller must retry
     if (attrs === null) {
-      return null
+      return false
     }
 
-    return {
+    // Invoke callback with stack variables (zero allocation)
+    cb(
       ptr,
-      opcode: attrs.opcode as NodeView['opcode'],
-      pitch: attrs.pitch,
-      velocity: attrs.velocity,
-      duration: attrs.duration,
-      baseTick: attrs.baseTick,
-      nextPtr: attrs.nextPtr,
-      sourceId: attrs.sourceId,
-      flags: attrs.flags,
-      seq: attrs.seq
-    }
+      attrs.opcode,
+      attrs.pitch,
+      attrs.velocity,
+      attrs.duration,
+      attrs.baseTick,
+      attrs.nextPtr,
+      attrs.sourceId,
+      attrs.flags,
+      attrs.seq
+    )
+
+    return true
   }
 
   /**

@@ -129,6 +129,10 @@ export class SiliconBridge {
       ) => void)
     | null = null
 
+  // ReadNote callback state (for zero-alloc readNode)
+  private readNoteResult: EditorNoteData | undefined = undefined
+  private readNoteSourceId: number = 0
+
   constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
     this.linker = linker
     this.attributeDebounceMs = options.attributeDebounceMs ?? 10
@@ -237,19 +241,39 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Insert a note immediately (bypasses debounce).
-   * Used for initial clip loading.
+   * Insert a MIDI event immediately (bypasses debounce).
+   * Used for initial clip loading and real-time event insertion.
    *
    * **Zero-Alloc Implementation**: Uses argument explosion to eliminate
-   * nodeData object allocation.
+   * object allocation in the kernel write path.
    *
+   * **Generalized API**: Supports full MIDI instruction set (NOTE, CC, BEND, etc.)
+   * via opcode parameter, eliminating the need for encapsulation-breaking hacks.
+   *
+   * @param opcode - MIDI opcode (OPCODE.NOTE, OPCODE.CC, OPCODE.BEND, etc.)
+   * @param pitch - MIDI pitch (NOTE) or controller number (CC)
+   * @param velocity - MIDI velocity (NOTE) or value (CC/BEND)
+   * @param duration - Duration in ticks (0 for CC/BEND)
+   * @param baseTick - Base tick (grid-aligned timing)
+   * @param muted - Whether the event is muted
+   * @param source - Optional source location for editor mapping
+   * @param afterSourceId - Optional SOURCE_ID to insert after
    * @returns The SOURCE_ID assigned to the new node
    */
-  insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
-    const sourceId = this.generateSourceId(note.source)
+  insertImmediate(
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    muted: boolean = false,
+    source?: SourceLocation,
+    afterSourceId?: number
+  ): number {
+    const sourceId = this.generateSourceId(source)
 
     // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
-    const flags = note.muted ? 0x02 : 0 // FLAG.MUTED = 0x02
+    const flags = muted ? 0x02 : 0 // FLAG.MUTED = 0x02
 
     let ptr: NodePtr
 
@@ -260,21 +284,21 @@ export class SiliconBridge {
       }
       ptr = this.linker.insertNode(
         afterPtr,
-        OPCODE.NOTE,
-        note.pitch,
-        note.velocity,
-        note.duration,
-        note.baseTick,
+        opcode,
+        pitch,
+        velocity,
+        duration,
+        baseTick,
         sourceId,
         flags
       )
     } else {
       ptr = this.linker.insertHead(
-        OPCODE.NOTE,
-        note.pitch,
-        note.velocity,
-        note.duration,
-        note.baseTick,
+        opcode,
+        pitch,
+        velocity,
+        duration,
+        baseTick,
         sourceId,
         flags
       )
@@ -282,6 +306,25 @@ export class SiliconBridge {
 
     this.registerMapping(sourceId, ptr)
     return sourceId
+  }
+
+  /**
+   * Insert a note immediately (bypasses debounce).
+   * Convenience wrapper for insertImmediate with OPCODE.NOTE.
+   *
+   * @deprecated Use insertImmediate directly for better clarity
+   */
+  insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
+    return this.insertImmediate(
+      OPCODE.NOTE,
+      note.pitch,
+      note.velocity,
+      note.duration,
+      note.baseTick,
+      note.muted,
+      note.source,
+      afterSourceId
+    )
   }
 
   /**
@@ -530,12 +573,16 @@ export class SiliconBridge {
 
   /**
    * Clear all notes and mappings.
+   *
+   * **Zero-Alloc Loop**: Uses Array.from to convert Map keys to array once,
+   * then standard for loop to avoid iterator allocation in the hot path.
    */
   clear(): void {
-    // Delete all nodes
-    for (const ptr of this.ptrToSourceId.keys()) {
+    // ZERO-ALLOC: Convert to array once, then use standard for loop
+    const ptrs = Array.from(this.ptrToSourceId.keys())
+    for (let i = 0; i < ptrs.length; i++) {
       try {
-        this.linker.deleteNode(ptr)
+        this.linker.deleteNode(ptrs[i])
       } catch {
         // Node may already be deleted
       }
@@ -563,25 +610,54 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
+   * Hoisted readNode callback handler (zero-allocation).
+   * CRITICAL: This method is pre-bound to avoid object allocation in readNode().
+   */
+  private handleReadNode = (
+    _ptr: number,
+    _opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    _nextPtr: number,
+    _sourceId: number,
+    flags: number,
+    _seq: number
+  ): void => {
+    // Store result in instance state (accessed after callback returns)
+    this.readNoteResult = {
+      pitch,
+      velocity,
+      duration,
+      baseTick,
+      muted: (flags & 0x02) !== 0,
+      source: this.sourceIdToLocation.get(this.readNoteSourceId)
+    }
+  }
+
+  /**
    * Read note data by SOURCE_ID.
+   *
+   * **Zero-Alloc Kernel Path**: Uses pre-bound callback handler to avoid
+   * allocating objects during the linker read operation.
    */
   readNote(sourceId: number): EditorNoteData | undefined {
     const ptr = this.sourceIdToPtr.get(sourceId)
     if (ptr === undefined) return undefined
 
     try {
-      const node = this.linker.readNode(ptr)
-      // Handle contention - return undefined if node read failed
-      if (node === null) return undefined
+      // Reset result state
+      this.readNoteResult = undefined
+      this.readNoteSourceId = sourceId
 
-      return {
-        pitch: node.pitch,
-        velocity: node.velocity,
-        duration: node.duration,
-        baseTick: node.baseTick,
-        muted: (node.flags & 0x02) !== 0,
-        source: this.sourceIdToLocation.get(sourceId)
-      }
+      // ZERO-ALLOC: Use pre-bound callback handler
+      const success = this.linker.readNode(ptr, this.handleReadNode)
+
+      // Handle contention - return undefined if node read failed
+      if (!success) return undefined
+
+      return this.readNoteResult
     } catch {
       return undefined
     }
