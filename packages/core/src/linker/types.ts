@@ -191,8 +191,25 @@ export interface ISiliconLinker {
   /** Get head of chain. */
   getHead(): NodePtr
 
-  /** Iterate all nodes in chain order. Skips nodes with contention. */
-  iterateChain(): Generator<NodeView, void, unknown>
+  /**
+   * Traverse all nodes in chain order with zero-allocation callback pattern.
+   *
+   * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
+   * DO NOT pass inline arrow functions - they allocate objects.
+   */
+  traverse(
+    cb: (
+      ptr: number,
+      opcode: number,
+      pitch: number,
+      velocity: number,
+      duration: number,
+      baseTick: number,
+      flags: number,
+      sourceId: number,
+      seq: number
+    ) => void
+  ): void
 
   // --- Register Operations ---
 

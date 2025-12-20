@@ -281,36 +281,4 @@ export class MockConsumer {
 
     return allEvents
   }
-
-  /**
-   * Iterate all nodes in the chain (for debugging).
-   */
-  *iterateChain(): Generator<{
-    ptr: number
-    baseTick: number
-    pitch: number
-    velocity: number
-    duration: number
-    nextPtr: number
-    flags: number
-  }> {
-    let ptr = Atomics.load(this.sab, HDR.HEAD_PTR)
-
-    while (ptr !== NULL_PTR) {
-      const offset = ptr / 4
-      const packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
-
-      yield {
-        ptr,
-        baseTick: this.sab[offset + NODE.BASE_TICK],
-        pitch: (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT,
-        velocity: (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT,
-        duration: this.sab[offset + NODE.DURATION],
-        nextPtr: Atomics.load(this.sab, offset + NODE.NEXT_PTR),
-        flags: packed & PACKED.FLAGS_MASK
-      }
-
-      ptr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-    }
-  }
 }

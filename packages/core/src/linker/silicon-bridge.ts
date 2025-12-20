@@ -545,21 +545,26 @@ export class SiliconBridge {
    * Iterate all notes in chain order.
    */
   *iterateNotes(): Generator<{ sourceId: number; note: EditorNoteData }> {
-    for (const node of this.linker.iterateChain()) {
-      const sourceId = node.sourceId
+    const results: Array<{ sourceId: number; note: EditorNoteData }> = []
+
+    this.linker.traverse((ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq) => {
       if (sourceId !== 0) {
-        yield {
+        results.push({
           sourceId,
           note: {
-            pitch: node.pitch,
-            velocity: node.velocity,
-            duration: node.duration,
-            baseTick: node.baseTick,
-            muted: (node.flags & 0x02) !== 0,
+            pitch,
+            velocity,
+            duration,
+            baseTick,
+            muted: (flags & 0x02) !== 0,
             source: this.sourceIdToLocation.get(sourceId)
           }
-        }
+        })
       }
+    })
+
+    for (const item of results) {
+      yield item
     }
   }
 

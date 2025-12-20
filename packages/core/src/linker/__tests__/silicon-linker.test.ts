@@ -54,6 +54,39 @@ function noteData(
   }
 }
 
+/**
+ * Helper to collect all nodes from traverse into an array for test assertions.
+ */
+function collectNodes(linker: SiliconLinker): Array<{
+  ptr: number
+  opcode: number
+  pitch: number
+  velocity: number
+  duration: number
+  baseTick: number
+  flags: number
+  sourceId: number
+  seq: number
+}> {
+  const nodes: Array<{
+    ptr: number
+    opcode: number
+    pitch: number
+    velocity: number
+    duration: number
+    baseTick: number
+    flags: number
+    sourceId: number
+    seq: number
+  }> = []
+
+  linker.traverse((ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq) => {
+    nodes.push({ ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq })
+  })
+
+  return nodes
+}
+
 // =============================================================================
 // Test Suite
 // =============================================================================
@@ -89,7 +122,8 @@ describe('RFC-043: Silicon Linker', () => {
       expect(sab[HDR.FREE_COUNT]).toBe(32)
       expect(sab[HDR.NODE_COUNT]).toBe(0)
       expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
-      expect(sab[HDR.FREE_LIST_PTR]).not.toBe(NULL_PTR)
+      // Verify 64-bit free list head is initialized (check low word)
+      expect(sab[HDR.FREE_LIST_HEAD_LOW]).not.toBe(NULL_PTR)
     })
 
     it('should validate correct SAB format', () => {
@@ -224,7 +258,7 @@ describe('RFC-043: Silicon Linker', () => {
       expect(linker.getNodeCount()).toBe(3)
 
       // Verify chain order
-      const nodes = Array.from(linker.iterateChain())
+      const nodes = collectNodes(linker)
       expect(nodes).toHaveLength(3)
       expect(nodes[0].ptr).toBe(ptr3)
       expect(nodes[1].ptr).toBe(ptr2)
@@ -601,7 +635,7 @@ describe('RFC-043: Silicon Linker', () => {
     it('should iterate empty chain', () => {
       const linker = createTestLinker()
 
-      const nodes = Array.from(linker.iterateChain())
+      const nodes = collectNodes(linker)
       expect(nodes).toHaveLength(0)
     })
 
@@ -613,7 +647,7 @@ describe('RFC-043: Silicon Linker', () => {
       linker.insertHead(noteData(64, 96))
       linker.insertHead(noteData(60, 0))
 
-      const nodes = Array.from(linker.iterateChain())
+      const nodes = collectNodes(linker)
       expect(nodes).toHaveLength(3)
       expect(nodes[0].baseTick).toBe(0)
       expect(nodes[1].baseTick).toBe(96)
@@ -632,7 +666,7 @@ describe('RFC-043: Silicon Linker', () => {
         sourceId: 12345
       })
 
-      const nodes = Array.from(linker.iterateChain())
+      const nodes = collectNodes(linker)
       expect(nodes[0].opcode).toBe(OPCODE.NOTE)
       expect(nodes[0].pitch).toBe(60)
       expect(nodes[0].velocity).toBe(80)

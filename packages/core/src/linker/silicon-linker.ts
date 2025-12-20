@@ -358,26 +358,21 @@ export class SiliconLinker implements ISiliconLinker {
       // Check safe zone INSIDE mutex (playhead may have moved during wait)
       this.checkSafeZone(data.baseTick)
 
-      // **v1.5 CAS LOOP**: Atomic HEAD_PTR update
-      let currentHead: NodePtr
-      do {
-        currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+      // Load current head (mutex guarantees exclusive access - no CAS needed)
+      const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
 
-        // Link to current head
-        Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
-        Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+      // Link new node to current head
+      Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
+      Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
 
-        // Update old head's PREV_PTR to point to new head
-        if (currentHead !== NULL_PTR) {
-          const currentHeadOffset = this.nodeOffset(currentHead)
-          Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
-        }
+      // Update old head's PREV_PTR to point to new head
+      if (currentHead !== NULL_PTR) {
+        const currentHeadOffset = this.nodeOffset(currentHead)
+        Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+      }
 
-        // CAS: Try to become new head
-        // If HEAD_PTR changed since we read it, retry
-      } while (
-        Atomics.compareExchange(this.sab, HDR.HEAD_PTR, currentHead, newPtr) !== currentHead
-      )
+      // Update HEAD_PTR (simple store - mutex guarantees no concurrent modification)
+      Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
 
       // Increment NODE_COUNT
       Atomics.add(this.sab, HDR.NODE_COUNT, 1)
@@ -422,19 +417,15 @@ export class SiliconLinker implements ISiliconLinker {
 
       // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
       if (prevPtr === NULL_PTR) {
-        // **v1.5 CAS LOOP**: Deleting head - atomic HEAD_PTR update
-        let currentHead: NodePtr
-        do {
-          currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
-          // Verify we're still deleting the head (it might have changed)
-          if (currentHead !== ptr) {
-            // Head changed - this node is no longer at head, abort
-            throw new Error('Node is no longer at head during deletion')
-          }
-          // CAS: Try to update HEAD_PTR to next node
-        } while (
-          Atomics.compareExchange(this.sab, HDR.HEAD_PTR, currentHead, nextPtr) !== currentHead
-        )
+        // Deleting head - update HEAD_PTR (mutex guarantees exclusive access - no CAS needed)
+        // Verify we're still deleting the head (sanity check)
+        const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+        if (currentHead !== ptr) {
+          // Head changed - this shouldn't happen with mutex, but abort for safety
+          throw new Error('Node is no longer at head during deletion')
+        }
+        // Update HEAD_PTR to next node (simple store - mutex guarantees no concurrent modification)
+        Atomics.store(this.sab, HDR.HEAD_PTR, nextPtr)
       } else {
         // Update previous node's NEXT_PTR to skip over deleted node
         const prevOffset = this.nodeOffset(prevPtr)
@@ -548,32 +539,77 @@ export class SiliconLinker implements ISiliconLinker {
   }
 
   /**
-   * Iterate all nodes in chain order with versioned read protection.
+   * Traverse all nodes in chain order with zero-allocation callback pattern.
    *
-   * This generator uses the versioned read loop (v1.5) for each node
-   * to prevent torn reads during traversal.
+   * Uses versioned read loop (v1.5) to prevent torn reads during traversal.
+   * All node data is passed directly to callback as stack variables - no objects created.
    *
-   * **Zero-Alloc, Audio-Realtime**: Skips nodes with contention (null reads).
+   * **CRITICAL PERFORMANCE NOTE:** Consumers MUST hoist/pre-bind their callback function.
+   * Passing inline arrow functions will allocate objects and defeat the Zero-Alloc purpose.
    *
-   * @yields NodeView for each node in chain order (skips nodes with contention)
+   * **Contention Handling:** If a node read experiences contention, this method will retry
+   * indefinitely until a consistent read is obtained. Data integrity is prioritized over
+   * performance in high-contention scenarios.
+   *
+   * @param cb - Callback function receiving node data as primitive arguments
    */
-  *iterateChain(): Generator<NodeView, void, unknown> {
+  traverse(
+    cb: (
+      ptr: number,
+      opcode: number,
+      pitch: number,
+      velocity: number,
+      duration: number,
+      baseTick: number,
+      flags: number,
+      sourceId: number,
+      seq: number
+    ) => void
+  ): void {
     let ptr = this.getHead()
 
     while (ptr !== NULL_PTR) {
-      const node = this.readNode(ptr)
+      const offset = this.nodeOffset(ptr)
 
-      // Skip node if contention detected
-      if (node === null) {
-        // Try to advance to next node using current ptr's NEXT_PTR
-        // This is safe because we only read one field
-        const offset = this.nodeOffset(ptr)
-        ptr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-        continue
-      }
+      // Versioned read loop - retry until we get a consistent snapshot
+      let seq1: number, seq2: number
+      let packed: number,
+        duration: number,
+        baseTick: number,
+        nextPtr: number,
+        sourceId: number
 
-      yield node
-      ptr = node.nextPtr
+      do {
+        // Read SEQ before reading fields (version number)
+        seq1 =
+          (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+        // Read all fields atomically
+        packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
+        duration = Atomics.load(this.sab, offset + NODE.DURATION)
+        baseTick = Atomics.load(this.sab, offset + NODE.BASE_TICK)
+        nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+        sourceId = Atomics.load(this.sab, offset + NODE.SOURCE_ID)
+
+        // Read SEQ after reading fields
+        seq2 =
+          (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+        // If SEQ changed, writer was mutating during our read - retry
+        // NOTE: Infinite retry on contention - data integrity is priority
+      } while (seq1 !== seq2)
+
+      // SEQ is stable - extract opcode/pitch/velocity/flags from packed field
+      const opcode = (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT
+      const pitch = (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT
+      const velocity = (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT
+      const flags = packed & PACKED.FLAGS_MASK
+
+      // Invoke callback with stack variables (zero allocation)
+      cb(ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq1)
+
+      // Advance to next node
+      ptr = nextPtr
     }
   }
 

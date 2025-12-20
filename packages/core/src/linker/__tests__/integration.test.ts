@@ -50,6 +50,39 @@ function note(pitch: number, baseTick: number, duration = 96) {
   }
 }
 
+/**
+ * Helper to collect all nodes from traverse into an array for test assertions.
+ */
+function collectNodes(linker: SiliconLinker): Array<{
+  ptr: number
+  opcode: number
+  pitch: number
+  velocity: number
+  duration: number
+  baseTick: number
+  flags: number
+  sourceId: number
+  seq: number
+}> {
+  const nodes: Array<{
+    ptr: number
+    opcode: number
+    pitch: number
+    velocity: number
+    duration: number
+    baseTick: number
+    flags: number
+    sourceId: number
+    seq: number
+  }> = []
+
+  linker.traverse((ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq) => {
+    nodes.push({ ptr, opcode, pitch, velocity, duration, baseTick, flags, sourceId, seq })
+  })
+
+  return nodes
+}
+
 // =============================================================================
 // Test Suite
 // =============================================================================
@@ -222,7 +255,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       expect(consumer.getEvents()).toHaveLength(2)
 
       // Delete note at tick 200 (before we reach it)
-      const nodes = Array.from(linker.iterateChain())
+      const nodes = collectNodes(linker)
       const node200 = nodes.find((n) => n.baseTick === 200)
       if (node200) {
         linker.deleteNode(node200.ptr)
