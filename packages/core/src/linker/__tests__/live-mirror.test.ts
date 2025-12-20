@@ -54,8 +54,11 @@ function collectNotes(
   bridge: SiliconBridge
 ): Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> {
   const notes: Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> = []
-  bridge.traverseNotes((sourceId, note) => {
-    notes.push({ sourceId, note })
+  bridge.traverseNotes((sourceId, pitch, velocity, duration, baseTick, muted) => {
+    notes.push({
+      sourceId,
+      note: { pitch, velocity, duration, baseTick, muted }
+    })
   })
   return notes
 }

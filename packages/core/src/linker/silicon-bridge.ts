@@ -118,7 +118,16 @@ export class SiliconBridge {
   private nextSourceId: number = 1
 
   // Traverse callback state (for zero-alloc traverseNotes)
-  private traverseNotesCallback: ((sourceId: number, note: EditorNoteData) => void) | null = null
+  private traverseNotesCallback:
+    | ((
+        sourceId: number,
+        pitch: number,
+        velocity: number,
+        duration: number,
+        baseTick: number,
+        muted: boolean
+      ) => void)
+    | null = null
 
   constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
     this.linker = linker
@@ -549,26 +558,26 @@ export class SiliconBridge {
    * CRITICAL: This method is pre-bound to avoid object allocation in traverse().
    */
   private handleTraverseNode = (
-    ptr: number,
-    opcode: number,
+    _ptr: number,
+    _opcode: number,
     pitch: number,
     velocity: number,
     duration: number,
     baseTick: number,
     flags: number,
     sourceId: number,
-    seq: number
+    _seq: number
   ): void => {
     if (sourceId !== 0 && this.traverseNotesCallback) {
-      // Reconstruct EditorNoteData and call user callback directly
-      this.traverseNotesCallback(sourceId, {
+      // Pass primitives directly (zero allocation)
+      this.traverseNotesCallback(
+        sourceId,
         pitch,
         velocity,
         duration,
         baseTick,
-        muted: (flags & 0x02) !== 0,
-        source: this.sourceIdToLocation.get(sourceId)
-      })
+        (flags & 0x02) !== 0 // muted
+      )
     }
   }
 
@@ -576,9 +585,21 @@ export class SiliconBridge {
    * Traverse all notes in chain order with zero-allocation callback pattern.
    *
    * CRITICAL: This method adheres to the Zero-Alloc policy.
-   * It uses a pre-bound handler to avoid inline arrow function allocation.
+   * It uses a pre-bound handler and argument explosion (passing primitives)
+   * to avoid all object allocations in the hot loop.
+   *
+   * @param cb - Callback receiving note data as primitive arguments
    */
-  traverseNotes(cb: (sourceId: number, note: EditorNoteData) => void): void {
+  traverseNotes(
+    cb: (
+      sourceId: number,
+      pitch: number,
+      velocity: number,
+      duration: number,
+      baseTick: number,
+      muted: boolean
+    ) => void
+  ): void {
     this.traverseNotesCallback = cb
     try {
       this.linker.traverse(this.handleTraverseNode)

@@ -44,8 +44,11 @@ function wait(ms: number): Promise<void> {
 // Helper to collect notes from traverseNotes into an array for test assertions
 function collectNotes(bridge: SiliconBridge): Array<{ sourceId: number; note: EditorNoteData }> {
   const notes: Array<{ sourceId: number; note: EditorNoteData }> = []
-  bridge.traverseNotes((sourceId, note) => {
-    notes.push({ sourceId, note })
+  bridge.traverseNotes((sourceId, pitch, velocity, duration, baseTick, muted) => {
+    notes.push({
+      sourceId,
+      note: { pitch, velocity, duration, baseTick, muted }
+    })
   })
   return notes
 }

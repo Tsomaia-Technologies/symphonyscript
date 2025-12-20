@@ -580,17 +580,9 @@ export class SiliconLinker implements ISiliconLinker {
         baseTick: number,
         nextPtr: number,
         sourceId: number
-      let readAttempts = 0
+      let retries = 0
 
       do {
-        // Safety bailout: prevent infinite loop on severe contention
-        if (readAttempts >= 1000) {
-          throw new Error(
-            'SiliconLinker: Traversal read timeout - severe contention ' +
-              `(node ptr=${ptr}, ${readAttempts} failed read attempts)`
-          )
-        }
-
         // Read SEQ before reading fields (version number)
         seq1 =
           (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
@@ -607,7 +599,16 @@ export class SiliconLinker implements ISiliconLinker {
           (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
 
         // If SEQ changed, writer was mutating during our read - retry
-        readAttempts++
+        if (seq1 !== seq2) {
+          // Safety bailout: prevent infinite loop on severe contention
+          if (retries >= 1000) {
+            throw new Error(
+              'SiliconLinker: Traversal read timeout - severe contention ' +
+                `(node ptr=${ptr}, ${retries} retries exhausted)`
+            )
+          }
+          retries++
+        }
       } while (seq1 !== seq2)
 
       // SEQ is stable - extract opcode/pitch/velocity/flags from packed field
