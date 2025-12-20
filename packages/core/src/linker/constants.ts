@@ -34,6 +34,92 @@ export const DEFAULT_SAFE_ZONE_TICKS = 960
 export const NULL_PTR = 0
 
 // =============================================================================
+// PHYSICAL MEMORY MAP (v1.5)
+// =============================================================================
+/**
+ * SharedArrayBuffer Memory Layout
+ *
+ * The Silicon Linker uses a carefully structured SharedArrayBuffer with the
+ * following regions (all offsets in bytes):
+ *
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │ HEADER REGION (0-60)                                    64 bytes    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Offset | i32 Index | Field              | Type    | Description    │
+ * ├────────┼───────────┼────────────────────┼─────────┼────────────────┤
+ * │ 0      │ 0         │ MAGIC              │ u32     │ 0x53594D42     │
+ * │ 4      │ 1         │ VERSION            │ u32     │ Format version │
+ * │ 8      │ 2         │ PPQ                │ u32     │ Pulses/quarter │
+ * │ 12     │ 3         │ BPM                │ u32     │ Tempo          │
+ * │ 16     │ 4         │ HEAD_PTR           │ u32     │ First node     │
+ * │ 20     │ 5         │ FREE_LIST_PTR      │ u32     │ Free list head │
+ * │ 24     │ 6         │ COMMIT_FLAG        │ u32     │ 0/1/2 sync     │
+ * │ 28     │ 7         │ PLAYHEAD_TICK      │ u32     │ Audio position │
+ * │ 32     │ 8         │ SAFE_ZONE_TICKS    │ u32     │ Edit boundary  │
+ * │ 36     │ 9         │ ERROR_FLAG         │ u32     │ Error code     │
+ * │ 40     │ 10        │ NODE_COUNT         │ u32     │ Live nodes     │
+ * │ 44     │ 11        │ FREE_COUNT         │ u32     │ Free nodes     │
+ * │ 48     │ 12        │ NODE_CAPACITY      │ u32     │ Max nodes      │
+ * │ 52     │ 13        │ HEAP_START         │ u32     │ Heap offset    │
+ * │ 56     │ 14        │ GROOVE_START       │ u32     │ Groove offset  │
+ * │ 60     │ 15        │ RESERVED_15        │ u32     │ Future use     │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ REGISTER BANK (64-88)                                   28 bytes    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ 64     │ 16        │ GROOVE_PTR         │ u32     │ Groove table   │
+ * │ 68     │ 17        │ GROOVE_LEN         │ u32     │ Steps count    │
+ * │ 72     │ 18        │ HUMAN_TIMING_PPT   │ u32     │ Timing jitter  │
+ * │ 76     │ 19        │ HUMAN_VEL_PPT      │ u32     │ Velocity jit.  │
+ * │ 80     │ 20        │ TRANSPOSE          │ i32     │ Semitones      │
+ * │ 84     │ 21        │ VELOCITY_MULT      │ u32     │ Velocity ×1000 │
+ * │ 88     │ 22        │ PRNG_SEED          │ u32     │ RNG seed       │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ EXTENDED HEADER (92-124) [v1.5]                        36 bytes    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ 92     │ 23        │ ID_TABLE_PTR       │ u32     │ TID hash table │
+ * │ 96     │ 24        │ UPDATE_PASS_ID     │ u32     │ Generation ID  │
+ * │ 100    │ 25        │ CHAIN_MUTEX        │ u32     │ 0=unlk, 1=lock │
+ * │ 104    │ 26        │ ID_TABLE_CAPACITY  │ u32     │ Table slots    │
+ * │ 108    │ 27        │ ID_TABLE_USED      │ u32     │ Used slots     │
+ * │ 112    │ 28        │ TELEMETRY_OPS_LOW  │ u32     │ Ops count LOW  │
+ * │ 116    │ 29        │ TELEMETRY_OPS_HIGH │ u32     │ Ops count HIGH │
+ * │ 120    │ 30        │ YIELD_SLOT         │ u32     │ Atomics.wait   │
+ * │ 124    │ 31        │ RESERVED_31        │ u32     │ Future use     │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ NODE HEAP (128+)                             nodeCapacity × 32 bytes│
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Each node: 8 × i32 = 32 bytes (doubly-linked, cache-aligned)       │
+ * │   [+0] PACKED_A     : (opcode<<24)|(pitch<<16)|(vel<<8)|flags      │
+ * │   [+4] BASE_TICK    : Grid-aligned timing (pre-transform)          │
+ * │   [+8] DURATION     : Duration in ticks                             │
+ * │   [+12] NEXT_PTR    : Byte offset to next node (0=end)             │
+ * │   [+16] PREV_PTR    : Byte offset to prev node (0=head)            │
+ * │   [+20] SOURCE_ID   : Editor hash / Temporal ID (TID)              │
+ * │   [+24] SEQ_FLAGS   : (sequence<<8)|flags_ext (versioning)         │
+ * │   [+28] LAST_PASS_ID: Generation ID for zero-alloc pruning [v1.5]  │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ IDENTITY TABLE (dynamic offset)              capacity × 8 bytes    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Linear-probe hash table: [TID: i32, NodePtr: u32] × capacity       │
+ * │   TID = 0  : Empty slot                                             │
+ * │   TID = -1 : Tombstone (deleted, will be cleaned on rebuild)       │
+ * │   TID > 0  : Active entry (Knuth multiplicative hash)              │
+ * └─────────────────────────────────────────────────────────────────────┘
+ *
+ * ATOMIC OPERATIONS:
+ * - All fields marked [ATOMIC] in HDR use Atomics.load/store/compareExchange
+ * - Chain Mutex (HDR.CHAIN_MUTEX): Protects ALL structural mutations
+ * - Sequence Counter (NODE.SEQ_FLAGS): Versioned reads prevent torn data
+ * - Yield Slot (HDR.YIELD_SLOT): Coordination point for Atomics.wait()
+ *
+ * CONCURRENCY MODEL (v1.5):
+ * - Writers: Acquire Chain Mutex → Mutate → Increment SEQ → Release Mutex
+ * - Readers: Versioned read loop (seq1, data, seq2) with hybrid CPU yield
+ * - Dead-Man's Switch: Panic after 1M mutex iterations (crashed worker)
+ * - Hash Table Rebuild: Defrag clears all tombstones, restores O(1) perf
+ */
+
+// =============================================================================
 // Header Offsets (0-15) - 64 bytes = 16 × i32
 // =============================================================================
 
@@ -72,17 +158,45 @@ export const HDR = {
   HEAP_START: 13,
   /** Byte offset where groove templates begin */
   GROOVE_START: 14,
-  /** Reserved */
-  RESERVED_15: 15
+  /** Reserved for future expansion */
+  RESERVED_15: 15,
+
+  // -------------------------------------------------------------------------
+  // Extended Header Fields (v1.5) - Using REG reserved slots 23-31
+  // -------------------------------------------------------------------------
+  // These fields extend the header using previously reserved register slots.
+  // Byte offsets are used to maintain consistency with atomic operations.
+
+  /** [v1.5] Byte offset to Identity Table (TID → NodePtr hash map) */
+  ID_TABLE_PTR: 23,
+  /** [v1.5] Current generation ID for pruning (incremented on beginUpdate) */
+  UPDATE_PASS_ID: 24,
+  /** [v1.5] [ATOMIC] Chain Mutex for structural operations (0=unlocked, 1=locked) */
+  CHAIN_MUTEX: 25,
+  /** [v1.5] Identity Table capacity (total slots) */
+  ID_TABLE_CAPACITY: 26,
+  /** [v1.5] [ATOMIC] Identity Table used slots (active + tombstones) */
+  ID_TABLE_USED: 27,
+  /** [v1.5] [ATOMIC] Telemetry: Total operations LOW 32 bits */
+  TELEMETRY_OPS_LOW: 28,
+  /** [v1.5] [ATOMIC] Telemetry: Total operations HIGH 32 bits */
+  TELEMETRY_OPS_HIGH: 29,
+  /** [v1.5] Dedicated slot for Atomics.wait() yield coordination */
+  YIELD_SLOT: 30,
+  /** Reserved for future expansion */
+  RESERVED_31: 31
 } as const
 
 // =============================================================================
-// Register Bank Offsets (16-31) - 64 bytes = 16 × i32
+// Register Bank Offsets (16-22) - 28 bytes = 7 × i32
 // =============================================================================
 
 /**
  * Live transform registers for VM-resident math.
  * These can be updated at any time for instant feedback.
+ *
+ * NOTE: Indices 23-31 are now used by Extended Header Fields (v1.5).
+ * See HDR.ID_TABLE_PTR through HDR.RESERVED_31 above.
  */
 export const REG = {
   /** Byte offset to active groove template (0 = no groove) */
@@ -98,17 +212,8 @@ export const REG = {
   /** Global velocity multiplier (parts per thousand, 1000 = 1.0) */
   VELOCITY_MULT: 21,
   /** PRNG seed for deterministic humanization */
-  PRNG_SEED: 22,
-  /** Reserved registers 23-31 */
-  RESERVED_23: 23,
-  RESERVED_24: 24,
-  RESERVED_25: 25,
-  RESERVED_26: 26,
-  RESERVED_27: 27,
-  RESERVED_28: 28,
-  RESERVED_29: 29,
-  RESERVED_30: 30,
-  RESERVED_31: 31
+  PRNG_SEED: 22
+  // Indices 23-31: See HDR extended fields above
 } as const
 
 // =============================================================================
@@ -127,9 +232,9 @@ export const REG = {
  * - [+2] DURATION: Duration in ticks
  * - [+3] NEXT_PTR: Byte offset to next node (0 = end of chain)
  * - [+4] PREV_PTR: Byte offset to previous node (0 = head of chain)
- * - [+5] SOURCE_ID: Editor location hash for bidirectional mapping
+ * - [+5] SOURCE_ID: Editor location hash / TID for bidirectional mapping
  * - [+6] SEQ_FLAGS: (sequence << 8) | flags_extended
- * - [+7] RESERVED: Future expansion
+ * - [+7] LAST_PASS_ID: [v1.5] Generation ID for zero-alloc pruning
  */
 export const NODE = {
   /** Packed opcode, pitch, velocity, flags */
@@ -142,12 +247,12 @@ export const NODE = {
   NEXT_PTR: 3,
   /** Previous pointer (byte offset, 0 = head) */
   PREV_PTR: 4,
-  /** Source ID (editor location hash) */
+  /** Source ID (editor location hash) / Temporal ID (TID) for Identity Table */
   SOURCE_ID: 5,
   /** Sequence counter (upper 24 bits) + extended flags (lower 8 bits) */
   SEQ_FLAGS: 6,
-  /** Reserved for future use */
-  RESERVED: 7
+  /** [v1.5] Last update pass ID (generation-based pruning) */
+  LAST_PASS_ID: 7
 } as const
 
 /**
@@ -207,7 +312,9 @@ export const FLAG = {
   /** Node is muted (skip during playback) */
   MUTED: 0x02,
   /** Write in progress (consumer should spin/skip) */
-  DIRTY: 0x04
+  DIRTY: 0x04,
+  /** [v1.5] Node touched in current update pass (deprecated - use LAST_PASS_ID) */
+  TOUCHED: 0x08
 } as const
 
 // =============================================================================
@@ -259,7 +366,59 @@ export const ERROR = {
   /** Safe zone violation (edit too close to playhead) */
   SAFE_ZONE: 2,
   /** Invalid pointer encountered */
-  INVALID_PTR: 3
+  INVALID_PTR: 3,
+  /** [v1.5] Kernel panic: mutex deadlock or catastrophic failure */
+  KERNEL_PANIC: 4
+} as const
+
+// =============================================================================
+// Identity Table (v1.5) - TID → NodePtr Hash Map
+// =============================================================================
+
+/**
+ * Identity Table constants for O(1) Temporal ID lookups.
+ *
+ * The Identity Table is a fixed-size hash table stored in the SAB that maps
+ * Temporal IDs (TID) to NodePtr values for zero-allocation lookups.
+ *
+ * Structure: Linear-probe hash table with [TID: i32, NodePtr: u32] entries.
+ * - TID = 0: Empty slot
+ * - TID = -1: Tombstone (deleted entry)
+ * - TID > 0: Active entry
+ */
+export const ID_TABLE = {
+  /** Entry size in i32 units (TID + NodePtr) */
+  ENTRY_SIZE_I32: 2,
+  /** Entry size in bytes */
+  ENTRY_SIZE_BYTES: 8,
+  /** Default capacity (4096 entries = 32KB) */
+  DEFAULT_CAPACITY: 4096,
+  /** Load factor threshold for warnings (0.75 = 75%) */
+  LOAD_FACTOR_WARNING: 0.75,
+  /** Empty slot marker */
+  EMPTY_TID: 0,
+  /** Tombstone marker (deleted entry) */
+  TOMBSTONE_TID: -1,
+  /** Knuth's multiplicative hash constant (golden ratio × 2^32) */
+  KNUTH_HASH_MULTIPLIER: 2654435769
+} as const
+
+// =============================================================================
+// Concurrency Control (v1.5)
+// =============================================================================
+
+/**
+ * Concurrency control constants for lock-free and mutex-based operations.
+ */
+export const CONCURRENCY = {
+  /** Chain Mutex: Unlocked state */
+  MUTEX_UNLOCKED: 0,
+  /** Chain Mutex: Locked state */
+  MUTEX_LOCKED: 1,
+  /** CPU yield threshold: yield after this many spins */
+  YIELD_AFTER_SPINS: 100,
+  /** Dead-Man's Switch: panic after this many mutex acquisition attempts */
+  MUTEX_PANIC_THRESHOLD: 1_000_000
 } as const
 
 // =============================================================================
