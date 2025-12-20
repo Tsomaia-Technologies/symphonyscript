@@ -173,10 +173,10 @@ export interface ISiliconLinker {
   insertNode(afterPtr: NodePtr, data: NodeData): NodePtr
 
   /** Insert a new node at the head of the chain. */
-  insertHead(data: NodeData): Promise<NodePtr>
+  insertHead(data: NodeData): NodePtr
 
   /** Delete a node from the chain. Throws if in safe zone. */
-  deleteNode(ptr: NodePtr): Promise<void>
+  deleteNode(ptr: NodePtr): void
 
   // --- Commit Protocol ---
 
@@ -185,14 +185,14 @@ export interface ISiliconLinker {
 
   // --- Read Operations ---
 
-  /** Read node data at pointer. */
-  readNode(ptr: NodePtr): Promise<NodeView>
+  /** Read node data at pointer. Returns null if contention detected. */
+  readNode(ptr: NodePtr): NodeView | null
 
   /** Get head of chain. */
   getHead(): NodePtr
 
-  /** Iterate all nodes in chain order. */
-  iterateChain(): AsyncGenerator<NodeView, void, unknown>
+  /** Iterate all nodes in chain order. Skips nodes with contention. */
+  iterateChain(): Generator<NodeView, void, unknown>
 
   // --- Register Operations ---
 

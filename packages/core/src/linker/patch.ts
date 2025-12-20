@@ -284,119 +284,25 @@ export class AttributePatcher {
    * where a writer mutates fields mid-read. The sequence counter (SEQ_FLAGS)
    * acts as a version number that's incremented before/after mutations.
    *
+   * **Zero-Alloc, Audio-Realtime Variant**:
+   * - NO yielding or sleeping (pure spin loop)
+   * - NO Promise allocation
+   * - Returns `null` if contention exceeds 50 spins
+   *
+   * **Critical Constraint**: Caller MUST handle null gracefully by skipping
+   * processing for one frame rather than blocking (AudioWorklet requirement).
+   *
    * Concurrency Model:
    * - Reads SEQ before reading fields
    * - Reads all node fields
    * - Reads SEQ again
    * - If SEQ changed, retry (writer was mutating during our read)
-   * - Hybrid CPU yield after 100 spins to prevent starvation
-   *
-   * **Context**: Worker threads (Editor/Kernel). NOT for AudioWorklet.
-   *
-   * @param ptr - Node byte pointer
-   * @returns Promise resolving to object with current attribute values
-   */
-  async readAttributes(ptr: NodePtr): Promise<{
-    opcode: number
-    pitch: number
-    velocity: number
-    flags: number
-    duration: number
-    baseTick: number
-    nextPtr: NodePtr
-    sourceId: number
-    seq: number
-  }> {
-    this.validatePtr(ptr)
-    const offset = this.nodeOffset(ptr)
-
-    let seq1: number, seq2: number
-    let packed: number,
-      duration: number,
-      baseTick: number,
-      nextPtr: NodePtr,
-      sourceId: number
-    let spinCount = 0
-
-    do {
-      // Read SEQ before reading fields (version number)
-      seq1 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
-
-      // Read all fields atomically
-      packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
-      duration = Atomics.load(this.sab, offset + NODE.DURATION)
-      baseTick = Atomics.load(this.sab, offset + NODE.BASE_TICK)
-      nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-      sourceId = Atomics.load(this.sab, offset + NODE.SOURCE_ID)
-
-      // Read SEQ after reading fields
-      seq2 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
-
-      // If SEQ changed, writer was mutating during our read - retry
-      if (seq1 !== seq2) {
-        spinCount++
-
-        // **v1.5 HYBRID YIELD**: Prevent CPU starvation after 100 spins
-        if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
-          // Priority 1: setImmediate (Node.js/some browsers)
-          if (typeof setImmediate !== 'undefined') {
-            await new Promise((resolve) => setImmediate(resolve))
-          }
-          // Priority 2: scheduler.yield (modern browsers with Scheduler API)
-          else if (typeof (globalThis as any).scheduler?.yield === 'function') {
-            await (globalThis as any).scheduler.yield()
-          }
-          // Priority 3: Atomics.wait fallback (use dedicated YIELD_SLOT)
-          else {
-            // Note: Atomics.wait requires SharedArrayBuffer and may block
-            // Using 0ms timeout for immediate re-schedule
-            try {
-              Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 0)
-            } catch {
-              // Atomics.wait may throw if not supported, continue without yield
-            }
-          }
-          spinCount = 0 // Reset counter after yield
-        }
-      }
-    } while (seq1 !== seq2)
-
-    // SEQ is stable - safe to return data
-    return {
-      opcode: (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT,
-      pitch: (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT,
-      velocity: (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT,
-      flags: packed & PACKED.FLAGS_MASK,
-      duration,
-      baseTick,
-      nextPtr,
-      sourceId,
-      seq: seq1 // Return the stable sequence number
-    }
-  }
-
-  /**
-   * Synchronous read with versioned protection for AudioWorklet context.
-   *
-   * This is a **Zero-Alloc, Audio-Realtime** variant of readAttributes:
-   * - NO yielding or sleeping (pure spin loop)
-   * - NO Promise allocation
-   * - Returns `null` if contention exceeds 50 spins
-   *
-   * **Critical Constraint**: AudioWorklet MUST skip processing this node
-   * for one frame rather than blocking the speakers when null is returned.
-   *
-   * Concurrency Model:
-   * - Same versioned-read loop (seq1 → read → seq2)
-   * - Max 50 iterations before returning null
-   * - Caller must handle null gracefully (skip node, don't block)
-   *
-   * **Context**: AudioWorklet only. Workers should use async readAttributes.
+   * - Max 50 spins before returning null (contention detected)
    *
    * @param ptr - Node byte pointer
    * @returns Attribute data or null if contention detected
    */
-  readAttributesSync(
+  readAttributes(
     ptr: NodePtr
   ): {
     opcode: number

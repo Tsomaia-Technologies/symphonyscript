@@ -329,7 +329,7 @@ export class SiliconLinker implements ISiliconLinker {
    * @throws SafeZoneViolationError if too close to playhead
    * @throws KernelPanicError if mutex deadlock detected
    */
-  async insertHead(data: NodeData): Promise<NodePtr> {
+  insertHead(data: NodeData): NodePtr {
     // Check safe zone against new node's tick
     this.checkSafeZone(data.baseTick)
 
@@ -344,7 +344,7 @@ export class SiliconLinker implements ISiliconLinker {
     this.writeNodeData(newOffset, data)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
-    await this._acquireChainMutex()
+    this._acquireChainMutex()
     try {
       // **v1.5 CAS LOOP**: Atomic HEAD_PTR update
       let currentHead: NodePtr
@@ -392,7 +392,7 @@ export class SiliconLinker implements ISiliconLinker {
    * @throws SafeZoneViolationError if too close to playhead
    * @throws KernelPanicError if mutex deadlock detected
    */
-  async deleteNode(ptr: NodePtr): Promise<void> {
+  deleteNode(ptr: NodePtr): void {
     if (ptr === NULL_PTR) return
 
     const offset = this.nodeOffset(ptr)
@@ -400,7 +400,7 @@ export class SiliconLinker implements ISiliconLinker {
     this.checkSafeZone(targetTick)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
-    await this._acquireChainMutex()
+    this._acquireChainMutex()
     try {
       // Read prev and next pointers
       const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
@@ -493,16 +493,24 @@ export class SiliconLinker implements ISiliconLinker {
    * This method uses the versioned read loop (v1.5) implemented in AttributePatcher
    * to prevent torn reads during concurrent attribute mutations.
    *
+   * **Zero-Alloc, Audio-Realtime**: Returns null if contention detected (>50 spins).
+   * Caller must handle null gracefully by skipping processing for one frame.
+   *
    * @param ptr - Node byte pointer
-   * @returns Promise resolving to node view
+   * @returns Node view or null if contention detected
    * @throws InvalidPointerError if pointer is NULL or invalid
    */
-  async readNode(ptr: NodePtr): Promise<NodeView> {
+  readNode(ptr: NodePtr): NodeView | null {
     if (ptr === NULL_PTR) {
       throw new InvalidPointerError(ptr)
     }
 
-    const attrs = await this.patcher.readAttributes(ptr)
+    const attrs = this.patcher.readAttributes(ptr)
+
+    // Contention detected - caller must skip this node
+    if (attrs === null) {
+      return null
+    }
 
     return {
       ptr,
@@ -528,16 +536,28 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Iterate all nodes in chain order with versioned read protection.
    *
-   * This async generator uses the versioned read loop (v1.5) for each node
+   * This generator uses the versioned read loop (v1.5) for each node
    * to prevent torn reads during traversal.
    *
-   * @yields Promise resolving to NodeView for each node in chain order
+   * **Zero-Alloc, Audio-Realtime**: Skips nodes with contention (null reads).
+   *
+   * @yields NodeView for each node in chain order (skips nodes with contention)
    */
-  async *iterateChain(): AsyncGenerator<NodeView, void, unknown> {
+  *iterateChain(): Generator<NodeView, void, unknown> {
     let ptr = this.getHead()
 
     while (ptr !== NULL_PTR) {
-      const node = await this.readNode(ptr)
+      const node = this.readNode(ptr)
+
+      // Skip node if contention detected
+      if (node === null) {
+        // Try to advance to next node using current ptr's NEXT_PTR
+        // This is safe because we only read one field
+        const offset = this.nodeOffset(ptr)
+        ptr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+        continue
+      }
+
       yield node
       ptr = node.nextPtr
     }
