@@ -420,13 +420,6 @@ describe('LiveClipBuilder - API Compatibility', () => {
     expect((builder as any).build).toBeUndefined()
   })
 
-  test('no compile() method exists', () => {
-    const bridge = createTestBridge()
-    const builder = new LiveClipBuilder(bridge)
-
-    expect((builder as any).compile).toBeUndefined()
-  })
-
   test('method chaining works', () => {
     const bridge = createTestBridge()
     const builder = new LiveClipBuilder(bridge)
@@ -583,8 +576,7 @@ describe('LiveClipBuilder - Edge Cases', () => {
 // Production optimizations for achieving < 5µs:
 // 1. Use V8's prepareStackTrace API for faster parsing
 // 2. Use source maps + build-time injection for SOURCE_IDs
-// 3. Cache SOURCE_IDs per call site (implemented, but stack creation is slow)
-// 4. Use a Babel/TS plugin to inject SOURCE_IDs at compile time
+// 3. Cache SOURCE_IDs per call site
 //
 // The benchmarks below verify functional correctness and establish baselines.
 // =============================================================================

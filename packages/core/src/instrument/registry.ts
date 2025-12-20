@@ -4,7 +4,6 @@ import type { SerializedSidechainConfig } from './types'
 
 /**
  * Registry for instrument identity resolution.
- * Used during compilation to resolve ID-based references.
  */
 export class InstrumentRegistry {
   private instruments = new Map<InstrumentId, Instrument>()

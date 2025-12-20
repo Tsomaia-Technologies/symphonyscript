@@ -73,13 +73,6 @@ export type SerializedInstrumentConfigType = (SerializedSynthConfig | Serialized
   sidechain?: SidechainConfig
 }
 
-/** Legacy instrument node (for compiler) */
-export interface InstrumentNode {
-  id: InstrumentId
-  name: string
-  config: SerializedInstrumentConfigType
-}
-
 /**
  * Serializable instrument configuration.
  */

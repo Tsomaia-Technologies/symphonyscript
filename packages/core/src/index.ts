@@ -19,8 +19,6 @@ export { Session, session, Track } from './session/index'
 // --- Groove Domain ---
 export { Grooves, createSwing } from './groove/index'
 
-// --- Compiler ---
-
 // --- Serialization ---
 export { serializeClip, deserializeClip, serializeSession } from './session/serialize'
 export { SCHEMA_VERSION } from './schema/version'
@@ -50,12 +48,6 @@ export type { SessionNode, TrackNode } from './session/types'
 // --- Effects Domain ---
 export type { EffectType, BaseEffectParams, DelayParams, ReverbParams, DistortionParams, FilterParams, CompressorParams, EqParams, ChorusParams, EffectParamsFor, InsertEffect, SendConfig, EffectBusConfig } from './effects/types'
 // Instrument types (InstrumentConfig, SynthConfig, SamplerConfig, AudioRouting, SidechainConfig) are already exported from './instrument/index' above
-
-// --- Compiler types ---
-export type { CompiledClip, CompiledEvent, TempoMap } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/types'
-export { compileClip, computeTiming, computeTimingFromState, type TimingInitialState } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/index'
-export { expandClip } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/expand'
-export { coalesceStream, createWarningCollector, streamingCoalesceWithWarnings, streamingCoalesceToResult } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/coalesce'
 
 // --- RuntimeBackend Interface ---
 export type { RuntimeBackend } from './runtime/types'

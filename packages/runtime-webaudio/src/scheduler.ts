@@ -6,19 +6,18 @@
  * slightly in the future to compensate.
  */
 
-import type {CompiledEvent} from '@symphonyscript/core'
-
 /** How far ahead to schedule (seconds) */
 export const LOOKAHEAD = 0.1
 
 /** How often to run the scheduler (ms) */
 export const SCHEDULE_INTERVAL = 25
 
+// @deprecated: Implement LLVM-compliant interface
 export interface SchedulerConfig {
   /** Events to schedule */
-  events: CompiledEvent[]
+  events: any[]
   /** Callback to schedule an event */
-  onSchedule: (event: CompiledEvent, audioTime: number) => void
+  onSchedule: (event: any, audioTime: number) => void
   /** Get current audio context time */
   getCurrentTime: () => number
   /** Get playback start time */

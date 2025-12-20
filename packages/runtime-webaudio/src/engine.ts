@@ -2,18 +2,22 @@
  * Main playback engine facade.
  */
 
-import type {CompiledClip, CompiledEvent} from '@symphonyscript/core'
-import type {CompiledOutput} from '@symphonyscript/core'
 import {ensureAudioContextRunning} from './context'
 import {createTransport, type TransportState} from './transport'
 import {createScheduler, type Scheduler} from './scheduler'
 import {scheduleEvent, type SynthConfig} from './synth'
 
+/**
+ * @deprecated Implement LLVM-compliant interface
+ */
 export interface PlaybackEngine {
   /** Initialize audio (call from user gesture) */
   init: () => Promise<void>
-  /** Play a compiled clip or session output */
-  play: (input: CompiledClip | CompiledOutput) => void
+  /**
+   * Play a clip or session output
+   * @deprecated Implement LLVM-compliant interface
+   * */
+  play: (input: any) => void
   /** Pause playback */
   pause: () => void
   /** Resume playback */
@@ -26,11 +30,14 @@ export interface PlaybackEngine {
   isReady: () => boolean
 }
 
+/**
+ * @deprecated Implement LLVM-compliant version
+ */
 export function createPlaybackEngine(): PlaybackEngine {
   let audioContext: AudioContext | null = null
   let transport = createTransport()
   let scheduler: Scheduler | null = null
-  let currentClip: CompiledClip | null = null
+  let currentClip: any | null = null
   let synthConfig: SynthConfig | null = null
 
   return {
@@ -52,18 +59,18 @@ export function createPlaybackEngine(): PlaybackEngine {
       }
     },
 
-    play(input: CompiledClip | CompiledOutput): void {
+    play(input: any): void {
       if (!audioContext || !synthConfig) {
         throw new Error('Engine not initialized. Call init() first from a user gesture.')
       }
 
       // Normalize input to CompiledClip structure
-      let clip: CompiledClip
+      let clip: any
 
       if ('timeline' in input) {
         // Convert CompiledOutput (AudioEvent[]) to CompiledClip (CompiledEvent[])
         // Note: We only map basic note on events for now for playback
-        const events: CompiledEvent[] = input.timeline.map(e => {
+        const events: any[] = input.timeline.map((e: any) => {
           if (e.kind === 'note_on') {
             return {
               kind: 'note',
@@ -75,7 +82,7 @@ export function createPlaybackEngine(): PlaybackEngine {
                 velocity: e.velocity,
                 articulation: e.articulation
               }
-            } as CompiledEvent
+            } as any
           } else if (e.kind === 'control') {
             return {
               kind: 'control',
@@ -85,11 +92,11 @@ export function createPlaybackEngine(): PlaybackEngine {
                 controller: e.controller,
                 value: e.value
               }
-            } as CompiledEvent
+            } as any
           }
           // TODO: Map other events
           return null
-        }).filter((e): e is CompiledEvent => e !== null)
+        }).filter((e: any): e is any => e !== null)
 
         clip = {
           events,

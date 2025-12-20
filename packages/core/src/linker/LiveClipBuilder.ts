@@ -4,8 +4,7 @@
 // Base ClipBuilder that mirrors DSL calls directly to SiliconBridge.
 // Implements "Execution-as-Synchronization" paradigm.
 //
-// Key differences from AST ClipBuilder:
-// - NO .build() or .compile() methods
+// Key points:
 // - Every DSL call directly mirrors to SAB
 // - Tombstone pattern auto-prunes deleted nodes
 

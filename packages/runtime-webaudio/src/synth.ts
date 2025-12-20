@@ -3,7 +3,6 @@
  */
 
 import { createRandom } from '@symphonyscript/core'
-import type {CompiledEvent} from '@symphonyscript/core'
 
 export interface SynthConfig {
   audioContext: AudioContext
@@ -200,7 +199,7 @@ export function playHiHat(
  */
 export function pitchToFrequency(pitch: string): number {
   const match = pitch.match(/^([A-Ga-g])([#b]?)(\/-?\d+|)$/)
-  // Simple regex for note parsing, robust version would be shared with compiler
+  // Simple regex for note parsing
   const match2 = pitch.match(/^([A-Ga-g])([#b]?)(\d+)$/)
 
   if (!match2) return 0
@@ -226,10 +225,11 @@ export function pitchToFrequency(pitch: string): number {
 
 /**
  * Dispatch event to appropriate synth.
+ * @deprecated Implement LLVM-compliant version
  */
 export function scheduleEvent(
   config: SynthConfig,
-  event: CompiledEvent,
+  event: any,
   audioTime: number
 ): void {
   if (event.kind !== 'note') return
