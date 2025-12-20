@@ -88,11 +88,37 @@ export class SiliconLinker implements ISiliconLinker {
   // ===========================================================================
 
   /**
+   * Zero-allocation CPU yield for worker context.
+   *
+   * Uses Atomics.wait() with 1ms timeout to sleep without allocating memory.
+   * Fallback to setImmediate if Atomics.wait throws (e.g., main thread - rare).
+   *
+   * @remarks
+   * This is a synchronous sleep that doesn't create Promise garbage.
+   * The 1ms timeout allows other threads to acquire the mutex.
+   */
+  private _yieldToCPU(): void {
+    try {
+      // **ZERO-ALLOC**: Sleep for 1ms using Atomics.wait
+      // This relinquishes the time slice without allocating memory
+      Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 1)
+    } catch (e) {
+      // Atomics.wait may throw if called on main thread or unsupported
+      // Fallback: setImmediate (only allocates if actually hit)
+      if (typeof setImmediate !== 'undefined') {
+        // Note: This creates a microtask but should be rare in production
+        setImmediate(() => {})
+      }
+      // If no setImmediate, just continue spinning
+    }
+  }
+
+  /**
    * Acquire the Chain Mutex for structural operations.
    *
    * This implements a spin-lock with:
    * - CAS-based locking (0 → 1 transition)
-   * - Hybrid CPU yield after 100 spins to prevent starvation
+   * - Zero-alloc CPU yield after 100 spins to prevent starvation
    * - Dead-Man's Switch: Throws KernelPanicError after 1M iterations
    *
    * The Dead-Man's Switch prevents permanent system freeze if a worker
@@ -100,7 +126,7 @@ export class SiliconLinker implements ISiliconLinker {
    *
    * @throws KernelPanicError if lock cannot be acquired after 1M iterations
    */
-  private async _acquireChainMutex(): Promise<void> {
+  private _acquireChainMutex(): void {
     let spinCount = 0
     let totalIterations = 0
 
@@ -124,25 +150,10 @@ export class SiliconLinker implements ISiliconLinker {
         )
       }
 
-      // **v1.5 HYBRID YIELD**: Prevent CPU starvation
+      // **v1.5 ZERO-ALLOC YIELD**: Prevent CPU starvation without garbage
       spinCount++
       if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
-        // Priority 1: setImmediate (Node.js/some browsers)
-        if (typeof setImmediate !== 'undefined') {
-          await new Promise((resolve) => setImmediate(resolve))
-        }
-        // Priority 2: scheduler.yield (modern browsers with Scheduler API)
-        else if (typeof (globalThis as any).scheduler?.yield === 'function') {
-          await (globalThis as any).scheduler.yield()
-        }
-        // Priority 3: Atomics.wait fallback (use dedicated YIELD_SLOT)
-        else {
-          try {
-            Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 0)
-          } catch {
-            // Atomics.wait may throw if not supported, continue without yield
-          }
-        }
+        this._yieldToCPU()
         spinCount = 0 // Reset yield counter (NOT totalIterations!)
       }
     }
