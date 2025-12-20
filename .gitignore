@@ -3,5 +3,6 @@
 .pnpm-store
 node_modules
 dist
-../symphonyscript-legacy/research
+research
+research/implementation
 @generated

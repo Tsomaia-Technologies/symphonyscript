@@ -67,4 +67,4 @@ scales.forEach(scale =>
 
 ---
 
-**Status:** SymphonyScript is currently implementing **RFC-043: Continuous Silicon Kernel**. Please refer to the [RFC documentation](https://www.google.com/search?q=./docs/rfc/043-continuous-silicon-kernel.md) for full technical specifications.
+**Status:** SymphonyScript is currently implementing **RFC-043: Continuous Silicon Kernel**. Please refer to the [RFC documentation](https://www.google.com/search?q=./research/rfc/043-continuous-silicon-kernel.md) for full technical specifications.
