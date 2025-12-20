@@ -131,8 +131,8 @@ export class SiliconBridge {
   private _getSourceIdResult: number | undefined = undefined
   private _getSourceIdIsActive: boolean = false
 
-  // GetSourceLocation temporary state (for zero-alloc getSourceLocation)
-  private _getSourceLocationResult: SourceLocation | undefined = undefined
+  // GetSourceLocation callback state (for zero-alloc getSourceLocation)
+  private getSourceLocationCallback: ((line: number, column: number) => void) | null = null
 
   // TraverseSourceIds callback state (for zero-alloc traverseSourceIds)
   private traverseSourceIdsCallback: ((sourceId: number) => void) | null = null
@@ -225,22 +225,36 @@ export class SiliconBridge {
   }
 
   /**
-   * Get source location for a SOURCE_ID.
-   * Reads from Symbol Table in SAB (zero-allocation via callback).
+   * Get source location for a SOURCE_ID with zero-allocation callback pattern.
+   * Reads from Symbol Table in SAB.
    *
    * NOTE: File path is not recoverable from Symbol Table (only fileHash is stored).
-   * Returns { line, column } without the file field.
+   * Callback receives (line, column) primitives directly - no object allocation.
    *
-   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
+   * **Zero-Alloc Implementation**: Uses hoisted handler with save-restore pattern.
+   * Primitives flow directly from SAB to user callback. Zero heap traffic.
+   *
+   * Supports re-entrancy: nested calls will not corrupt callback state.
+   *
+   * @param sourceId - Source ID to lookup
+   * @param cb - Callback receiving (line, column) primitives
+   * @returns true if found and callback invoked, false if not found
    */
-  getSourceLocation(sourceId: number): SourceLocation | undefined {
-    // Reset state
-    this._getSourceLocationResult = undefined
+  getSourceLocation(
+    sourceId: number,
+    cb: (line: number, column: number) => void
+  ): boolean {
+    // Save previous callback to support re-entrancy
+    const prevCb = this.getSourceLocationCallback
+    this.getSourceLocationCallback = cb
 
-    // ZERO-ALLOC: Use pre-bound callback handler
-    const found = this.linker.symTableLookup(sourceId, this.handleGetSourceLocationLookup)
-
-    return found ? this._getSourceLocationResult : undefined
+    try {
+      // ZERO-ALLOC: Use pre-bound callback handler
+      return this.linker.symTableLookup(sourceId, this.handleGetSourceLocationLookup)
+    } finally {
+      // Restore previous callback (or null if no outer lookup)
+      this.getSourceLocationCallback = prevCb
+    }
   }
 
   /**
@@ -630,6 +644,11 @@ export class SiliconBridge {
    * Load a clip by inserting all notes.
    * Notes should be sorted by baseTick for optimal chain structure.
    *
+   * @deprecated This method uses array-based, object-heavy patterns that create
+   * heap allocations. For real-time bulk-loading (e.g., MIDI file import) without
+   * GC spikes, consider using insertImmediate in a loop with primitive-passing
+   * patterns, or wait for the primitive stream API in RFC-044.
+   *
    * @param notes - Array of notes sorted by baseTick
    * @returns Array of SOURCE_IDs in insertion order
    */
@@ -805,14 +824,17 @@ export class SiliconBridge {
   /**
    * Hoisted getSourceLocation callback handler (zero-allocation).
    * CRITICAL: This method is pre-bound to avoid object allocation in getSourceLocation().
-   * Captures line and column into instance variable.
+   * Invokes user callback with (line, column) primitives directly - zero heap traffic.
    */
   private handleGetSourceLocationLookup = (
     _fileHash: number,
     line: number,
     column: number
   ): void => {
-    this._getSourceLocationResult = { line, column }
+    // ZERO-ALLOC: Pass primitives directly to user callback (no object creation)
+    if (this.getSourceLocationCallback) {
+      this.getSourceLocationCallback(line, column)
+    }
   }
 
   /**

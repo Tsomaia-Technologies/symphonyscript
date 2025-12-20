@@ -291,8 +291,16 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     bridge.patchImmediate(sourceId, 'velocity', 64)
 
     // Source location should still be retrievable (file is not stored in Symbol Table)
-    const location = bridge.getSourceLocation(sourceId)
-    expect(location).toEqual({ line: 15, column: 8 })
+    // Use callback pattern (zero-alloc)
+    let locationLine = -1
+    let locationColumn = -1
+    const found = bridge.getSourceLocation(sourceId, (line, column) => {
+      locationLine = line
+      locationColumn = column
+    })
+    expect(found).toBe(true)
+    expect(locationLine).toBe(15)
+    expect(locationColumn).toBe(8)
 
     // Note should still be consumable
     consumer.advance(960)
@@ -345,8 +353,16 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     expect(retrievedSourceId).toBe(sourceId)
 
     // Use sourceId to highlight source (file is not stored in Symbol Table)
-    const highlightLocation = bridge.getSourceLocation(sourceId)
-    expect(highlightLocation).toEqual({ line: 5, column: 3 })
+    // Use callback pattern (zero-alloc)
+    let highlightLine = -1
+    let highlightColumn = -1
+    const highlightFound = bridge.getSourceLocation(sourceId, (line, column) => {
+      highlightLine = line
+      highlightColumn = column
+    })
+    expect(highlightFound).toBe(true)
+    expect(highlightLine).toBe(5)
+    expect(highlightColumn).toBe(3)
   })
 })
 

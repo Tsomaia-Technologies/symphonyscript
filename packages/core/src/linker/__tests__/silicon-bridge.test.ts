@@ -110,11 +110,27 @@ describe('SiliconBridge - Source ID Generation', () => {
     const bridge = createTestBridge()
 
     const source: SourceLocation = { file: 'test.ss', line: 10, column: 5 }
-    const id = bridge.generateSourceId(source)
+    // Insert a note with source location to trigger registerMapping
+    const sourceId = bridge.insertNoteImmediate({
+      pitch: 60,
+      velocity: 100,
+      duration: 480,
+      baseTick: 0,
+      muted: false,
+      source
+    })
 
-    const retrieved = bridge.getSourceLocation(id)
+    // Use callback pattern (zero-alloc)
+    let retrievedLine = -1
+    let retrievedColumn = -1
+    const found = bridge.getSourceLocation(sourceId, (line, column) => {
+      retrievedLine = line
+      retrievedColumn = column
+    })
 
-    expect(retrieved).toEqual(source)
+    expect(found).toBe(true)
+    expect(retrievedLine).toBe(source.line)
+    expect(retrievedColumn).toBe(source.column)
   })
 })
 
@@ -750,6 +766,15 @@ describe('SiliconBridge - Integration', () => {
     expect(readNote?.pitch).toBe(72)
 
     // Source location is stored in Symbol Table (file string not preserved)
-    expect(bridge.getSourceLocation(sourceId)).toEqual({ line: 10, column: 5 })
+    // Use callback pattern (zero-alloc)
+    let retrievedLine = -1
+    let retrievedColumn = -1
+    const found = bridge.getSourceLocation(sourceId, (line, column) => {
+      retrievedLine = line
+      retrievedColumn = column
+    })
+    expect(found).toBe(true)
+    expect(retrievedLine).toBe(10)
+    expect(retrievedColumn).toBe(5)
   })
 })
