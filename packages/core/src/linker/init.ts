@@ -54,6 +54,7 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
   // Create SharedArrayBuffer
   const buffer = new SharedArrayBuffer(totalBytes)
   const sab = new Int32Array(buffer)
+  const sab64 = new BigInt64Array(buffer)
 
   // Initialize header
   initializeHeader(sab, cfg)
@@ -61,13 +62,11 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
   // Initialize register bank
   initializeRegisters(sab, cfg)
 
-  // Initialize free list (links all nodes)
-  FreeList.initialize(sab, cfg.nodeCapacity)
+  // Initialize free list (links all nodes, sets 64-bit FREE_LIST_HEAD)
+  FreeList.initialize(sab, sab64, cfg.nodeCapacity)
 
-  // Initialize groove template region (zeroed by default in SAB)
-  // Groove templates start after the node heap
-  const grooveStart = HEAP_START_OFFSET + cfg.nodeCapacity * NODE_SIZE_BYTES
-  sab[HDR.GROOVE_START] = grooveStart
+  // NOTE: Groove template region starts after node heap (calculated dynamically)
+  // grooveStart = HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
 
   return buffer
 }
@@ -194,6 +193,7 @@ export function getLinkerConfig(buffer: SharedArrayBuffer): Required<LinkerConfi
  */
 export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
   const sab = new Int32Array(buffer)
+  const sab64 = new BigInt64Array(buffer)
   const nodeCapacity = sab[HDR.NODE_CAPACITY]
 
   // Reset synchronization state
@@ -201,8 +201,8 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
   sab[HDR.PLAYHEAD_TICK] = 0
   sab[HDR.ERROR_FLAG] = ERROR.OK
 
-  // Re-initialize free list (clears all nodes)
-  FreeList.initialize(sab, nodeCapacity)
+  // Re-initialize free list (clears all nodes, resets 64-bit FREE_LIST_HEAD)
+  FreeList.initialize(sab, sab64, nodeCapacity)
 }
 
 /**
@@ -222,7 +222,9 @@ export function writeGrooveTemplate(
   offsets: number[]
 ): void {
   const sab = new Int32Array(buffer)
-  const grooveStart = sab[HDR.GROOVE_START] / 4 // Convert byte offset to i32 index
+  // Calculate groove start dynamically: after node heap
+  const nodeCapacity = sab[HDR.NODE_CAPACITY]
+  const grooveStart = (HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES) / 4 // Convert byte offset to i32 index
 
   // Each template: 17 i32s (1 length + 16 max offsets)
   const templateSize = 17
@@ -249,7 +251,9 @@ export function readGrooveTemplate(
   templateIndex: number
 ): number[] {
   const sab = new Int32Array(buffer)
-  const grooveStart = sab[HDR.GROOVE_START] / 4
+  // Calculate groove start dynamically: after node heap
+  const nodeCapacity = sab[HDR.NODE_CAPACITY]
+  const grooveStart = (HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES) / 4
 
   const templateSize = 17
   const templateOffset = grooveStart + templateIndex * templateSize

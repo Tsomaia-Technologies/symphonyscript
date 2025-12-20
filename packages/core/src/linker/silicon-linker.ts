@@ -52,6 +52,7 @@ import {
  */
 export class SiliconLinker implements ISiliconLinker {
   private sab: Int32Array
+  private sab64: BigInt64Array
   private buffer: SharedArrayBuffer
   private freeList: FreeList
   private patcher: AttributePatcher
@@ -66,9 +67,10 @@ export class SiliconLinker implements ISiliconLinker {
   constructor(buffer: SharedArrayBuffer) {
     this.buffer = buffer
     this.sab = new Int32Array(buffer)
+    this.sab64 = new BigInt64Array(buffer)
     this.heapStartI32 = HEAP_START_OFFSET / 4
     this.nodeCapacity = this.sab[HDR.NODE_CAPACITY]
-    this.freeList = new FreeList(this.sab)
+    this.freeList = new FreeList(this.sab, this.sab64)
     this.patcher = new AttributePatcher(this.sab, this.nodeCapacity)
   }
 

@@ -533,7 +533,9 @@ describe('RFC-043: Silicon Linker', () => {
     it('should set active groove via linker', () => {
       const linker = createTestLinker()
       const sab = new Int32Array(linker.getSAB())
-      const grooveStart = sab[HDR.GROOVE_START]
+      // Calculate groove start dynamically: after node heap
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+      const grooveStart = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
 
       linker.setGroove(grooveStart, 8)
 

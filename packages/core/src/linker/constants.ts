@@ -52,17 +52,16 @@ export const NULL_PTR = 0
  * │ 8      │ 2         │ PPQ                │ u32     │ Pulses/quarter │
  * │ 12     │ 3         │ BPM                │ u32     │ Tempo          │
  * │ 16     │ 4         │ HEAD_PTR           │ u32     │ First node     │
- * │ 20     │ 5         │ FREE_LIST_PTR      │ u32     │ Free list head │
- * │ 24     │ 6         │ COMMIT_FLAG        │ u32     │ 0/1/2 sync     │
- * │ 28     │ 7         │ PLAYHEAD_TICK      │ u32     │ Audio position │
- * │ 32     │ 8         │ SAFE_ZONE_TICKS    │ u32     │ Edit boundary  │
- * │ 36     │ 9         │ ERROR_FLAG         │ u32     │ Error code     │
- * │ 40     │ 10        │ NODE_COUNT         │ u32     │ Live nodes     │
- * │ 44     │ 11        │ FREE_COUNT         │ u32     │ Free nodes     │
- * │ 48     │ 12        │ NODE_CAPACITY      │ u32     │ Max nodes      │
- * │ 52     │ 13        │ HEAP_START         │ u32     │ Heap offset    │
- * │ 56     │ 14        │ GROOVE_START       │ u32     │ Groove offset  │
- * │ 60     │ 15        │ RESERVED_15        │ u32     │ Future use     │
+ * │ 20     │ 5         │ RESERVED_5         │ u32     │ Padding/align  │
+ * │ 24-31  │ 6-7       │ FREE_LIST_HEAD     │ i64     │ Ver+Ptr (ABA)  │
+ * │ 32     │ 8         │ COMMIT_FLAG        │ u32     │ 0/1/2 sync     │
+ * │ 36     │ 9         │ PLAYHEAD_TICK      │ u32     │ Audio position │
+ * │ 40     │ 10        │ SAFE_ZONE_TICKS    │ u32     │ Edit boundary  │
+ * │ 44     │ 11        │ ERROR_FLAG         │ u32     │ Error code     │
+ * │ 48     │ 12        │ NODE_COUNT         │ u32     │ Live nodes     │
+ * │ 52     │ 13        │ FREE_COUNT         │ u32     │ Free nodes     │
+ * │ 56     │ 14        │ NODE_CAPACITY      │ u32     │ Max nodes      │
+ * │ 60     │ 15        │ HEAP_START         │ u32     │ Heap offset    │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │ REGISTER BANK (64-88)                                   28 bytes    │
  * ├─────────────────────────────────────────────────────────────────────┤
@@ -138,28 +137,28 @@ export const HDR = {
   BPM: 3,
   /** [ATOMIC] Byte offset to first node in chain (0 = empty) */
   HEAD_PTR: 4,
-  /** [ATOMIC] Byte offset to first free node (0 = heap exhausted) */
-  FREE_LIST_PTR: 5,
+  /** Reserved for alignment (old FREE_LIST_PTR slot) */
+  RESERVED_5: 5,
+  /** [ATOMIC] 64-bit tagged pointer (version|ptr) - occupies i32 indices 6-7 */
+  FREE_LIST_HEAD_LOW: 6,
+  /** Upper 32 bits of FREE_LIST_HEAD (access via BigInt64Array) */
+  FREE_LIST_HEAD_HIGH: 7,
   /** [ATOMIC] Commit flag: IDLE=0, PENDING=1, ACK=2 */
-  COMMIT_FLAG: 6,
+  COMMIT_FLAG: 8,
   /** [ATOMIC] Current playhead tick (written by AudioWorklet) */
-  PLAYHEAD_TICK: 7,
+  PLAYHEAD_TICK: 9,
   /** Safe zone distance in ticks (structural edits blocked within) */
-  SAFE_ZONE_TICKS: 8,
+  SAFE_ZONE_TICKS: 10,
   /** [ATOMIC] Error flag: OK=0, HEAP_EXHAUSTED=1, SAFE_ZONE=2, INVALID_PTR=3 */
-  ERROR_FLAG: 9,
+  ERROR_FLAG: 11,
   /** [ATOMIC] Total allocated nodes (live chain) */
-  NODE_COUNT: 10,
+  NODE_COUNT: 12,
   /** [ATOMIC] Nodes in free list */
-  FREE_COUNT: 11,
+  FREE_COUNT: 13,
   /** Total node capacity (set at init) */
-  NODE_CAPACITY: 12,
+  NODE_CAPACITY: 14,
   /** Byte offset where node heap begins */
-  HEAP_START: 13,
-  /** Byte offset where groove templates begin */
-  GROOVE_START: 14,
-  /** Reserved for future expansion */
-  RESERVED_15: 15,
+  HEAP_START: 15,
 
   // -------------------------------------------------------------------------
   // Extended Header Fields (v1.5) - Using REG reserved slots 23-31
@@ -185,6 +184,15 @@ export const HDR = {
   YIELD_SLOT: 30,
   /** Reserved for future expansion */
   RESERVED_31: 31
+} as const
+
+/**
+ * Header register offsets for BigInt64Array access.
+ * Use this for 64-bit atomic operations on tagged pointers.
+ */
+export const HDR_I64 = {
+  /** 64-bit tagged pointer: (version << 32n) | (ptr & 0xFFFFFFFFn) */
+  FREE_LIST_HEAD: 3 // Byte offset 24 / 8 = i64 index 3
 } as const
 
 // =============================================================================

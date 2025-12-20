@@ -377,7 +377,9 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Set groove active (point to template 0)
       const sab = new Int32Array(buffer)
-      const grooveStart = sab[HDR.GROOVE_START]
+      // Calculate groove start dynamically: after node heap
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+      const grooveStart = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
       linker.setGroove(grooveStart, 4)
 
       // Insert notes at tick 0, 1, 2, 3 (relative to groove steps)
@@ -407,7 +409,9 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       writeGrooveTemplate(buffer, 0, [0, 20]) // step 0 = +0, step 1 = +20
 
       const sab = new Int32Array(buffer)
-      const grooveStart = sab[HDR.GROOVE_START]
+      // Calculate groove start dynamically: after node heap
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+      const grooveStart = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
 
       // Notes: one at step 0 position, one at step 1 position
       linker.insertHead(note(61, 100)) // 100 % 2 = 0 (step 0, offset +0)

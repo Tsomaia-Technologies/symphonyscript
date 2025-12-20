@@ -255,7 +255,9 @@ export class LiveClipBuilder {
     // Calculate byte offset to the template
     // Each template is 17 i32s (1 length + 16 offsets) = 68 bytes
     const sab = new Int32Array(buffer)
-    const grooveStartBytes = sab[14] // HDR.GROOVE_START = 14
+    // Calculate groove start dynamically: after node heap
+    const nodeCapacity = sab[14] // HDR.NODE_CAPACITY = 14
+    const grooveStartBytes = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
     const templateByteOffset = grooveStartBytes + templateIndex * 68
 
     // Activate the groove
