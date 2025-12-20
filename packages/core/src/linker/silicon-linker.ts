@@ -284,39 +284,49 @@ export class SiliconLinker implements ISiliconLinker {
    * @throws HeapExhaustedError if no free nodes
    */
   insertNode(afterPtr: NodePtr, data: NodeData): NodePtr {
-    // 1. Check safe zone
-    const afterOffset = this.nodeOffset(afterPtr)
-    const targetTick = this.sab[afterOffset + NODE.BASE_TICK]
-    this.checkSafeZone(targetTick)
-
-    // 2. Allocate new node
+    // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
       throw new HeapExhaustedError()
     }
     const newOffset = this.nodeOffset(newPtr)
 
-    // 3. Write all attributes
+    // Write all attributes (before acquiring mutex)
     this.writeNodeData(newOffset, data)
 
-    // 4. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
-    const noteBPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
-    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, noteBPtr)
-    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
+    // **v1.5 CHAIN MUTEX**: Protect structural mutation
+    this._acquireChainMutex()
+    try {
+      // 1. Check safe zone INSIDE mutex (playhead may have moved during wait)
+      const afterOffset = this.nodeOffset(afterPtr)
+      const targetTick = this.sab[afterOffset + NODE.BASE_TICK]
+      this.checkSafeZone(targetTick)
 
-    // 5. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
-    if (noteBPtr !== NULL_PTR) {
-      const noteBOffset = this.nodeOffset(noteBPtr)
-      Atomics.store(this.sab, noteBOffset + NODE.PREV_PTR, newPtr)
+      // 2. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
+      const noteBPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
+      Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, noteBPtr)
+      Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
+
+      // 3. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
+      if (noteBPtr !== NULL_PTR) {
+        const noteBOffset = this.nodeOffset(noteBPtr)
+        Atomics.store(this.sab, noteBOffset + NODE.PREV_PTR, newPtr)
+      }
+
+      // 4. Atomic Splice: NoteA.NEXT_PTR = NoteX
+      Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
+
+      // 5. Increment NODE_COUNT
+      Atomics.add(this.sab, HDR.NODE_COUNT, 1)
+
+      // 6. Signal structural change
+      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+      return newPtr
+    } finally {
+      // **CRITICAL**: Always release mutex, even if error occurs
+      this._releaseChainMutex()
     }
-
-    // 6. Atomic Splice: NoteA.NEXT_PTR = NoteX
-    Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
-
-    // 7. Signal structural change
-    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-    return newPtr
   }
 
   /**
@@ -332,22 +342,22 @@ export class SiliconLinker implements ISiliconLinker {
    * @throws KernelPanicError if mutex deadlock detected
    */
   insertHead(data: NodeData): NodePtr {
-    // Check safe zone against new node's tick
-    this.checkSafeZone(data.baseTick)
-
-    // Allocate new node
+    // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
       throw new HeapExhaustedError()
     }
     const newOffset = this.nodeOffset(newPtr)
 
-    // Write attributes
+    // Write attributes (before acquiring mutex)
     this.writeNodeData(newOffset, data)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
     this._acquireChainMutex()
     try {
+      // Check safe zone INSIDE mutex (playhead may have moved during wait)
+      this.checkSafeZone(data.baseTick)
+
       // **v1.5 CAS LOOP**: Atomic HEAD_PTR update
       let currentHead: NodePtr
       do {
@@ -398,12 +408,14 @@ export class SiliconLinker implements ISiliconLinker {
     if (ptr === NULL_PTR) return
 
     const offset = this.nodeOffset(ptr)
-    const targetTick = this.sab[offset + NODE.BASE_TICK]
-    this.checkSafeZone(targetTick)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
     this._acquireChainMutex()
     try {
+      // Check safe zone INSIDE mutex (playhead may have moved during wait)
+      const targetTick = this.sab[offset + NODE.BASE_TICK]
+      this.checkSafeZone(targetTick)
+
       // Read prev and next pointers
       const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
       const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
