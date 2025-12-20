@@ -588,6 +588,9 @@ export class SiliconBridge {
    * It uses a pre-bound handler and argument explosion (passing primitives)
    * to avoid all object allocations in the hot loop.
    *
+   * Supports re-entrancy: nested calls to traverseNotes will not corrupt
+   * the callback state of outer traversals.
+   *
    * @param cb - Callback receiving note data as primitive arguments
    */
   traverseNotes(
@@ -600,11 +603,12 @@ export class SiliconBridge {
       muted: boolean
     ) => void
   ): void {
+    const prevCb = this.traverseNotesCallback
     this.traverseNotesCallback = cb
     try {
       this.linker.traverse(this.handleTraverseNode)
     } finally {
-      this.traverseNotesCallback = null
+      this.traverseNotesCallback = prevCb
     }
   }
 
