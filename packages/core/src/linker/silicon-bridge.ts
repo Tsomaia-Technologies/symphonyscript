@@ -707,20 +707,19 @@ export class SiliconBridge {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) return false
 
-    try {
-      // Store callback for hoisted handler
-      this.readNoteCallback = cb
+    // Save previous callback to support re-entrancy (same pattern as traverseNotes)
+    const prevCb = this.readNoteCallback
+    this.readNoteCallback = cb
 
+    try {
       // ZERO-ALLOC: Use pre-bound callback handler
       const success = this.linker.readNode(ptr, this.handleReadNoteNode)
-
-      // Clear callback reference
-      this.readNoteCallback = null
-
       return success
     } catch {
-      this.readNoteCallback = null
       return false
+    } finally {
+      // Restore previous callback (or null if no outer read)
+      this.readNoteCallback = prevCb
     }
   }
 

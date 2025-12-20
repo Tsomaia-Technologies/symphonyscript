@@ -1025,7 +1025,9 @@ export class SiliconLinker implements ISiliconLinker {
    * Each slot is 2 × i32: [fileHash, lineCol]
    */
   private symTableSlotOffset(slot: number): number {
-    const tableOffset = getSymbolTableOffset(this.nodeCapacity)
+    // Read capacity atomically to prevent desync in multi-worker environments
+    const nodeCapacity = Atomics.load(this.sab, HDR.NODE_CAPACITY)
+    const tableOffset = getSymbolTableOffset(nodeCapacity)
     return (tableOffset / 4) + slot * SYM_TABLE.ENTRY_SIZE_I32
   }
 
@@ -1173,7 +1175,9 @@ export class SiliconLinker implements ISiliconLinker {
    * Sets all entries to EMPTY_ENTRY (0).
    */
   symTableClear(): void {
-    const tableOffset = getSymbolTableOffset(this.nodeCapacity)
+    // Read node capacity atomically to prevent desync in multi-worker environments
+    const nodeCapacity = Atomics.load(this.sab, HDR.NODE_CAPACITY)
+    const tableOffset = getSymbolTableOffset(nodeCapacity)
     const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     const tableOffsetI32 = tableOffset / 4
     const totalI32 = capacity * SYM_TABLE.ENTRY_SIZE_I32
