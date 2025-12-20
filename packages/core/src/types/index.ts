@@ -6,7 +6,7 @@
 export * from './primitives'
 
 // Clip types (operations, nodes, params)
-export * from '../clip/types'
+export * from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 
 // Groove types
 export * from '../groove/types'

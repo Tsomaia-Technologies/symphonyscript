@@ -5,8 +5,8 @@
 import type { SessionNode, TrackNode } from './types'
 import type { EffectType, EffectParamsFor, EffectBusConfig } from '../effects/types'
 import { Track } from './Track'
-import type { ClipBuilder } from '../clip/ClipBuilder'
-import type { ClipNode } from '../clip/types'
+import type { ClipBuilder } from '../../../../../symphonyscript-legacy/src/legacy/clip/ClipBuilder'
+import type { ClipNode } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { Instrument } from '../instrument/Instrument'
 import { SCHEMA_VERSION } from '../schema/version'
 

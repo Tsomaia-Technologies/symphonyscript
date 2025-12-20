@@ -1,6 +1,6 @@
 import type { SessionNode, TrackNode } from './types'
 import type { EffectBusConfig } from '../effects/types'
-import type { ClipNode } from '../clip/types'
+import type { ClipNode } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { InstrumentId } from '../types/primitives'
 import { InstrumentRegistry } from '../instrument/registry'
 import type { SerializedInstrumentConfig } from '../instrument/types'

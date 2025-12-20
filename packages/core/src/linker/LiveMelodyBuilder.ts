@@ -13,11 +13,11 @@ import type {
   EasingCurve,
   TempoKeyframe
 } from '../types/primitives'
-import type { AutomationTarget } from '../automation/types'
+import type { AutomationTarget } from '../../../../../symphonyscript-legacy/src/legacy/automation/types'
 import type { ScaleMode } from '../scales'
 import type { ChordCode, ChordRoot } from '../chords/types'
 import type { Accidental } from '../theory/types'
-import type { VelocityPoint } from '../clip/types'
+import type { VelocityPoint } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import { LiveMelodyNoteCursor, LiveMelodyNoteData } from './cursors/LiveMelodyNoteCursor'
 import { LiveChordCursor, LiveChordData } from './cursors/LiveChordCursor'
 import { noteToMidi, midiToNote } from '../util/midi'

@@ -2,7 +2,7 @@
 // SymphonyScript - SBC VM Tests (RFC-038)
 // =============================================================================
 
-import { ClipFactory } from '../../clip'
+import { ClipFactory } from '../../../../../../symphonyscript-legacy/src/legacy/clip'
 import { assembleToBytecode } from '../assembler'
 import { BytecodeVM } from '../runtime'
 import { SBCConsumer } from '../consumer'

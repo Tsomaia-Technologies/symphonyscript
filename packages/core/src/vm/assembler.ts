@@ -2,7 +2,7 @@
 // SymphonyScript - Bytecode Assembler (RFC-038)
 // =============================================================================
 
-import type { ClipNode, ClipOperation, NoteOp } from '../clip/types'
+import type { ClipNode, ClipOperation, NoteOp } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { AssemblerOptions } from './types'
 import { noteToMidi } from '../util/midi'
 import { parseDuration } from '../util/duration'

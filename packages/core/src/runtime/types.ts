@@ -7,7 +7,7 @@
  * - @symphonyscript/runtime-csound (future)
  */
 
-import type { CompiledEvent } from '../compiler/pipeline/types';
+import type { CompiledEvent } from '../../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/types';
 
 /**
  * Runtime backend interface for audio playback.

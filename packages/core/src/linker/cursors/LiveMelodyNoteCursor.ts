@@ -6,7 +6,7 @@
 
 import { LiveNoteCursor, LiveNoteData, LiveBuilderBase } from './LiveNoteCursor'
 import type { NoteDuration, NoteName, TempoKeyframe } from '../../types/primitives'
-import type { AutomationTarget } from '../../automation/types'
+import type { AutomationTarget } from '../../../../../../symphonyscript-legacy/src/legacy/automation/types'
 import type { ScaleMode } from '../../scales'
 import type { ChordCode, ChordRoot } from '../../chords/types'
 import { noteToMidi, midiToNote } from '../../util/midi'

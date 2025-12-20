@@ -1,4 +1,4 @@
-import type { ClipOperation } from '../clip/types'
+import type { ClipOperation } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 
 /**
  * Error for invalid builder usage.

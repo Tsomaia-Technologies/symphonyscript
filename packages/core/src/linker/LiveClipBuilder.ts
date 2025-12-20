@@ -11,11 +11,13 @@
 
 import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
 import type { NoteDuration, TimeSignatureString, NoteName } from '../types/primitives'
-import type { HumanizeSettings, QuantizeSettings } from '../clip/types'
+import type { HumanizeSettings, QuantizeSettings } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { GrooveTemplate } from '../groove/types'
 import { parseDuration } from '../util/duration'
 import { LiveNoteCursor, LiveNoteData } from './cursors/LiveNoteCursor'
 import { noteToMidi } from '../util/midi'
+import { OPCODE } from './constants'
+import { writeGrooveTemplate } from './init'
 
 // =============================================================================
 // Types
@@ -82,6 +84,14 @@ export class LiveClipBuilder {
   protected _quantize: QuantizeSettings | undefined
   protected _swing: number = 0
   protected _groove: GrooveTemplate | undefined
+  protected _transposition: number = 0
+
+  // Groove template index counter (for writing multiple templates)
+  private static nextGrooveTemplateIndex: number = 0
+
+  // Stack mode flag: when true, notes don't advance currentTick
+  private _inStackMode: boolean = false
+  private _stackMaxTick: number = 0
 
   // Stack frame cache for performance
   private static stackCache: Map<string, StackCacheEntry> = new Map()
@@ -129,9 +139,15 @@ export class LiveClipBuilder {
     const dur = this.resolveDuration(duration ?? this._defaultDuration)
 
     const noteData = this.synchronizeNote(sourceId, midiPitch, vel, dur, this.currentTick)
-    this.currentTick += dur
 
-    return new LiveNoteCursor(this, noteData) // todo: reuse same cursor, do not re-create
+    // In stack mode, track max tick but don't advance currentTick
+    if (this._inStackMode) {
+      this._stackMaxTick = Math.max(this._stackMaxTick, this.currentTick + dur)
+    } else {
+      this.currentTick += dur
+    }
+
+    return new LiveNoteCursor(this, noteData)
   }
 
   /**
@@ -185,10 +201,11 @@ export class LiveClipBuilder {
 
   /**
    * Set tempo (BPM).
-   * Note: In live mode, tempo changes affect playback timing.
+   * Writes directly to SAB header's BPM register for immediate effect.
    */
   tempo(bpm: number): this {
-    // Store for metadata; actual tempo is handled by the transport
+    const clampedBpm = Math.max(1, Math.min(999, Math.round(bpm)))
+    this.bridge.getLinker().setBpm(clampedBpm)
     return this
   }
 
@@ -202,17 +219,49 @@ export class LiveClipBuilder {
 
   /**
    * Set swing amount (0-1).
+   * Swing delays off-beat notes (8th note grid).
+   * Applied during note synchronization.
    */
   swing(amount: number): this {
     this._swing = Math.max(0, Math.min(1, amount))
+    // Clear groove when setting swing directly (they're mutually exclusive)
+    if (amount > 0 && this._groove) {
+      this._groove = undefined
+      this.bridge.getLinker().clearGroove()
+    }
     return this
   }
 
   /**
    * Set groove template.
+   * Writes template to SAB and activates it for playback.
    */
   groove(template: GrooveTemplate): this {
     this._groove = template
+    // Clear swing when setting groove (they're mutually exclusive)
+    this._swing = 0
+
+    // Convert groove template steps to tick offsets
+    const ticksPerStep = this.ppq / template.stepsPerBeat
+    const offsets = template.steps.map((step, i) => {
+      const timingOffset = step.timing ?? 0
+      return Math.round(timingOffset * ticksPerStep)
+    })
+
+    // Write groove template to SAB
+    const buffer = this.bridge.getLinker().getSAB()
+    const templateIndex = LiveClipBuilder.nextGrooveTemplateIndex++
+    writeGrooveTemplate(buffer, templateIndex, offsets)
+
+    // Calculate byte offset to the template
+    // Each template is 17 i32s (1 length + 16 offsets) = 68 bytes
+    const sab = new Int32Array(buffer)
+    const grooveStartBytes = sab[14] // HDR.GROOVE_START = 14
+    const templateByteOffset = grooveStartBytes + templateIndex * 68
+
+    // Activate the groove
+    this.bridge.getLinker().setGroove(templateByteOffset, offsets.length)
+
     return this
   }
 
@@ -249,11 +298,66 @@ export class LiveClipBuilder {
 
   /**
    * Send MIDI Control Change (CC) message.
+   * Inserts a CC event into the SAB at the current tick position.
    */
   control(controller: number, value: number): this {
-    // In live mode, CC messages would be sent to the transport
-    // For now, this is a no-op placeholder
+    const sourceId = this.getSourceIdFromCallSite()
+    const clampedController = Math.max(0, Math.min(127, controller))
+    const clampedValue = Math.max(0, Math.min(127, value))
+
+    this.synchronizeCC(sourceId, clampedController, clampedValue, this.currentTick)
     return this
+  }
+
+  /**
+   * Synchronize a CC event: patch if exists, insert if new.
+   */
+  private synchronizeCC(
+    sourceId: number,
+    controller: number,
+    value: number,
+    baseTick: number
+  ): void {
+    const ptr = this.bridge.getNodePtr(sourceId)
+    const linker = this.bridge.getLinker()
+
+    if (ptr !== undefined) {
+      // PATCH: Node exists - update the value
+      linker.patchVelocity(ptr, value)
+      linker.patchBaseTick(ptr, baseTick)
+      this.touchedSourceIds.add(sourceId)
+    } else {
+      // INSERT: New CC node
+      const nodeData = {
+        opcode: OPCODE.CC,
+        pitch: controller,
+        velocity: value,
+        duration: 0, // CC events have no duration
+        baseTick,
+        sourceId,
+        flags: 0
+      }
+
+      // Insert at head or after last node
+      let newPtr
+      if (this.lastSourceId !== undefined) {
+        const afterPtr = this.bridge.getNodePtr(this.lastSourceId)
+        if (afterPtr !== undefined) {
+          newPtr = linker.insertNode(afterPtr, nodeData)
+        } else {
+          newPtr = linker.insertHead(nodeData)
+        }
+      } else {
+        newPtr = linker.insertHead(nodeData)
+      }
+
+      // Register the mapping manually since we bypassed bridge
+      ;(this.bridge as any).sourceIdToPtr.set(sourceId, newPtr)
+      ;(this.bridge as any).ptrToSourceId.set(newPtr, sourceId)
+
+      this.touchedSourceIds.add(sourceId)
+      this.ownedSourceIds.add(sourceId)
+    }
   }
 
   // ===========================================================================
@@ -262,6 +366,7 @@ export class LiveClipBuilder {
 
   /**
    * Parallel execution - all operations in the callback start at same time.
+   * After execution, currentTick advances to savedTick + maxDuration.
    */
   stack(builderFn: (b: this) => this | LiveNoteCursor<this>): this {
     const savedTick = this.currentTick
@@ -272,10 +377,15 @@ export class LiveClipBuilder {
       result.commit()
     }
 
-    // Stack doesn't advance time past the longest parallel operation
-    // The individual operations already advanced currentTick,
-    // so we need to track the max and reset appropriately
-    // For simplicity, we don't restore tick - operations within stack are parallel
+    // Track the max tick reached during parallel execution
+    const maxTickReached = this.currentTick
+
+    // Restore tick to savedTick, then advance by the max duration
+    // This allows parallel operations to start at the same time
+    // but time advances by the longest operation
+    const maxDuration = maxTickReached - savedTick
+    this.currentTick = savedTick + maxDuration
+
     return this
   }
 
@@ -455,7 +565,45 @@ export class LiveClipBuilder {
   // ===========================================================================
 
   /**
+   * Apply quantization to a tick value.
+   */
+  private applyQuantize(tick: number): number {
+    if (!this._quantize) return tick
+
+    const gridTicks = this.resolveDuration(this._quantize.grid)
+    const strength = this._quantize.strength ?? 1
+
+    const nearestGrid = Math.round(tick / gridTicks) * gridTicks
+    return Math.round(tick + (nearestGrid - tick) * strength)
+  }
+
+  /**
+   * Apply swing offset to a tick value.
+   * Swing delays off-beat 8th notes.
+   */
+  private applySwing(tick: number): number {
+    if (this._swing <= 0) return tick
+
+    // 8th note grid in ticks
+    const eighthTicks = this.ppq / 2 // 240 ticks at 480 PPQ
+
+    // Determine which 8th note position this tick falls on
+    const eighthPosition = Math.floor(tick / eighthTicks)
+
+    // Only apply swing to off-beats (odd positions: 1, 3, 5, etc.)
+    if (eighthPosition % 2 === 1) {
+      // Maximum swing delay is half an 8th note
+      const maxSwingOffset = eighthTicks / 2
+      const swingOffset = Math.round(this._swing * maxSwingOffset)
+      return tick + swingOffset
+    }
+
+    return tick
+  }
+
+  /**
    * Synchronize a note: patch if exists, insert if new.
+   * Applies quantization and swing transformations.
    */
   protected synchronizeNote(
     sourceId: number,
@@ -464,14 +612,27 @@ export class LiveClipBuilder {
     duration: number,
     baseTick: number
   ): LiveNoteData {
+    // Apply timing transformations in order: Quantize → Swing
+    // (Groove is applied by the AudioWorklet consumer, not here)
+    let transformedTick = baseTick
+    transformedTick = this.applyQuantize(transformedTick)
+    transformedTick = this.applySwing(transformedTick)
+
+    // Apply quantization to duration if enabled
+    let transformedDuration = duration
+    if (this._quantize?.duration) {
+      const gridTicks = this.resolveDuration(this._quantize.grid)
+      transformedDuration = Math.max(gridTicks, Math.round(duration / gridTicks) * gridTicks)
+    }
+
     const ptr = this.bridge.getNodePtr(sourceId)
 
     if (ptr !== undefined) {
       // PATCH: Node exists
       this.bridge.patchImmediate(sourceId, 'pitch', pitch)
       this.bridge.patchImmediate(sourceId, 'velocity', velocity)
-      this.bridge.patchImmediate(sourceId, 'duration', duration)
-      this.bridge.patchImmediate(sourceId, 'baseTick', baseTick)
+      this.bridge.patchImmediate(sourceId, 'duration', transformedDuration)
+      this.bridge.patchImmediate(sourceId, 'baseTick', transformedTick)
 
       this.touchedSourceIds.add(sourceId)
       this.lastSourceId = sourceId
@@ -480,8 +641,8 @@ export class LiveClipBuilder {
         sourceId,
         pitch,
         velocity,
-        duration,
-        baseTick,
+        duration: transformedDuration,
+        baseTick: transformedTick,
         muted: false
       }
     } else {
@@ -489,8 +650,8 @@ export class LiveClipBuilder {
       const noteData: EditorNoteData = {
         pitch,
         velocity,
-        duration,
-        baseTick,
+        duration: transformedDuration,
+        baseTick: transformedTick,
         muted: false
       }
 
@@ -509,8 +670,8 @@ export class LiveClipBuilder {
         sourceId: newSourceId,
         pitch,
         velocity,
-        duration,
-        baseTick,
+        duration: transformedDuration,
+        baseTick: transformedTick,
         muted: false
       }
     }

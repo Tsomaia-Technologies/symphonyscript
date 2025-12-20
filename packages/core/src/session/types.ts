@@ -2,7 +2,7 @@
 // SymphonyScript - Session Types
 // =============================================================================
 
-import type { ClipNode } from '../clip/types'
+import type { ClipNode } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 
 // Forward reference - Instrument is imported at runtime in Track.ts
 // This avoids circular dependency while preserving type safety

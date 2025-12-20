@@ -2,8 +2,8 @@
 // SymphonyScript - Track (Instrument + Clip + Effects)
 // =============================================================================
 
-import type { ClipNode } from '../clip/types'
-import type { ClipBuilder } from '../clip/ClipBuilder'
+import type { ClipNode } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
+import type { ClipBuilder } from '../../../../../symphonyscript-legacy/src/legacy/clip/ClipBuilder'
 import type { Instrument } from '../instrument/Instrument'
 import type { EffectType, EffectParamsFor, InsertEffect, SendConfig } from '../effects/types'
 

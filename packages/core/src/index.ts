@@ -15,9 +15,9 @@ export {
   ClipFactory,
   OpChain,
   Actions
-} from './clip/index'
+} from '../../../../symphonyscript-legacy/src/legacy/clip/index'
 
-export { ClipFactory as Clip } from './clip/index'
+export { ClipFactory as Clip } from '../../../../symphonyscript-legacy/src/legacy/clip/index'
 
 // --- Instrument Domain ---
 export {
@@ -36,9 +36,9 @@ export { Session, session, Track } from './session/index'
 export { Grooves, createSwing } from './groove/index'
 
 // --- Compiler ---
-export { compile, serializeTimeline } from './compiler/index'
-export type { CompileOptions, CompileResult } from './compiler/index'
-export type { SerializeOptions } from './compiler/serialize'
+export { compile, serializeTimeline } from '../../../../symphonyscript-legacy/src/legacy/compiler/index'
+export type { CompileOptions, CompileResult } from '../../../../symphonyscript-legacy/src/legacy/compiler/index'
+export type { SerializeOptions } from '../../../../symphonyscript-legacy/src/legacy/compiler/serialize'
 
 // --- Serialization ---
 export { serializeClip, deserializeClip, serializeSession } from './session/serialize'
@@ -59,10 +59,10 @@ export { midiValue, midiChannel, midiControl, CC } from './types/midi'
 
 // --- Utilities ---
 export { SeededRandom, createRandom, hashString } from './util/random'
-export { customTarget, isBuiltinTarget } from './automation/types'
-export type { AutomationTarget, BuiltinAutomationTarget, CustomAutomationTarget } from './automation/types'
+export { customTarget, isBuiltinTarget } from '../../../../symphonyscript-legacy/src/legacy/automation/types'
+export type { AutomationTarget, BuiltinAutomationTarget, CustomAutomationTarget } from '../../../../symphonyscript-legacy/src/legacy/automation/types'
 
-export type { ClipNode, ClipOperation, ClipParams, MelodyParams, DrumParams, NoteOp, RestOp, StackOp, LoopOp, ControlOp, TempoOp, DynamicsOp, VelocityPoint, TempoTransition } from './clip/types'
+export type { ClipNode, ClipOperation, ClipParams, MelodyParams, DrumParams, NoteOp, RestOp, StackOp, LoopOp, ControlOp, TempoOp, DynamicsOp, VelocityPoint, TempoTransition } from '../../../../symphonyscript-legacy/src/legacy/clip/types'
 export type { GrooveTemplate, GrooveStep } from './groove/types'
 export type { SessionNode, TrackNode } from './session/types'
 
@@ -71,28 +71,28 @@ export type { EffectType, BaseEffectParams, DelayParams, ReverbParams, Distortio
 // Instrument types (InstrumentConfig, SynthConfig, SamplerConfig, AudioRouting, SidechainConfig) are already exported from './instrument/index' above
 
 // --- Compiler types ---
-export type { CompiledOutput, AudioEvent, NoteOnEvent, ControlEvent, TempoEvent, TempoChange } from './compiler/types'
-export type { CompiledClip, CompiledEvent, TempoMap } from './compiler/pipeline/types'
-export { compileClip, computeTiming, computeTimingFromState, type TimingInitialState } from './compiler/pipeline/index'
-export { expandClip } from './compiler/pipeline/expand'
-export { coalesceStream, createWarningCollector, streamingCoalesceWithWarnings, streamingCoalesceToResult } from './compiler/pipeline/coalesce'
-export { incrementalCompile } from './compiler/incremental/compile'
-export type { IncrementalCompileResult, CompilationCache } from './compiler/incremental/types'
+export type { CompiledOutput, AudioEvent, NoteOnEvent, ControlEvent, TempoEvent, TempoChange } from '../../../../symphonyscript-legacy/src/legacy/compiler/types'
+export type { CompiledClip, CompiledEvent, TempoMap } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/types'
+export { compileClip, computeTiming, computeTimingFromState, type TimingInitialState } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/index'
+export { expandClip } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/expand'
+export { coalesceStream, createWarningCollector, streamingCoalesceWithWarnings, streamingCoalesceToResult } from '../../../../symphonyscript-legacy/src/legacy/compiler/pipeline/coalesce'
+export { incrementalCompile } from '../../../../symphonyscript-legacy/src/legacy/compiler/incremental/compile'
+export type { IncrementalCompileResult, CompilationCache } from '../../../../symphonyscript-legacy/src/legacy/compiler/incremental/types'
 
 // --- RuntimeBackend Interface ---
 export type { RuntimeBackend } from './runtime/types'
 
 // --- Import Module (buffer-only) ---
-export { importMidi, importMidiAsClip, importMusicXML, importMusicXMLAsClip, parseMidiBuffer } from './import/index'
-export type { MidiImportOptions, MusicXMLImportOptions, ClipImportResult, MultiClipImportResult, MidiFile, MidiTrack, MidiEvent } from './import/index'
+export { importMidi, importMidiAsClip, importMusicXML, importMusicXMLAsClip, parseMidiBuffer } from '../../../../symphonyscript-legacy/src/legacy/import/index'
+export type { MidiImportOptions, MusicXMLImportOptions, ClipImportResult, MultiClipImportResult, MidiFile, MidiTrack, MidiEvent } from '../../../../symphonyscript-legacy/src/legacy/import/index'
 
 // --- Code Generator ---
-export { clipToCode, clipsToCode } from './codegen/index'
-export type { CodeGenOptions } from './codegen/index'
+export { clipToCode, clipsToCode } from '../../../../symphonyscript-legacy/src/legacy/codegen/index'
+export type { CodeGenOptions } from '../../../../symphonyscript-legacy/src/legacy/codegen/index'
 
 // --- Export Module ---
-export { exportMidi, exportMusicXML, writeVLQ, secondsToTicks, bpmToMicrosPerBeat, noteNameToMidi } from './export/index'
-export type { MidiExportOptions, MidiExportResult, MusicXMLExportOptions, MusicXMLExportResult } from './export/index'
+export { exportMidi, exportMusicXML, writeVLQ, secondsToTicks, bpmToMicrosPerBeat, noteNameToMidi } from '../../../../symphonyscript-legacy/src/legacy/export/index'
+export type { MidiExportOptions, MidiExportResult, MusicXMLExportOptions, MusicXMLExportResult } from '../../../../symphonyscript-legacy/src/legacy/export/index'
 
 // --- VM Module (RFC-038: Symphony Bytecode) ---
 export { assembleToBytecode, BytecodeVM, SBCConsumer } from './vm/index'

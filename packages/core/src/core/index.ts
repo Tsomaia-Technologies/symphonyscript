@@ -5,20 +5,6 @@
 // Re-export from new locations for backward compatibility
 
 // Clip Builders
-export {ClipFactory as Clip, ClipFactory} from '../clip'
-export {
-  ClipBuilder,
-  MelodyBuilder,
-  KeyboardBuilder,
-  StringBuilder,
-  WindBuilder,
-  DrumBuilder
-} from '../clip'
-
-// Actions
-export {Actions} from '../clip'
-
-// Track & Session
 export {Track} from '../session'
 export {Session, session} from '../session'
 

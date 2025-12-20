@@ -251,7 +251,7 @@ All serialized data includes a `_version` field for forward compatibility. When 
 // Load with auto-migration
 const clip = deserializeClip(json, { migrate: true })
 ```
-See [docs/VERSIONING.md](docs/VERSIONING.md) for details on version compatibility and migration.
+See [docs/VERSIONING.md](../symphonyscript-legacy/docs/VERSIONING.md) for details on version compatibility and migration.
 
 ---
 
@@ -330,8 +330,8 @@ Events are simple, flat objects:
 SymphonyScript uses closed-form analytical processing for tempo curves to ensure sub-sample accuracy.
 The implementation is backed by formal edge-case analysis and independent derivations of the integral controls.
 
-- [Tempo Integration Proofs](./docs/proofs/)
-- [Stability Analysis](./docs/verification/tempo_stability_report.md)
+- [Tempo Integration Proofs](../symphonyscript-legacy/docs/proofs/)
+- [Stability Analysis](../symphonyscript-legacy/docs/verification/tempo_stability_report.md)
 
 ---
 
