@@ -20,3 +20,15 @@ Before executing any code changes, the agent MUST:
 ## 4. Lifecycle Automation
 - **Tombstones**: Builders must track `touchedSourceIds`.
 - **Finalization**: `finalize()` is going to be automated via `Track.build()` and `Session.build()`. Do not require the user to call it manually in complex scripts.
+
+## 5. Role Governance (Strict Separation)
+
+### THE ARCHITECT
+- **Responsibility**: Designing the "Silicon Mirroring" system and verifying the Handshake Protocol.
+- **Output**: Detailed technical specifications, state machine diagrams, and review documents.
+- **CONSTRAINT**: The Architect drafted documents are "Blueprints," not "Copy-Paste" code. The Architect must describe the solution, not implement it.
+
+### THE ENGINEER
+- **Responsibility**: Implementing logic into the codebase.
+- **Constraint**: Must follow the Architect's Phase Documents exactly. If the Blueprint is ambiguous, the Engineer must request a "Blueprint Clarification" rather than making architectural assumptions.
+- 
