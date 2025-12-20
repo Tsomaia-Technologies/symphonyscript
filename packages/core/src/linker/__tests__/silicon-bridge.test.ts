@@ -160,14 +160,15 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
     expect(bridge.getSourceId(ptr)).toBeUndefined()
   })
 
-  test('getAllSourceIds returns all registered IDs', () => {
+  test('traverseSourceIds visits all registered IDs', () => {
     const bridge = createTestBridge()
 
     const id1 = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
     const id2 = bridge.insertNoteImmediate(createTestNote({ baseTick: 480 }))
     const id3 = bridge.insertNoteImmediate(createTestNote({ baseTick: 960 }))
 
-    const ids = bridge.getAllSourceIds()
+    const ids: number[] = []
+    bridge.traverseSourceIds((id) => ids.push(id))
 
     expect(ids).toContain(id1)
     expect(ids).toContain(id2)
@@ -519,7 +520,9 @@ describe('SiliconBridge - Batch Operations', () => {
     bridge.clear()
 
     expect(bridge.getMappingCount()).toBe(0)
-    expect(bridge.getAllSourceIds().length).toBe(0)
+    let idCount = 0
+    bridge.traverseSourceIds(() => idCount++)
+    expect(idCount).toBe(0)
   })
 
   test('clear cancels pending operations', () => {

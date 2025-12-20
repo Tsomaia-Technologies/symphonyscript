@@ -103,6 +103,12 @@ export const NULL_PTR = 0
  * │   TID = 0  : Empty slot                                             │
  * │   TID = -1 : Tombstone (deleted, will be cleaned on rebuild)       │
  * │   TID > 0  : Active entry (Knuth multiplicative hash)              │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ SYMBOL TABLE (dynamic offset)                capacity × 8 bytes    │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Packed SourceLocation: [fileHash: i32, lineCol: i32] × capacity    │
+ * │   fileHash = 0: No location stored                                  │
+ * │   lineCol = (line << 16) | (column & 0xFFFF)                       │
  * └─────────────────────────────────────────────────────────────────────┘
  *
  * ATOMIC OPERATIONS:
@@ -413,6 +419,39 @@ export const ID_TABLE = {
 } as const
 
 // =============================================================================
+// Symbol Table (v1.5) - SourceId → Packed SourceLocation
+// =============================================================================
+
+/**
+ * Symbol Table constants for storing packed SourceLocations in SAB.
+ *
+ * The Symbol Table is a parallel structure to the Identity Table that maps
+ * sourceId → packed SourceLocation for editor integration (click-to-source).
+ *
+ * Packed SourceLocation format (64 bits / 2 × i32):
+ * - [0] FILE_HASH: Hash of the file path (i32)
+ * - [1] LINE_COL: (line << 16) | (column & 0xFFFF) (i32)
+ *
+ * This allows zero-allocation storage/retrieval of source locations.
+ */
+export const SYM_TABLE = {
+  /** Entry size in i32 units (fileHash + lineCol) */
+  ENTRY_SIZE_I32: 2,
+  /** Entry size in bytes */
+  ENTRY_SIZE_BYTES: 8,
+  /** Empty entry marker (fileHash = 0 indicates no location) */
+  EMPTY_ENTRY: 0,
+  /** Line shift for packing into lineCol field */
+  LINE_SHIFT: 16,
+  /** Column mask for extracting from lineCol field */
+  COLUMN_MASK: 0xffff,
+  /** Maximum line number (16 bits = 65535) */
+  MAX_LINE: 0xffff,
+  /** Maximum column number (16 bits = 65535) */
+  MAX_COLUMN: 0xffff
+} as const
+
+// =============================================================================
 // Concurrency Control (v1.5)
 // =============================================================================
 
@@ -442,6 +481,7 @@ export const CONCURRENCY = {
  * - Registers: 64 bytes (16 × i32)
  * - Node Heap: nodeCapacity × 32 bytes
  * - Identity Table: nodeCapacity × 8 bytes (TID + NodePtr per entry)
+ * - Symbol Table: nodeCapacity × 8 bytes (fileHash + lineCol per entry)
  * - Groove Templates: 1024 bytes (fixed)
  *
  * @param nodeCapacity - Maximum number of nodes
@@ -452,8 +492,9 @@ export function calculateSABSize(nodeCapacity: number): number {
   const registerSize = 64 // 16 × i32
   const heapSize = nodeCapacity * NODE_SIZE_BYTES
   const identityTableSize = nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
+  const symbolTableSize = nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const grooveSize = 1024 // Fixed groove template region
-  return headerSize + registerSize + heapSize + identityTableSize + grooveSize
+  return headerSize + registerSize + heapSize + identityTableSize + symbolTableSize + grooveSize
 }
 
 /**
@@ -477,12 +518,21 @@ export function getIdentityTableOffset(nodeCapacity: number): number {
 }
 
 /**
+ * Calculate byte offset where Symbol Table begins.
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Byte offset to Symbol Table
+ */
+export function getSymbolTableOffset(nodeCapacity: number): number {
+  return getIdentityTableOffset(nodeCapacity) + nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES
+}
+
+/**
  * Calculate byte offset where Groove Templates begin.
  * @param nodeCapacity - Maximum number of nodes
  * @returns Byte offset to Groove Templates
  */
 export function getGrooveTemplateOffset(nodeCapacity: number): number {
-  return getIdentityTableOffset(nodeCapacity) + nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES
+  return getSymbolTableOffset(nodeCapacity) + nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES
 }
 
 // =============================================================================

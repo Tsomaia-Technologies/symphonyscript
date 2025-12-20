@@ -290,9 +290,9 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     bridge.patchImmediate(sourceId, 'pitch', 72)
     bridge.patchImmediate(sourceId, 'velocity', 64)
 
-    // Source location should still be retrievable
+    // Source location should still be retrievable (file is not stored in Symbol Table)
     const location = bridge.getSourceLocation(sourceId)
-    expect(location).toEqual(source)
+    expect(location).toEqual({ line: 15, column: 8 })
 
     // Note should still be consumable
     consumer.advance(960)
@@ -344,9 +344,9 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     const retrievedSourceId = bridge.getSourceId(playedNote.ptr)
     expect(retrievedSourceId).toBe(sourceId)
 
-    // Use sourceId to highlight source
+    // Use sourceId to highlight source (file is not stored in Symbol Table)
     const highlightLocation = bridge.getSourceLocation(sourceId)
-    expect(highlightLocation).toEqual(source)
+    expect(highlightLocation).toEqual({ line: 5, column: 3 })
   })
 })
 

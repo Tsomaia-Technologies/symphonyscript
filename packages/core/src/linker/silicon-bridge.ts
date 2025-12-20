@@ -94,11 +94,6 @@ export interface SiliconBridgeOptions {
 export class SiliconBridge {
   private linker: SiliconLinker
 
-  // Source location tracking (optional, for editor integration)
-  // NOTE: SourceLocations are stored in JS Map, not SAB, because they're
-  // only used for editor integration (click-to-source), not kernel operations.
-  private sourceIdToLocation: Map<number, SourceLocation> = new Map()
-
   // Debounce state
   private pendingPatches: Map<string, PendingPatch> = new Map() // key: `${sourceId}:${type}`
   private pendingStructural: PendingStructural[] = []
@@ -151,6 +146,9 @@ export class SiliconBridge {
    *
    * CRITICAL: SourceIds must fit in positive Int32 range (1 to 2^31-1)
    * to avoid sign issues when stored/read from SAB.
+   *
+   * NOTE: Location is NOT stored here. Call registerMapping() with location
+   * data after inserting into Identity Table to store in Symbol Table.
    */
   generateSourceId(source?: SourceLocation): number {
     if (!source) {
@@ -168,9 +166,6 @@ export class SiliconBridge {
     // If result is 0, use nextSourceId instead (0 is reserved for EMPTY_TID)
     const maskedHash = (Math.abs(locationHash) >>> 0) & 0x7FFFFFFF
     const sourceId = maskedHash || this.nextSourceId++ // Ensures sourceId >= 1
-
-    // Store location for reverse lookup
-    this.sourceIdToLocation.set(sourceId, source)
 
     return sourceId
   }
@@ -221,39 +216,62 @@ export class SiliconBridge {
 
   /**
    * Get source location for a SOURCE_ID.
+   * Reads from Symbol Table in SAB (zero-allocation via callback).
+   *
+   * NOTE: File path is not recoverable from Symbol Table (only fileHash is stored).
+   * Returns { line, column } without the file field.
    */
   getSourceLocation(sourceId: number): SourceLocation | undefined {
-    return this.sourceIdToLocation.get(sourceId)
+    let result: SourceLocation | undefined
+    const found = this.linker.symTableLookup(sourceId, (_fileHash, line, column) => {
+      result = { line, column }
+    })
+    return found ? result : undefined
   }
 
   /**
    * Register a mapping between SOURCE_ID and NodePtr.
    * Inserts into Identity Table in SAB.
+   * Optionally stores source location in Symbol Table.
+   *
+   * @param sourceId - Source ID
+   * @param ptr - Node pointer
+   * @param source - Optional source location to store in Symbol Table
    */
-  private registerMapping(sourceId: number, ptr: NodePtr): void {
+  private registerMapping(sourceId: number, ptr: NodePtr, source?: SourceLocation): void {
     this.linker.idTableInsert(sourceId, ptr)
+
+    // Store location in Symbol Table if provided
+    if (source) {
+      const fileHash = source.file ? this.hashString(source.file) : 0
+      this.linker.symTableStore(sourceId, fileHash, source.line, source.column)
+    }
   }
 
   /**
    * Unregister a mapping.
-   * Removes from Identity Table in SAB.
+   * Removes from Identity Table and Symbol Table in SAB.
    */
   private unregisterMapping(sourceId: number, _ptr: NodePtr): void {
     this.linker.idTableRemove(sourceId)
+    this.linker.symTableRemove(sourceId)
   }
 
   /**
-   * Get all registered SOURCE_IDs.
-   * Traverses nodes to collect SOURCE_IDs.
+   * Traverse all registered SOURCE_IDs with zero-allocation callback pattern.
+   *
+   * **Zero-Alloc Alternative to getAllSourceIds()**: Instead of collecting IDs
+   * into an array, this method invokes a callback for each sourceId, avoiding
+   * intermediate array allocations.
+   *
+   * @param cb - Callback invoked with each sourceId
    */
-  getAllSourceIds(): number[] {
-    const sourceIds: number[] = []
+  traverseSourceIds(cb: (sourceId: number) => void): void {
     this.linker.traverse((_ptr, _opcode, _pitch, _velocity, _duration, _baseTick, _flags, sourceId) => {
       if (sourceId > 0) {
-        sourceIds.push(sourceId)
+        cb(sourceId)
       }
     })
-    return sourceIds
   }
 
   /**
@@ -334,7 +352,7 @@ export class SiliconBridge {
       )
     }
 
-    this.registerMapping(sourceId, ptr)
+    this.registerMapping(sourceId, ptr, source)
     return sourceId
   }
 
@@ -368,7 +386,6 @@ export class SiliconBridge {
 
     this.linker.deleteNode(ptr)
     this.unregisterMapping(sourceId, ptr)
-    this.sourceIdToLocation.delete(sourceId)
   }
 
   /**
@@ -553,7 +570,7 @@ export class SiliconBridge {
             )
           }
 
-          this.registerMapping(op.sourceId, ptr)
+          this.registerMapping(op.sourceId, ptr, op.data.source)
           this.onStructuralApplied?.('insert', op.sourceId)
 
           // Synchronously wait for ACK before next structural edit
@@ -563,7 +580,6 @@ export class SiliconBridge {
           if (ptr !== undefined) {
             this.linker.deleteNode(ptr)
             this.unregisterMapping(op.sourceId, ptr)
-            this.sourceIdToLocation.delete(op.sourceId)
             this.onStructuralApplied?.('delete', op.sourceId)
 
             // Synchronously wait for ACK before next structural edit
@@ -604,30 +620,32 @@ export class SiliconBridge {
   /**
    * Clear all notes and mappings.
    *
-   * **Memset-Style Clear**: Uses linker.idTableClear() to zero the Identity Table
-   * region in SAB, avoiding any JS object iteration.
+   * **Zero-Alloc While-Head Deletion**: Iteratively deletes the head node until
+   * the chain is empty. No intermediate arrays or object allocations.
+   *
+   * **Memset-Style Table Clear**: Uses idTableClear() and symTableClear() to
+   * zero the table regions in SAB.
    */
   clear(): void {
-    // Collect node pointers to delete (traverse is zero-alloc)
-    const ptrsToDelete: number[] = []
-    this.linker.traverse((ptr) => {
-      ptrsToDelete.push(ptr)
-    })
-
-    // Delete all nodes
-    for (const ptr of ptrsToDelete) {
+    // ZERO-ALLOC: While-head deletion loop (no intermediate array)
+    let headPtr = this.linker.getHead()
+    while (headPtr !== NULL_PTR) {
       try {
-        this.linker.deleteNode(ptr)
+        this.linker.deleteNode(headPtr)
       } catch {
-        // Node may already be deleted
+        // Node may already be deleted, break to avoid infinite loop
+        break
       }
+      headPtr = this.linker.getHead()
     }
 
     // Clear Identity Table (memset-style)
     this.linker.idTableClear()
 
-    // Clear source locations (editor metadata, not in SAB)
-    this.sourceIdToLocation.clear()
+    // Clear Symbol Table (memset-style)
+    this.linker.symTableClear()
+
+    // Clear pending operations
     this.pendingPatches.clear()
     this.pendingStructural = []
 

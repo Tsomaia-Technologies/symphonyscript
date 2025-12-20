@@ -18,8 +18,10 @@ import {
   HEAP_START_OFFSET,
   NODE_SIZE_BYTES,
   getIdentityTableOffset,
+  getSymbolTableOffset,
   getGrooveTemplateOffset,
-  ID_TABLE
+  ID_TABLE,
+  SYM_TABLE
 } from './constants'
 import { FreeList } from './free-list'
 import type { LinkerConfig } from './types'
@@ -70,6 +72,9 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
 
   // Initialize Identity Table
   initializeIdentityTable(sab, cfg.nodeCapacity)
+
+  // Initialize Symbol Table
+  initializeSymbolTable(sab, cfg.nodeCapacity)
 
   return buffer
 }
@@ -159,6 +164,28 @@ function initializeIdentityTable(sab: Int32Array, nodeCapacity: number): void {
 }
 
 /**
+ * Initialize the Symbol Table region.
+ *
+ * The Symbol Table maps sourceId → packed SourceLocation for editor integration.
+ * All entries are initialized to EMPTY_ENTRY (0) to indicate no location stored.
+ *
+ * The Symbol Table shares the same capacity as the Identity Table and uses
+ * the same slot index for corresponding sourceIds.
+ */
+function initializeSymbolTable(sab: Int32Array, nodeCapacity: number): void {
+  const tableOffset = getSymbolTableOffset(nodeCapacity)
+  const tableOffsetI32 = tableOffset / 4
+
+  // Clear all entries to EMPTY_ENTRY (0)
+  // Each entry is 2 × i32: [fileHash, lineCol]
+  // Total slots = nodeCapacity
+  const totalI32 = nodeCapacity * SYM_TABLE.ENTRY_SIZE_I32
+  for (let i = 0; i < totalI32; i++) {
+    sab[tableOffsetI32 + i] = 0
+  }
+}
+
+/**
  * Validate that a SharedArrayBuffer has the correct Silicon Linker format.
  *
  * @param buffer - Buffer to validate
@@ -238,6 +265,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 
   // Re-initialize Identity Table
   initializeIdentityTable(sab, nodeCapacity)
+
+  // Re-initialize Symbol Table
+  initializeSymbolTable(sab, nodeCapacity)
 }
 
 /**

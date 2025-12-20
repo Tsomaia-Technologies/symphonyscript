@@ -201,7 +201,8 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     // Second execution - same source location, different pitch
     // Since we're in the same test, call site is different
     // For this test, we manually simulate re-execution with same sourceId
-    const sourceIds = bridge.getAllSourceIds()
+    const sourceIds: number[] = []
+    bridge.traverseSourceIds((id) => sourceIds.push(id))
     expect(sourceIds.length).toBe(1)
 
     // Patch the existing note

@@ -16,7 +16,9 @@ import {
   NODE_SIZE_I32,
   HEAP_START_OFFSET,
   CONCURRENCY,
-  ID_TABLE
+  ID_TABLE,
+  SYM_TABLE,
+  getSymbolTableOffset
 } from './constants'
 // Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
@@ -983,5 +985,173 @@ export class SiliconLinker implements ISiliconLinker {
 
     // Reset used count
     Atomics.store(this.sab, HDR.ID_TABLE_USED, 0)
+  }
+
+  // ===========================================================================
+  // Symbol Table Operations (v1.5) - SourceId → Packed SourceLocation
+  // ===========================================================================
+
+  /**
+   * Get the i32 offset for a slot in the Symbol Table.
+   * Each slot is 2 × i32: [fileHash, lineCol]
+   */
+  private symTableSlotOffset(slot: number): number {
+    const tableOffset = getSymbolTableOffset(this.nodeCapacity)
+    return (tableOffset / 4) + slot * SYM_TABLE.ENTRY_SIZE_I32
+  }
+
+  /**
+   * Store a packed SourceLocation in the Symbol Table for a sourceId.
+   * Uses the same linear probing as Identity Table to find the slot.
+   *
+   * IMPORTANT: This should be called after idTableInsert succeeds, using the
+   * same sourceId, to store the location at the corresponding slot.
+   *
+   * @param sourceId - Source ID (must match an entry in Identity Table)
+   * @param fileHash - Hash of the file path
+   * @param line - Line number (0-65535)
+   * @param column - Column number (0-65535)
+   * @returns true if stored, false if sourceId not found in Identity Table
+   */
+  symTableStore(sourceId: number, fileHash: number, line: number, column: number): boolean {
+    if (sourceId <= 0) return false
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    // Probe to find the slot where sourceId is stored in Identity Table
+    for (let i = 0; i < capacity; i++) {
+      const idOffset = this.idTableSlotOffset(slot)
+      const tid = this.sab[idOffset]
+
+      if (tid === ID_TABLE.EMPTY_TID) {
+        // Empty slot - sourceId not in Identity Table
+        return false
+      }
+
+      if (tid === sourceId) {
+        // Found the slot - store location in Symbol Table at same slot
+        const symOffset = this.symTableSlotOffset(slot)
+        const lineCol = ((line & SYM_TABLE.MAX_LINE) << SYM_TABLE.LINE_SHIFT) |
+                        (column & SYM_TABLE.COLUMN_MASK)
+        this.sab[symOffset] = fileHash | 0
+        this.sab[symOffset + 1] = lineCol
+        return true
+      }
+
+      // Linear probe to next slot
+      slot = (slot + 1) % capacity
+    }
+
+    // Not found after full scan
+    return false
+  }
+
+  /**
+   * Lookup a packed SourceLocation by sourceId with zero-allocation callback.
+   * Uses the same linear probing as Identity Table.
+   *
+   * @param sourceId - Source ID to lookup
+   * @param cb - Callback receiving (fileHash, line, column) if found
+   * @returns true if found and callback invoked, false if not found
+   */
+  symTableLookup(
+    sourceId: number,
+    cb: (fileHash: number, line: number, column: number) => void
+  ): boolean {
+    if (sourceId <= 0) return false
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    // Probe to find the slot where sourceId is stored in Identity Table
+    for (let i = 0; i < capacity; i++) {
+      const idOffset = this.idTableSlotOffset(slot)
+      const tid = this.sab[idOffset]
+
+      if (tid === ID_TABLE.EMPTY_TID) {
+        // Empty slot - sourceId not found
+        return false
+      }
+
+      if (tid === sourceId) {
+        // Found the slot - read from Symbol Table at same slot
+        const symOffset = this.symTableSlotOffset(slot)
+        const fileHash = this.sab[symOffset]
+        const lineCol = this.sab[symOffset + 1]
+
+        // Check if location was stored (fileHash != 0)
+        if (fileHash === SYM_TABLE.EMPTY_ENTRY) {
+          return false
+        }
+
+        // Unpack and invoke callback
+        const line = (lineCol >>> SYM_TABLE.LINE_SHIFT) & SYM_TABLE.MAX_LINE
+        const column = lineCol & SYM_TABLE.COLUMN_MASK
+        cb(fileHash, line, column)
+        return true
+      }
+
+      // Linear probe (continue past tombstones)
+      slot = (slot + 1) % capacity
+    }
+
+    // Not found after full scan
+    return false
+  }
+
+  /**
+   * Remove a SourceLocation from the Symbol Table.
+   * Clears the entry at the slot corresponding to sourceId.
+   *
+   * @param sourceId - Source ID whose location should be removed
+   * @returns true if removed, false if not found
+   */
+  symTableRemove(sourceId: number): boolean {
+    if (sourceId <= 0) return false
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    // Probe to find the slot where sourceId is stored in Identity Table
+    for (let i = 0; i < capacity; i++) {
+      const idOffset = this.idTableSlotOffset(slot)
+      const tid = this.sab[idOffset]
+
+      if (tid === ID_TABLE.EMPTY_TID) {
+        // Empty slot - sourceId not found
+        return false
+      }
+
+      if (tid === sourceId) {
+        // Found the slot - clear Symbol Table entry at same slot
+        const symOffset = this.symTableSlotOffset(slot)
+        this.sab[symOffset] = SYM_TABLE.EMPTY_ENTRY
+        this.sab[symOffset + 1] = 0
+        return true
+      }
+
+      // Linear probe
+      slot = (slot + 1) % capacity
+    }
+
+    // Not found
+    return false
+  }
+
+  /**
+   * Clear the entire Symbol Table (memset-style).
+   * Sets all entries to EMPTY_ENTRY (0).
+   */
+  symTableClear(): void {
+    const tableOffset = getSymbolTableOffset(this.nodeCapacity)
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const tableOffsetI32 = tableOffset / 4
+    const totalI32 = capacity * SYM_TABLE.ENTRY_SIZE_I32
+
+    // Zero out entire table
+    for (let i = 0; i < totalI32; i++) {
+      this.sab[tableOffsetI32 + i] = 0
+    }
   }
 }
