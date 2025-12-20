@@ -452,35 +452,35 @@ export class SiliconLinker implements ISiliconLinker {
   // ===========================================================================
 
   /**
-   * Wait for consumer to acknowledge structural change.
+   * Synchronously wait for consumer to acknowledge structural change.
    *
-   * Spins on COMMIT_FLAG until consumer sets ACK, then clears to IDLE.
-   * Timeout after ~3ms (one audio quantum) to prevent deadlock.
+   * **Blocking Synchronization Model**: Spins on COMMIT_FLAG until it returns
+   * to IDLE (0), using zero-alloc CPU yield to prevent starvation.
+   *
+   * This method blocks until:
+   * - Consumer acknowledges the change (COMMIT_FLAG → IDLE)
+   * - Panic threshold is reached (AudioWorklet unresponsive)
+   *
+   * @throws KernelPanicError if AudioWorklet fails to acknowledge after 1M iterations
    */
-  async awaitAck(): Promise<void> {
-    const maxSpins = 1000
+  syncAck(): void {
+    let spins = 0
 
-    for (let i = 0; i < maxSpins; i++) {
-      const flag = Atomics.load(this.sab, HDR.COMMIT_FLAG)
+    // Loop until COMMIT_FLAG equals IDLE (0)
+    while (Atomics.load(this.sab, HDR.COMMIT_FLAG) !== COMMIT.IDLE) {
+      // Zero-alloc yield to prevent CPU starvation
+      this._yieldToCPU()
+      spins++
 
-      if (flag === COMMIT.ACK) {
-        Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.IDLE)
-        return
-      }
-
-      if (flag === COMMIT.IDLE) {
-        // Already idle (no pending change)
-        return
-      }
-
-      // Yield occasionally to prevent blocking
-      if (i % 100 === 0) {
-        await Promise.resolve()
+      // Dead-Man's Switch: AudioWorklet unresponsive
+      if (spins > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
+        throw new KernelPanicError(
+          'AudioWorklet unresponsive: syncAck timed out after ' +
+            `${CONCURRENCY.MUTEX_PANIC_THRESHOLD} iterations. System requires warm restart.`
+        )
       }
     }
-
-    // Timeout - clear flag anyway to prevent stuck state
-    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.IDLE)
   }
 
   // ===========================================================================

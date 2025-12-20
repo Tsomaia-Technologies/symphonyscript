@@ -259,13 +259,13 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     // Wait for structural flush (flushStructural awaits ACK internally)
     await wait(20)
 
-    // After flush completes (including internal awaitAck), structural pending should be empty
+    // After flush completes (including internal syncAck), structural pending should be empty
     expect(bridge.getPendingStructuralCount()).toBe(0)
 
     // The note should be in the linker now
     expect(bridge.getMappingCount()).toBe(1)
 
-    // COMMIT_FLAG should be back to IDLE after awaitAck reset it
+    // COMMIT_FLAG should be back to IDLE after syncAck reset it
     expect(Atomics.load(sab, HDR.COMMIT_FLAG)).toBe(COMMIT.IDLE)
 
     // Consumer can read the newly inserted note

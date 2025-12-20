@@ -180,8 +180,8 @@ export interface ISiliconLinker {
 
   // --- Commit Protocol ---
 
-  /** Wait for consumer to acknowledge structural change. */
-  awaitAck(): Promise<void>
+  /** Synchronously wait for consumer to acknowledge structural change. */
+  syncAck(): void
 
   // --- Read Operations ---
 

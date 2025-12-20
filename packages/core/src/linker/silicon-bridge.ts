@@ -399,8 +399,11 @@ export class SiliconBridge {
 
   /**
    * Flush all pending structural edits.
+   *
+   * **Blocking Synchronization Model**: This method is synchronous and blocks
+   * until each structural operation is acknowledged by the AudioWorklet.
    */
-  async flushStructural(): Promise<void> {
+  flushStructural(): void {
     this.structuralDebounceTimer = null
 
     // Process in order
@@ -434,8 +437,8 @@ export class SiliconBridge {
           this.registerMapping(op.sourceId, ptr)
           this.onStructuralApplied?.('insert', op.sourceId)
 
-          // Wait for ACK before next structural edit
-          await this.linker.awaitAck()
+          // Synchronously wait for ACK before next structural edit
+          this.linker.syncAck()
         } else if (op.type === 'delete' && op.sourceId !== undefined) {
           const ptr = this.sourceIdToPtr.get(op.sourceId)
           if (ptr !== undefined) {
@@ -444,8 +447,8 @@ export class SiliconBridge {
             this.sourceIdToLocation.delete(op.sourceId)
             this.onStructuralApplied?.('delete', op.sourceId)
 
-            // Wait for ACK before next structural edit
-            await this.linker.awaitAck()
+            // Synchronously wait for ACK before next structural edit
+            this.linker.syncAck()
           }
         }
       } catch (error) {

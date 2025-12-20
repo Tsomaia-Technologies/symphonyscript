@@ -655,7 +655,7 @@ describe('RFC-043: Silicon Linker', () => {
       // Simulate consumer acknowledging
       sab[HDR.COMMIT_FLAG] = COMMIT.ACK
 
-      await linker.awaitAck()
+      linker.syncAck()
 
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
     })
@@ -667,7 +667,7 @@ describe('RFC-043: Silicon Linker', () => {
       linker.insertHead(noteData(60, 0))
 
       // Don't simulate ACK - let it timeout
-      await linker.awaitAck()
+      linker.syncAck()
 
       // Should still clear to IDLE after timeout
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
