@@ -22,7 +22,6 @@ import { AttributePatcher } from './patch'
 import { createLinkerSAB } from './init'
 import type {
   NodePtr,
-  NodeData,
   NodeView,
   LinkerConfig,
   ISiliconLinker
@@ -248,20 +247,29 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Write node data to a node offset.
    */
-  private writeNodeData(offset: number, data: NodeData): void {
+  private writeNodeData(
+    offset: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): void {
     // Pack opcode, pitch, velocity, flags into PACKED_A
-    const flags = (data.flags ?? 0) | FLAG.ACTIVE
+    const activeFlags = flags | FLAG.ACTIVE
     const packed =
-      (data.opcode << PACKED.OPCODE_SHIFT) |
-      ((data.pitch & 0xff) << PACKED.PITCH_SHIFT) |
-      ((data.velocity & 0xff) << PACKED.VELOCITY_SHIFT) |
-      (flags & PACKED.FLAGS_MASK)
+      (opcode << PACKED.OPCODE_SHIFT) |
+      ((pitch & 0xff) << PACKED.PITCH_SHIFT) |
+      ((velocity & 0xff) << PACKED.VELOCITY_SHIFT) |
+      (activeFlags & PACKED.FLAGS_MASK)
 
     this.sab[offset + NODE.PACKED_A] = packed
-    this.sab[offset + NODE.BASE_TICK] = data.baseTick | 0
-    this.sab[offset + NODE.DURATION] = data.duration | 0
+    this.sab[offset + NODE.BASE_TICK] = baseTick | 0
+    this.sab[offset + NODE.DURATION] = duration | 0
     // NEXT_PTR set separately during linking
-    this.sab[offset + NODE.SOURCE_ID] = data.sourceId | 0
+    this.sab[offset + NODE.SOURCE_ID] = sourceId | 0
     // SEQ_FLAGS preserved from allocation (SEQ already set)
   }
 
@@ -278,12 +286,27 @@ export class SiliconLinker implements ISiliconLinker {
    * 7. Signal COMMIT_FLAG
    *
    * @param afterPtr - Node to insert after
-   * @param data - New node data
+   * @param opcode - Node opcode
+   * @param pitch - MIDI pitch
+   * @param velocity - MIDI velocity
+   * @param duration - Duration in ticks
+   * @param baseTick - Base tick
+   * @param sourceId - Source ID
+   * @param flags - Initial flags
    * @returns Pointer to new node
    * @throws SafeZoneViolationError if too close to playhead
    * @throws HeapExhaustedError if no free nodes
    */
-  insertNode(afterPtr: NodePtr, data: NodeData): NodePtr {
+  insertNode(
+    afterPtr: NodePtr,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr {
     // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
@@ -292,7 +315,7 @@ export class SiliconLinker implements ISiliconLinker {
     const newOffset = this.nodeOffset(newPtr)
 
     // Write all attributes (before acquiring mutex)
-    this.writeNodeData(newOffset, data)
+    this.writeNodeData(newOffset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
     this._acquireChainMutex()
@@ -335,13 +358,27 @@ export class SiliconLinker implements ISiliconLinker {
    * Uses Chain Mutex (v1.5) to protect structural mutations from concurrent workers.
    * Implements CAS loop for HEAD_PTR updates as specified in the decree.
    *
-   * @param data - New node data
+   * @param opcode - Node opcode
+   * @param pitch - MIDI pitch
+   * @param velocity - MIDI velocity
+   * @param duration - Duration in ticks
+   * @param baseTick - Base tick
+   * @param sourceId - Source ID
+   * @param flags - Initial flags
    * @returns Pointer to new node
    * @throws HeapExhaustedError if no free nodes
    * @throws SafeZoneViolationError if too close to playhead
    * @throws KernelPanicError if mutex deadlock detected
    */
-  insertHead(data: NodeData): NodePtr {
+  insertHead(
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr {
     // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
@@ -350,13 +387,13 @@ export class SiliconLinker implements ISiliconLinker {
     const newOffset = this.nodeOffset(newPtr)
 
     // Write attributes (before acquiring mutex)
-    this.writeNodeData(newOffset, data)
+    this.writeNodeData(newOffset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
     this._acquireChainMutex()
     try {
       // Check safe zone INSIDE mutex (playhead may have moved during wait)
-      this.checkSafeZone(data.baseTick)
+      this.checkSafeZone(baseTick)
 
       // Load current head (mutex guarantees exclusive access - no CAS needed)
       const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)

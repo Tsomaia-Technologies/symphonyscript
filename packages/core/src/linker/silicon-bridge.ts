@@ -6,7 +6,7 @@
 
 import { SiliconLinker } from './silicon-linker'
 import { OPCODE, NULL_PTR } from './constants'
-import type { NodePtr, NodeData } from './types'
+import type { NodePtr } from './types'
 
 // =============================================================================
 // Types
@@ -240,20 +240,16 @@ export class SiliconBridge {
    * Insert a note immediately (bypasses debounce).
    * Used for initial clip loading.
    *
+   * **Zero-Alloc Implementation**: Uses argument explosion to eliminate
+   * nodeData object allocation.
+   *
    * @returns The SOURCE_ID assigned to the new node
    */
   insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
     const sourceId = this.generateSourceId(note.source)
 
-    const nodeData: NodeData = {
-      opcode: OPCODE.NOTE,
-      pitch: note.pitch,
-      velocity: note.velocity,
-      duration: note.duration,
-      baseTick: note.baseTick,
-      sourceId,
-      flags: note.muted ? 0x02 : 0 // FLAG.MUTED = 0x02
-    }
+    // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
+    const flags = note.muted ? 0x02 : 0 // FLAG.MUTED = 0x02
 
     let ptr: NodePtr
 
@@ -262,9 +258,26 @@ export class SiliconBridge {
       if (afterPtr === undefined) {
         throw new Error(`Unknown afterSourceId: ${afterSourceId}`)
       }
-      ptr = this.linker.insertNode(afterPtr, nodeData)
+      ptr = this.linker.insertNode(
+        afterPtr,
+        OPCODE.NOTE,
+        note.pitch,
+        note.velocity,
+        note.duration,
+        note.baseTick,
+        sourceId,
+        flags
+      )
     } else {
-      ptr = this.linker.insertHead(nodeData)
+      ptr = this.linker.insertHead(
+        OPCODE.NOTE,
+        note.pitch,
+        note.velocity,
+        note.duration,
+        note.baseTick,
+        sourceId,
+        flags
+      )
     }
 
     this.registerMapping(sourceId, ptr)
@@ -414,36 +427,57 @@ export class SiliconBridge {
    *
    * **Blocking Synchronization Model**: This method is synchronous and blocks
    * until each structural operation is acknowledged by the AudioWorklet.
+   *
+   * **Zero-Alloc Implementation**: Uses standard for loop and argument explosion
+   * to eliminate iterator and object allocations in the hot path.
    */
   flushStructural(): void {
     this.structuralDebounceTimer = null
 
-    // Process in order
-    for (const op of this.pendingStructural) {
+    // Process in order - ZERO-ALLOC: Standard for loop (no iterator allocation)
+    for (let i = 0; i < this.pendingStructural.length; i++) {
+      const op = this.pendingStructural[i]
       try {
         if (op.type === 'insert' && op.data && op.sourceId !== undefined) {
-          // Re-generate sourceId if needed (it was pre-generated)
-          const nodeData: NodeData = {
-            opcode: OPCODE.NOTE,
-            pitch: op.data.pitch,
-            velocity: op.data.velocity,
-            duration: op.data.duration,
-            baseTick: op.data.baseTick,
-            sourceId: op.sourceId,
-            flags: op.data.muted ? 0x02 : 0
-          }
+          // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
+          const flags = op.data.muted ? 0x02 : 0
 
           let ptr: NodePtr
 
           if (op.afterSourceId !== undefined) {
             const afterPtr = this.sourceIdToPtr.get(op.afterSourceId)
             if (afterPtr !== undefined) {
-              ptr = this.linker.insertNode(afterPtr, nodeData)
+              ptr = this.linker.insertNode(
+                afterPtr,
+                OPCODE.NOTE,
+                op.data.pitch,
+                op.data.velocity,
+                op.data.duration,
+                op.data.baseTick,
+                op.sourceId,
+                flags
+              )
             } else {
-              ptr = this.linker.insertHead(nodeData)
+              ptr = this.linker.insertHead(
+                OPCODE.NOTE,
+                op.data.pitch,
+                op.data.velocity,
+                op.data.duration,
+                op.data.baseTick,
+                op.sourceId,
+                flags
+              )
             }
           } else {
-            ptr = this.linker.insertHead(nodeData)
+            ptr = this.linker.insertHead(
+              OPCODE.NOTE,
+              op.data.pitch,
+              op.data.velocity,
+              op.data.duration,
+              op.data.baseTick,
+              op.sourceId,
+              flags
+            )
           }
 
           this.registerMapping(op.sourceId, ptr)

@@ -329,27 +329,24 @@ export class LiveClipBuilder {
       this.touchedSourceIds.add(sourceId)
     } else {
       // INSERT: New CC node
-      const nodeData = {
-        opcode: OPCODE.CC,
-        pitch: controller,
-        velocity: value,
-        duration: 0, // CC events have no duration
-        baseTick,
-        sourceId,
-        flags: 0
-      }
+      // ZERO-ALLOC: Pass primitives directly instead of creating nodeData object
+      const opcode = OPCODE.CC
+      const pitch = controller
+      const velocity = value
+      const duration = 0 // CC events have no duration
+      const flags = 0
 
       // Insert at head or after last node
       let newPtr
       if (this.lastSourceId !== undefined) {
         const afterPtr = this.bridge.getNodePtr(this.lastSourceId)
         if (afterPtr !== undefined) {
-          newPtr = linker.insertNode(afterPtr, nodeData)
+          newPtr = linker.insertNode(afterPtr, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
         } else {
-          newPtr = linker.insertHead(nodeData)
+          newPtr = linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
         }
       } else {
-        newPtr = linker.insertHead(nodeData)
+        newPtr = linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
       }
 
       // Register the mapping manually since we bypassed bridge

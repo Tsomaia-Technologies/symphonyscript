@@ -47,7 +47,6 @@ export type { Opcode, CommitState, ErrorCode, NodeFlag } from './constants'
 // Types from types module
 export type {
   NodePtr,
-  NodeData,
   NodeView,
   LinkerConfig,
   EditResult,

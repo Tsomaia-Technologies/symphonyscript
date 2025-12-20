@@ -11,26 +11,6 @@ import type { Opcode } from './constants'
 export type NodePtr = number
 
 /**
- * Data required to create a new node.
- */
-export interface NodeData {
-  /** Node opcode (NOTE, REST, CC, BEND) */
-  opcode: Opcode
-  /** MIDI pitch (0-127) for NOTE, controller number for CC */
-  pitch: number
-  /** MIDI velocity (0-127) for NOTE, value for CC/BEND */
-  velocity: number
-  /** Duration in ticks */
-  duration: number
-  /** Base tick (grid-aligned timing) */
-  baseTick: number
-  /** Source ID for editor mapping */
-  sourceId: number
-  /** Initial flags (defaults to ACTIVE) */
-  flags?: number
-}
-
-/**
  * Read-only view of a node's data.
  */
 export interface NodeView {
@@ -170,10 +150,27 @@ export interface ISiliconLinker {
   // --- Structural Operations (Safe Zone Enforced) ---
 
   /** Insert a new node after the given node. Throws if in safe zone. */
-  insertNode(afterPtr: NodePtr, data: NodeData): NodePtr
+  insertNode(
+    afterPtr: NodePtr,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr
 
   /** Insert a new node at the head of the chain. */
-  insertHead(data: NodeData): NodePtr
+  insertHead(
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr
 
   /** Delete a node from the chain. Throws if in safe zone. */
   deleteNode(ptr: NodePtr): void
