@@ -127,6 +127,16 @@ export class SiliconBridge {
     | ((pitch: number, velocity: number, duration: number, baseTick: number, muted: boolean) => void)
     | null = null
 
+  // GetSourceId temporary state (for zero-alloc getSourceId)
+  private _getSourceIdResult: number | undefined = undefined
+  private _getSourceIdIsActive: boolean = false
+
+  // GetSourceLocation temporary state (for zero-alloc getSourceLocation)
+  private _getSourceLocationResult: SourceLocation | undefined = undefined
+
+  // TraverseSourceIds callback state (for zero-alloc traverseSourceIds)
+  private traverseSourceIdsCallback: ((sourceId: number) => void) | null = null
+
   constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
     this.linker = linker
     this.attributeDebounceMs = options.attributeDebounceMs ?? 10
@@ -198,20 +208,20 @@ export class SiliconBridge {
    * Get SOURCE_ID for a NodePtr.
    * Reads SOURCE_ID directly from the node in SAB.
    * Returns undefined if node is not active (freed).
+   *
+   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
    */
   getSourceId(ptr: NodePtr): number | undefined {
     if (ptr === NULL_PTR) return undefined
-    // Read SOURCE_ID from node using callback pattern
-    // Also check ACTIVE flag (bit 0 of flags) to verify node is valid
-    let sourceId: number | undefined
-    let isActive = false
-    this.linker.readNode(ptr, (_p, _opcode, _pitch, _velocity, _duration, _baseTick, _nextPtr, sid, flags) => {
-      isActive = (flags & 0x01) !== 0 // FLAG.ACTIVE = 0x01
-      if (isActive) {
-        sourceId = sid
-      }
-    })
-    return sourceId
+
+    // Reset state
+    this._getSourceIdResult = undefined
+    this._getSourceIdIsActive = false
+
+    // ZERO-ALLOC: Use pre-bound callback handler
+    this.linker.readNode(ptr, this.handleGetSourceIdNode)
+
+    return this._getSourceIdResult
   }
 
   /**
@@ -220,13 +230,17 @@ export class SiliconBridge {
    *
    * NOTE: File path is not recoverable from Symbol Table (only fileHash is stored).
    * Returns { line, column } without the file field.
+   *
+   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
    */
   getSourceLocation(sourceId: number): SourceLocation | undefined {
-    let result: SourceLocation | undefined
-    const found = this.linker.symTableLookup(sourceId, (_fileHash, line, column) => {
-      result = { line, column }
-    })
-    return found ? result : undefined
+    // Reset state
+    this._getSourceLocationResult = undefined
+
+    // ZERO-ALLOC: Use pre-bound callback handler
+    const found = this.linker.symTableLookup(sourceId, this.handleGetSourceLocationLookup)
+
+    return found ? this._getSourceLocationResult : undefined
   }
 
   /**
@@ -234,18 +248,23 @@ export class SiliconBridge {
    * Inserts into Identity Table in SAB.
    * Optionally stores source location in Symbol Table.
    *
+   * **Strict Write Order**: Symbol Table is written FIRST to prevent transient
+   * states where the Identity Table has an entry but Symbol Table doesn't.
+   * The Identity Table is the "Master Registry" and must be written last.
+   *
    * @param sourceId - Source ID
    * @param ptr - Node pointer
    * @param source - Optional source location to store in Symbol Table
    */
   private registerMapping(sourceId: number, ptr: NodePtr, source?: SourceLocation): void {
-    this.linker.idTableInsert(sourceId, ptr)
-
-    // Store location in Symbol Table if provided
+    // 1. FIRST: Write Symbol Table (metadata) if provided
     if (source) {
       const fileHash = source.file ? this.hashString(source.file) : 0
       this.linker.symTableStore(sourceId, fileHash, source.line, source.column)
     }
+
+    // 2. LAST: Commit to Identity Table (master registry)
+    this.linker.idTableInsert(sourceId, ptr)
   }
 
   /**
@@ -264,14 +283,23 @@ export class SiliconBridge {
    * into an array, this method invokes a callback for each sourceId, avoiding
    * intermediate array allocations.
    *
+   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
+   * Supports re-entrancy: nested calls will not corrupt the callback state.
+   *
    * @param cb - Callback invoked with each sourceId
    */
   traverseSourceIds(cb: (sourceId: number) => void): void {
-    this.linker.traverse((_ptr, _opcode, _pitch, _velocity, _duration, _baseTick, _flags, sourceId) => {
-      if (sourceId > 0) {
-        cb(sourceId)
-      }
-    })
+    // Save previous callback to support re-entrancy (same pattern as traverseNotes)
+    const prevCb = this.traverseSourceIdsCallback
+    this.traverseSourceIdsCallback = cb
+
+    try {
+      // ZERO-ALLOC: Use pre-bound callback handler
+      this.linker.traverse(this.handleTraverseSourceIdsNode)
+    } finally {
+      // Restore previous callback (or null if no outer traversal)
+      this.traverseSourceIdsCallback = prevCb
+    }
   }
 
   /**
@@ -748,6 +776,63 @@ export class SiliconBridge {
         baseTick,
         (flags & 0x02) !== 0 // muted
       )
+    }
+  }
+
+  /**
+   * Hoisted getSourceId callback handler (zero-allocation).
+   * CRITICAL: This method is pre-bound to avoid object allocation in getSourceId().
+   * Captures sourceId and active flag into instance variables.
+   */
+  private handleGetSourceIdNode = (
+    _ptr: number,
+    _opcode: number,
+    _pitch: number,
+    _velocity: number,
+    _duration: number,
+    _baseTick: number,
+    _nextPtr: number,
+    sourceId: number,
+    flags: number,
+    _seq: number
+  ): void => {
+    this._getSourceIdIsActive = (flags & 0x01) !== 0 // FLAG.ACTIVE = 0x01
+    if (this._getSourceIdIsActive) {
+      this._getSourceIdResult = sourceId
+    }
+  }
+
+  /**
+   * Hoisted getSourceLocation callback handler (zero-allocation).
+   * CRITICAL: This method is pre-bound to avoid object allocation in getSourceLocation().
+   * Captures line and column into instance variable.
+   */
+  private handleGetSourceLocationLookup = (
+    _fileHash: number,
+    line: number,
+    column: number
+  ): void => {
+    this._getSourceLocationResult = { line, column }
+  }
+
+  /**
+   * Hoisted traverseSourceIds callback handler (zero-allocation).
+   * CRITICAL: This method is pre-bound to avoid object allocation in traverseSourceIds().
+   * Invokes the user-supplied callback stored in traverseSourceIdsCallback.
+   */
+  private handleTraverseSourceIdsNode = (
+    _ptr: number,
+    _opcode: number,
+    _pitch: number,
+    _velocity: number,
+    _duration: number,
+    _baseTick: number,
+    _flags: number,
+    sourceId: number,
+    _seq: number
+  ): void => {
+    if (sourceId > 0 && this.traverseSourceIdsCallback) {
+      this.traverseSourceIdsCallback(sourceId)
     }
   }
 
