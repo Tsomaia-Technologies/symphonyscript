@@ -94,11 +94,9 @@ export interface SiliconBridgeOptions {
 export class SiliconBridge {
   private linker: SiliconLinker
 
-  // Bidirectional mapping
-  private sourceIdToPtr: Map<number, NodePtr> = new Map()
-  private ptrToSourceId: Map<NodePtr, number> = new Map()
-
   // Source location tracking (optional, for editor integration)
+  // NOTE: SourceLocations are stored in JS Map, not SAB, because they're
+  // only used for editor integration (click-to-source), not kernel operations.
   private sourceIdToLocation: Map<number, SourceLocation> = new Map()
 
   // Debounce state
@@ -150,6 +148,9 @@ export class SiliconBridge {
   /**
    * Generate a SOURCE_ID from a source location.
    * Uses a hash of file:line:column for uniqueness.
+   *
+   * CRITICAL: SourceIds must fit in positive Int32 range (1 to 2^31-1)
+   * to avoid sign issues when stored/read from SAB.
    */
   generateSourceId(source?: SourceLocation): number {
     if (!source) {
@@ -162,8 +163,11 @@ export class SiliconBridge {
       : 0
     const locationHash = (fileHash * 31 + source.line) * 31 + source.column
 
-    // Ensure positive and unique
-    const sourceId = Math.abs(locationHash) || this.nextSourceId++
+    // Ensure positive Int32 range: 1 to 0x7FFFFFFF
+    // Use >>> 0 to convert to unsigned, then & to mask to 31 bits
+    // If result is 0, use nextSourceId instead (0 is reserved for EMPTY_TID)
+    const maskedHash = (Math.abs(locationHash) >>> 0) & 0x7FFFFFFF
+    const sourceId = maskedHash || this.nextSourceId++ // Ensures sourceId >= 1
 
     // Store location for reverse lookup
     this.sourceIdToLocation.set(sourceId, source)
@@ -183,21 +187,36 @@ export class SiliconBridge {
   }
 
   // ===========================================================================
-  // Bidirectional Mapping
+  // Bidirectional Mapping (via Identity Table in SAB)
   // ===========================================================================
 
   /**
    * Get NodePtr for a SOURCE_ID.
+   * Uses Identity Table in SAB for O(1) lookup.
    */
   getNodePtr(sourceId: number): NodePtr | undefined {
-    return this.sourceIdToPtr.get(sourceId)
+    const ptr = this.linker.idTableLookup(sourceId)
+    return ptr === NULL_PTR ? undefined : ptr
   }
 
   /**
    * Get SOURCE_ID for a NodePtr.
+   * Reads SOURCE_ID directly from the node in SAB.
+   * Returns undefined if node is not active (freed).
    */
   getSourceId(ptr: NodePtr): number | undefined {
-    return this.ptrToSourceId.get(ptr)
+    if (ptr === NULL_PTR) return undefined
+    // Read SOURCE_ID from node using callback pattern
+    // Also check ACTIVE flag (bit 0 of flags) to verify node is valid
+    let sourceId: number | undefined
+    let isActive = false
+    this.linker.readNode(ptr, (_p, _opcode, _pitch, _velocity, _duration, _baseTick, _nextPtr, sid, flags) => {
+      isActive = (flags & 0x01) !== 0 // FLAG.ACTIVE = 0x01
+      if (isActive) {
+        sourceId = sid
+      }
+    })
+    return sourceId
   }
 
   /**
@@ -209,32 +228,40 @@ export class SiliconBridge {
 
   /**
    * Register a mapping between SOURCE_ID and NodePtr.
+   * Inserts into Identity Table in SAB.
    */
   private registerMapping(sourceId: number, ptr: NodePtr): void {
-    this.sourceIdToPtr.set(sourceId, ptr)
-    this.ptrToSourceId.set(ptr, sourceId)
+    this.linker.idTableInsert(sourceId, ptr)
   }
 
   /**
    * Unregister a mapping.
+   * Removes from Identity Table in SAB.
    */
-  private unregisterMapping(sourceId: number, ptr: NodePtr): void {
-    this.sourceIdToPtr.delete(sourceId)
-    this.ptrToSourceId.delete(ptr)
+  private unregisterMapping(sourceId: number, _ptr: NodePtr): void {
+    this.linker.idTableRemove(sourceId)
   }
 
   /**
    * Get all registered SOURCE_IDs.
+   * Traverses nodes to collect SOURCE_IDs.
    */
   getAllSourceIds(): number[] {
-    return Array.from(this.sourceIdToPtr.keys())
+    const sourceIds: number[] = []
+    this.linker.traverse((_ptr, _opcode, _pitch, _velocity, _duration, _baseTick, _flags, sourceId) => {
+      if (sourceId > 0) {
+        sourceIds.push(sourceId)
+      }
+    })
+    return sourceIds
   }
 
   /**
    * Get mapping count.
+   * Returns the node count from the linker.
    */
   getMappingCount(): number {
-    return this.sourceIdToPtr.size
+    return this.linker.getNodeCount()
   }
 
   // ===========================================================================
@@ -259,6 +286,7 @@ export class SiliconBridge {
    * @param muted - Whether the event is muted
    * @param source - Optional source location for editor mapping
    * @param afterSourceId - Optional SOURCE_ID to insert after
+   * @param explicitSourceId - Optional explicit SOURCE_ID to use instead of generating
    * @returns The SOURCE_ID assigned to the new node
    */
   insertImmediate(
@@ -269,9 +297,10 @@ export class SiliconBridge {
     baseTick: number,
     muted: boolean = false,
     source?: SourceLocation,
-    afterSourceId?: number
+    afterSourceId?: number,
+    explicitSourceId?: number
   ): number {
-    const sourceId = this.generateSourceId(source)
+    const sourceId = explicitSourceId ?? this.generateSourceId(source)
 
     // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
     const flags = muted ? 0x02 : 0 // FLAG.MUTED = 0x02
@@ -279,7 +308,7 @@ export class SiliconBridge {
     let ptr: NodePtr
 
     if (afterSourceId !== undefined) {
-      const afterPtr = this.sourceIdToPtr.get(afterSourceId)
+      const afterPtr = this.getNodePtr(afterSourceId)
       if (afterPtr === undefined) {
         throw new Error(`Unknown afterSourceId: ${afterSourceId}`)
       }
@@ -332,7 +361,7 @@ export class SiliconBridge {
    * Delete a note immediately (bypasses debounce).
    */
   deleteNoteImmediate(sourceId: number): void {
-    const ptr = this.sourceIdToPtr.get(sourceId)
+    const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
       throw new Error(`Unknown sourceId: ${sourceId}`)
     }
@@ -346,7 +375,7 @@ export class SiliconBridge {
    * Patch an attribute immediately (bypasses debounce).
    */
   patchImmediate(sourceId: number, type: PatchType, value: number | boolean): void {
-    const ptr = this.sourceIdToPtr.get(sourceId)
+    const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
       throw new Error(`Unknown sourceId: ${sourceId}`)
     }
@@ -489,7 +518,7 @@ export class SiliconBridge {
           let ptr: NodePtr
 
           if (op.afterSourceId !== undefined) {
-            const afterPtr = this.sourceIdToPtr.get(op.afterSourceId)
+            const afterPtr = this.getNodePtr(op.afterSourceId)
             if (afterPtr !== undefined) {
               ptr = this.linker.insertNode(
                 afterPtr,
@@ -530,7 +559,7 @@ export class SiliconBridge {
           // Synchronously wait for ACK before next structural edit
           this.linker.syncAck()
         } else if (op.type === 'delete' && op.sourceId !== undefined) {
-          const ptr = this.sourceIdToPtr.get(op.sourceId)
+          const ptr = this.getNodePtr(op.sourceId!)
           if (ptr !== undefined) {
             this.linker.deleteNode(ptr)
             this.unregisterMapping(op.sourceId, ptr)
@@ -575,20 +604,29 @@ export class SiliconBridge {
   /**
    * Clear all notes and mappings.
    *
-   * **Zero-Alloc Loop**: Uses forEach to iterate Map without Array.from allocation.
+   * **Memset-Style Clear**: Uses linker.idTableClear() to zero the Identity Table
+   * region in SAB, avoiding any JS object iteration.
    */
   clear(): void {
-    // ZERO-ALLOC: forEach does not allocate (uses internal iterator)
-    this.ptrToSourceId.forEach((_sourceId, ptr) => {
+    // Collect node pointers to delete (traverse is zero-alloc)
+    const ptrsToDelete: number[] = []
+    this.linker.traverse((ptr) => {
+      ptrsToDelete.push(ptr)
+    })
+
+    // Delete all nodes
+    for (const ptr of ptrsToDelete) {
       try {
         this.linker.deleteNode(ptr)
       } catch {
         // Node may already be deleted
       }
-    })
+    }
 
-    this.sourceIdToPtr.clear()
-    this.ptrToSourceId.clear()
+    // Clear Identity Table (memset-style)
+    this.linker.idTableClear()
+
+    // Clear source locations (editor metadata, not in SAB)
     this.sourceIdToLocation.clear()
     this.pendingPatches.clear()
     this.pendingStructural = []
@@ -648,7 +686,7 @@ export class SiliconBridge {
     sourceId: number,
     cb: (pitch: number, velocity: number, duration: number, baseTick: number, muted: boolean) => void
   ): boolean {
-    const ptr = this.sourceIdToPtr.get(sourceId)
+    const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) return false
 
     try {

@@ -526,6 +526,11 @@ describe('LiveClipBuilder - Full User Flow', () => {
 // =============================================================================
 
 describe('LiveClipBuilder - Edge Cases', () => {
+  beforeEach(() => {
+    // Clear cache to prevent sourceId collisions from previous tests
+    LiveClipBuilder.clearCache()
+  })
+
   test('empty clip finalize does not crash', () => {
     const bridge = createTestBridge()
     const builder = new LiveClipBuilder(bridge)

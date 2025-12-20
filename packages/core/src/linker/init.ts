@@ -16,7 +16,10 @@ import {
   NULL_PTR,
   calculateSABSize,
   HEAP_START_OFFSET,
-  NODE_SIZE_BYTES
+  NODE_SIZE_BYTES,
+  getIdentityTableOffset,
+  getGrooveTemplateOffset,
+  ID_TABLE
 } from './constants'
 import { FreeList } from './free-list'
 import type { LinkerConfig } from './types'
@@ -65,8 +68,8 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
   // Initialize free list (links all nodes, sets 64-bit FREE_LIST_HEAD)
   FreeList.initialize(sab, sab64, cfg.nodeCapacity)
 
-  // NOTE: Groove template region starts after node heap (calculated dynamically)
-  // grooveStart = HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
+  // Initialize Identity Table
+  initializeIdentityTable(sab, cfg.nodeCapacity)
 
   return buffer
 }
@@ -124,6 +127,35 @@ function initializeRegisters(
 
   // PRNG
   sab[REG.PRNG_SEED] = cfg.prngSeed
+}
+
+/**
+ * Initialize the Identity Table region.
+ *
+ * The Identity Table is a linear-probe hash table mapping TID (sourceId) to NodePtr.
+ * All slots are initialized to EMPTY_TID (0) to indicate empty.
+ *
+ * Header fields set:
+ * - HDR.ID_TABLE_PTR: Byte offset to the Identity Table
+ * - HDR.ID_TABLE_CAPACITY: Total number of slots
+ * - HDR.ID_TABLE_USED: 0 (no entries initially)
+ */
+function initializeIdentityTable(sab: Int32Array, nodeCapacity: number): void {
+  const tableOffset = getIdentityTableOffset(nodeCapacity)
+  const tableOffsetI32 = tableOffset / 4
+
+  // Set header fields
+  sab[HDR.ID_TABLE_PTR] = tableOffset
+  sab[HDR.ID_TABLE_CAPACITY] = nodeCapacity
+  sab[HDR.ID_TABLE_USED] = 0
+
+  // Clear all slots to EMPTY_TID (0)
+  // Each entry is 2 × i32: [TID, NodePtr]
+  // Total slots = nodeCapacity
+  const totalI32 = nodeCapacity * ID_TABLE.ENTRY_SIZE_I32
+  for (let i = 0; i < totalI32; i++) {
+    sab[tableOffsetI32 + i] = 0
+  }
 }
 
 /**
@@ -203,6 +235,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 
   // Re-initialize free list (clears all nodes, resets 64-bit FREE_LIST_HEAD)
   FreeList.initialize(sab, sab64, nodeCapacity)
+
+  // Re-initialize Identity Table
+  initializeIdentityTable(sab, nodeCapacity)
 }
 
 /**
@@ -222,9 +257,9 @@ export function writeGrooveTemplate(
   offsets: number[]
 ): void {
   const sab = new Int32Array(buffer)
-  // Calculate groove start dynamically: after node heap
   const nodeCapacity = sab[HDR.NODE_CAPACITY]
-  const grooveStart = (HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES) / 4 // Convert byte offset to i32 index
+  // Groove templates are after Identity Table
+  const grooveStart = getGrooveTemplateOffset(nodeCapacity) / 4 // Convert byte offset to i32 index
 
   // Each template: 17 i32s (1 length + 16 max offsets)
   const templateSize = 17
@@ -251,9 +286,9 @@ export function readGrooveTemplate(
   templateIndex: number
 ): number[] {
   const sab = new Int32Array(buffer)
-  // Calculate groove start dynamically: after node heap
   const nodeCapacity = sab[HDR.NODE_CAPACITY]
-  const grooveStart = (HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES) / 4
+  // Groove templates are after Identity Table
+  const grooveStart = getGrooveTemplateOffset(nodeCapacity) / 4
 
   const templateSize = 17
   const templateOffset = grooveStart + templateIndex * templateSize

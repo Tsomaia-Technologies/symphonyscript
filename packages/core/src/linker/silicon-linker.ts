@@ -15,7 +15,8 @@ import {
   FLAG,
   NODE_SIZE_I32,
   HEAP_START_OFFSET,
-  CONCURRENCY
+  CONCURRENCY,
+  ID_TABLE
 } from './constants'
 // Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
@@ -339,10 +340,7 @@ export class SiliconLinker implements ISiliconLinker {
       // 4. Atomic Splice: NoteA.NEXT_PTR = NoteX
       Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
 
-      // 5. Increment NODE_COUNT
-      Atomics.add(this.sab, HDR.NODE_COUNT, 1)
-
-      // 6. Signal structural change
+      // 5. Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
       Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
       return newPtr
@@ -411,10 +409,7 @@ export class SiliconLinker implements ISiliconLinker {
       // Update HEAD_PTR (simple store - mutex guarantees no concurrent modification)
       Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
 
-      // Increment NODE_COUNT
-      Atomics.add(this.sab, HDR.NODE_COUNT, 1)
-
-      // Signal structural change
+      // Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
       Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
       return newPtr
@@ -475,10 +470,7 @@ export class SiliconLinker implements ISiliconLinker {
         Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
       }
 
-      // Decrement NODE_COUNT
-      Atomics.sub(this.sab, HDR.NODE_COUNT, 1)
-
-      // Free the node
+      // Free the node (NODE_COUNT decremented by FreeList.free)
       this.freeNode(ptr)
 
       // Signal structural change
@@ -835,5 +827,161 @@ export class SiliconLinker implements ISiliconLinker {
    */
   getSafeZoneTicks(): number {
     return this.sab[HDR.SAFE_ZONE_TICKS]
+  }
+
+  // ===========================================================================
+  // Identity Table Operations (v1.5)
+  // ===========================================================================
+
+  /**
+   * Compute hash slot for a sourceId using Knuth's multiplicative hash.
+   * @param sourceId - The source ID to hash
+   * @returns Slot index in the Identity Table
+   */
+  private idTableHash(sourceId: number): number {
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    // Knuth's multiplicative hash
+    const hash = Math.imul(sourceId >>> 0, ID_TABLE.KNUTH_HASH_MULTIPLIER) >>> 0
+    return hash % capacity
+  }
+
+  /**
+   * Get the i32 offset for a slot in the Identity Table.
+   * Each slot is 2 × i32: [TID, NodePtr]
+   */
+  private idTableSlotOffset(slot: number): number {
+    const tablePtr = this.sab[HDR.ID_TABLE_PTR]
+    return (tablePtr / 4) + slot * ID_TABLE.ENTRY_SIZE_I32
+  }
+
+  /**
+   * Insert a sourceId → NodePtr mapping into the Identity Table.
+   * Uses linear probing for collision resolution.
+   *
+   * @param sourceId - Source ID (must be > 0)
+   * @param ptr - Node pointer
+   * @returns true if inserted, false if table full
+   */
+  idTableInsert(sourceId: number, ptr: NodePtr): boolean {
+    if (sourceId <= 0) return false
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    for (let i = 0; i < capacity; i++) {
+      const offset = this.idTableSlotOffset(slot)
+      const tid = this.sab[offset]
+
+      if (tid === ID_TABLE.EMPTY_TID || tid === ID_TABLE.TOMBSTONE_TID) {
+        // Empty or tombstone slot - insert here
+        this.sab[offset] = sourceId
+        this.sab[offset + 1] = ptr
+        Atomics.add(this.sab, HDR.ID_TABLE_USED, 1)
+        return true
+      }
+
+      if (tid === sourceId) {
+        // Already exists - update ptr
+        this.sab[offset + 1] = ptr
+        return true
+      }
+
+      // Linear probe to next slot
+      slot = (slot + 1) % capacity
+    }
+
+    // Table full
+    return false
+  }
+
+  /**
+   * Lookup a NodePtr by sourceId in the Identity Table.
+   * Uses linear probing for collision resolution.
+   *
+   * @param sourceId - Source ID to lookup
+   * @returns NodePtr if found, NULL_PTR if not found
+   */
+  idTableLookup(sourceId: number): NodePtr {
+    if (sourceId <= 0) return NULL_PTR
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    for (let i = 0; i < capacity; i++) {
+      const offset = this.idTableSlotOffset(slot)
+      const tid = this.sab[offset]
+
+      if (tid === ID_TABLE.EMPTY_TID) {
+        // Empty slot - not found
+        return NULL_PTR
+      }
+
+      if (tid === sourceId) {
+        // Found
+        return this.sab[offset + 1]
+      }
+
+      // Linear probe (skip tombstones)
+      slot = (slot + 1) % capacity
+    }
+
+    // Not found after full scan
+    return NULL_PTR
+  }
+
+  /**
+   * Remove a sourceId from the Identity Table.
+   * Marks the slot as a tombstone (TID = -1).
+   *
+   * @param sourceId - Source ID to remove
+   * @returns true if removed, false if not found
+   */
+  idTableRemove(sourceId: number): boolean {
+    if (sourceId <= 0) return false
+
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    let slot = this.idTableHash(sourceId)
+
+    for (let i = 0; i < capacity; i++) {
+      const offset = this.idTableSlotOffset(slot)
+      const tid = this.sab[offset]
+
+      if (tid === ID_TABLE.EMPTY_TID) {
+        // Empty slot - not found
+        return false
+      }
+
+      if (tid === sourceId) {
+        // Found - mark as tombstone
+        this.sab[offset] = ID_TABLE.TOMBSTONE_TID
+        this.sab[offset + 1] = NULL_PTR
+        return true
+      }
+
+      // Linear probe
+      slot = (slot + 1) % capacity
+    }
+
+    // Not found
+    return false
+  }
+
+  /**
+   * Clear the entire Identity Table (memset-style).
+   * Sets all slots to EMPTY_TID (0).
+   */
+  idTableClear(): void {
+    const tablePtr = this.sab[HDR.ID_TABLE_PTR]
+    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const tableOffsetI32 = tablePtr / 4
+    const totalI32 = capacity * ID_TABLE.ENTRY_SIZE_I32
+
+    // Zero out entire table
+    for (let i = 0; i < totalI32; i++) {
+      this.sab[tableOffsetI32 + i] = 0
+    }
+
+    // Reset used count
+    Atomics.store(this.sab, HDR.ID_TABLE_USED, 0)
   }
 }

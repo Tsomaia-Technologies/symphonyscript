@@ -440,7 +440,8 @@ export const CONCURRENCY = {
  * Layout:
  * - Header: 64 bytes (16 × i32)
  * - Registers: 64 bytes (16 × i32)
- * - Node Heap: nodeCapacity × 24 bytes
+ * - Node Heap: nodeCapacity × 32 bytes
+ * - Identity Table: nodeCapacity × 8 bytes (TID + NodePtr per entry)
  * - Groove Templates: 1024 bytes (fixed)
  *
  * @param nodeCapacity - Maximum number of nodes
@@ -450,8 +451,9 @@ export function calculateSABSize(nodeCapacity: number): number {
   const headerSize = 64 // 16 × i32
   const registerSize = 64 // 16 × i32
   const heapSize = nodeCapacity * NODE_SIZE_BYTES
+  const identityTableSize = nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const grooveSize = 1024 // Fixed groove template region
-  return headerSize + registerSize + heapSize + grooveSize
+  return headerSize + registerSize + heapSize + identityTableSize + grooveSize
 }
 
 /**
@@ -464,6 +466,24 @@ export const HEAP_START_OFFSET = 128
  * Calculate i32 index where node heap begins.
  */
 export const HEAP_START_I32 = HEAP_START_OFFSET / 4
+
+/**
+ * Calculate byte offset where Identity Table begins.
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Byte offset to Identity Table
+ */
+export function getIdentityTableOffset(nodeCapacity: number): number {
+  return HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
+}
+
+/**
+ * Calculate byte offset where Groove Templates begin.
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Byte offset to Groove Templates
+ */
+export function getGrooveTemplateOffset(nodeCapacity: number): number {
+  return getIdentityTableOffset(nodeCapacity) + nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES
+}
 
 // =============================================================================
 // Type Exports

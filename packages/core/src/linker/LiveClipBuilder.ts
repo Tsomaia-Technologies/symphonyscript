@@ -338,29 +338,24 @@ export class LiveClipBuilder {
       linker.patchBaseTick(ptr, baseTick)
       this.touchedSourceIds.add(sourceId)
     } else {
-      // INSERT: New CC node (ZERO-ALLOC: primitive parameters only)
-      const opcode = OPCODE.CC
-      const pitch = controller
-      const velocity = value
-      const duration = 0 // CC events have no duration
-      const flags = 0
-
-      // Insert at head or after last node
-      let newPtr: NodePtr
-      if (this.lastSourceId !== undefined) {
-        const afterPtr = this.bridge.getNodePtr(this.lastSourceId)
-        if (afterPtr !== undefined) {
-          newPtr = linker.insertNode(afterPtr, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
-        } else {
-          newPtr = linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
-        }
-      } else {
-        newPtr = linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
+      // INSERT: New CC node (ZERO-ALLOC: pass explicit sourceId)
+      let afterSourceIdPtr: number | undefined
+      if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
+        afterSourceIdPtr = this.lastSourceId
       }
 
-      // Register the mapping (encapsulation-breaking until RFC-044)
-      ;(this.bridge as any).sourceIdToPtr.set(sourceId, newPtr)
-      ;(this.bridge as any).ptrToSourceId.set(newPtr, sourceId)
+      // Use insertImmediate with explicit sourceId to use Identity Table
+      this.bridge.insertImmediate(
+        OPCODE.CC,
+        controller, // pitch = controller number for CC
+        value, // velocity = value for CC
+        0, // duration = 0 for CC events
+        baseTick,
+        false, // muted
+        undefined, // source (not needed, we have explicit sourceId)
+        afterSourceIdPtr,
+        sourceId // explicitSourceId
+      )
 
       this.touchedSourceIds.add(sourceId)
       this.ownedSourceIds.add(sourceId)
@@ -677,28 +672,31 @@ export class LiveClipBuilder {
         muted: existingMuted
       }
     } else {
-      // INSERT: New node
-      const noteData: EditorNoteData = {
+      // INSERT: New node (ZERO-ALLOC: pass explicit sourceId to avoid double registration)
+      let afterSourceIdPtr: number | undefined
+      if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
+        afterSourceIdPtr = this.lastSourceId
+      }
+
+      // Use insertImmediate with explicit sourceId to maintain call-site identity
+      this.bridge.insertImmediate(
+        OPCODE.NOTE,
         pitch,
         velocity,
-        duration: transformedDuration,
-        baseTick: transformedTick,
-        muted: false
-      }
+        transformedDuration,
+        transformedTick,
+        false, // muted
+        undefined, // source (not needed, we have explicit sourceId)
+        afterSourceIdPtr,
+        sourceId // explicitSourceId - use the call-site derived sourceId
+      )
 
-      let afterSourceId: number | undefined
-      if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
-        afterSourceId = this.lastSourceId
-      }
-
-      const newSourceId = this.bridge.insertNoteImmediate(noteData, afterSourceId)
-
-      this.touchedSourceIds.add(newSourceId)
-      this.ownedSourceIds.add(newSourceId)
-      this.lastSourceId = newSourceId
+      this.touchedSourceIds.add(sourceId)
+      this.ownedSourceIds.add(sourceId)
+      this.lastSourceId = sourceId
 
       return {
-        sourceId: newSourceId,
+        sourceId,
         pitch,
         velocity,
         duration: transformedDuration,
