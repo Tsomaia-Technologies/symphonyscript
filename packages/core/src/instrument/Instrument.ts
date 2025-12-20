@@ -81,7 +81,6 @@ export type InstrumentConfig = SynthConfig | SamplerConfig
  * Immutable instrument configuration.
  *
  * NO identity in builder layer. Name is optional (debugging only).
- * Compiler handles identity via reference equality.
  */
 export abstract class Instrument {
   readonly id: InstrumentId

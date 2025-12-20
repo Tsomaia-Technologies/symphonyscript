@@ -1,7 +1,7 @@
 {
   "name": "@symphonyscript/core",
   "version": "0.1.0",
-  "description": "SymphonyScript DSL, Compiler, and Music Theory",
+  "description": "SymphonyScript Audio Kernel",
   "license": "MIT",
   "author": "Tsomaia Technologies",
   "main": "./dist/index.js",
