@@ -305,6 +305,9 @@ export const SEQ = {
 
 /**
  * Node flags (lower 8 bits of PACKED_A).
+ *
+ * NOTE: Node liveness tracking is handled by LAST_PASS_ID (generation-based),
+ * not by flag bits. Do not add a TOUCHED flag.
  */
 export const FLAG = {
   /** Node is active (not deleted) */
@@ -312,9 +315,7 @@ export const FLAG = {
   /** Node is muted (skip during playback) */
   MUTED: 0x02,
   /** Write in progress (consumer should spin/skip) */
-  DIRTY: 0x04,
-  /** [v1.5] Node touched in current update pass (deprecated - use LAST_PASS_ID) */
-  TOUCHED: 0x08
+  DIRTY: 0x04
 } as const
 
 // =============================================================================
