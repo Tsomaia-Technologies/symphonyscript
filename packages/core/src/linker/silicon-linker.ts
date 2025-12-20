@@ -837,14 +837,19 @@ export class SiliconLinker implements ISiliconLinker {
 
   /**
    * Compute hash slot for a sourceId using Knuth's multiplicative hash.
+   *
+   * **Bitwise Optimization**: Uses `& (capacity - 1)` instead of `% capacity`
+   * since DEFAULT_CAPACITY is 4096 (power of 2). This eliminates expensive
+   * modulo division on the hot path.
+   *
    * @param sourceId - The source ID to hash
    * @returns Slot index in the Identity Table
    */
   private idTableHash(sourceId: number): number {
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
-    // Knuth's multiplicative hash
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
+    // Knuth's multiplicative hash with bitwise modulo (capacity must be power of 2)
     const hash = Math.imul(sourceId >>> 0, ID_TABLE.KNUTH_HASH_MULTIPLIER) >>> 0
-    return hash % capacity
+    return hash & (capacity - 1)
   }
 
   /**
@@ -852,13 +857,16 @@ export class SiliconLinker implements ISiliconLinker {
    * Each slot is 2 × i32: [TID, NodePtr]
    */
   private idTableSlotOffset(slot: number): number {
-    const tablePtr = this.sab[HDR.ID_TABLE_PTR]
+    const tablePtr = Atomics.load(this.sab, HDR.ID_TABLE_PTR)
     return (tablePtr / 4) + slot * ID_TABLE.ENTRY_SIZE_I32
   }
 
   /**
    * Insert a sourceId → NodePtr mapping into the Identity Table.
    * Uses linear probing for collision resolution.
+   *
+   * **Atomic Strictness**: All slot reads/writes use Atomics for thread safety.
+   * **Load Factor Enforcement**: Sets ERROR_FLAG if load factor exceeds 75%.
    *
    * @param sourceId - Source ID (must be > 0)
    * @param ptr - Node pointer
@@ -867,29 +875,35 @@ export class SiliconLinker implements ISiliconLinker {
   idTableInsert(sourceId: number, ptr: NodePtr): boolean {
     if (sourceId <= 0) return false
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     for (let i = 0; i < capacity; i++) {
       const offset = this.idTableSlotOffset(slot)
-      const tid = this.sab[offset]
+      const tid = Atomics.load(this.sab, offset)
 
       if (tid === ID_TABLE.EMPTY_TID || tid === ID_TABLE.TOMBSTONE_TID) {
         // Empty or tombstone slot - insert here
-        this.sab[offset] = sourceId
-        this.sab[offset + 1] = ptr
-        Atomics.add(this.sab, HDR.ID_TABLE_USED, 1)
+        Atomics.store(this.sab, offset, sourceId)
+        Atomics.store(this.sab, offset + 1, ptr)
+        const newUsed = Atomics.add(this.sab, HDR.ID_TABLE_USED, 1) + 1
+
+        // Load factor enforcement: warn if > 75% full
+        if (newUsed / capacity > ID_TABLE.LOAD_FACTOR_WARNING) {
+          Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.LOAD_FACTOR_WARNING)
+        }
+
         return true
       }
 
       if (tid === sourceId) {
         // Already exists - update ptr
-        this.sab[offset + 1] = ptr
+        Atomics.store(this.sab, offset + 1, ptr)
         return true
       }
 
-      // Linear probe to next slot
-      slot = (slot + 1) % capacity
+      // Linear probe to next slot (bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Table full
@@ -900,18 +914,20 @@ export class SiliconLinker implements ISiliconLinker {
    * Lookup a NodePtr by sourceId in the Identity Table.
    * Uses linear probing for collision resolution.
    *
+   * **Atomic Strictness**: All slot reads use Atomics for thread safety.
+   *
    * @param sourceId - Source ID to lookup
    * @returns NodePtr if found, NULL_PTR if not found
    */
   idTableLookup(sourceId: number): NodePtr {
     if (sourceId <= 0) return NULL_PTR
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     for (let i = 0; i < capacity; i++) {
       const offset = this.idTableSlotOffset(slot)
-      const tid = this.sab[offset]
+      const tid = Atomics.load(this.sab, offset)
 
       if (tid === ID_TABLE.EMPTY_TID) {
         // Empty slot - not found
@@ -920,11 +936,11 @@ export class SiliconLinker implements ISiliconLinker {
 
       if (tid === sourceId) {
         // Found
-        return this.sab[offset + 1]
+        return Atomics.load(this.sab, offset + 1)
       }
 
-      // Linear probe (skip tombstones)
-      slot = (slot + 1) % capacity
+      // Linear probe (skip tombstones, bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Not found after full scan
@@ -935,18 +951,23 @@ export class SiliconLinker implements ISiliconLinker {
    * Remove a sourceId from the Identity Table.
    * Marks the slot as a tombstone (TID = -1).
    *
+   * **Atomic Strictness**: All slot reads/writes use Atomics for thread safety.
+   *
+   * NOTE: Tombstones accumulate over time and degrade lookup performance.
+   * Call idTableRepack() during bridge.clear() to eliminate tombstones.
+   *
    * @param sourceId - Source ID to remove
    * @returns true if removed, false if not found
    */
   idTableRemove(sourceId: number): boolean {
     if (sourceId <= 0) return false
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     for (let i = 0; i < capacity; i++) {
       const offset = this.idTableSlotOffset(slot)
-      const tid = this.sab[offset]
+      const tid = Atomics.load(this.sab, offset)
 
       if (tid === ID_TABLE.EMPTY_TID) {
         // Empty slot - not found
@@ -955,13 +976,13 @@ export class SiliconLinker implements ISiliconLinker {
 
       if (tid === sourceId) {
         // Found - mark as tombstone
-        this.sab[offset] = ID_TABLE.TOMBSTONE_TID
-        this.sab[offset + 1] = NULL_PTR
+        Atomics.store(this.sab, offset, ID_TABLE.TOMBSTONE_TID)
+        Atomics.store(this.sab, offset + 1, NULL_PTR)
         return true
       }
 
-      // Linear probe
-      slot = (slot + 1) % capacity
+      // Linear probe (bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Not found
@@ -971,20 +992,28 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Clear the entire Identity Table (memset-style).
    * Sets all slots to EMPTY_TID (0).
+   *
+   * **Atomic Strictness**: All writes use Atomics for thread safety.
+   * This also eliminates all tombstones (effective re-pack).
    */
   idTableClear(): void {
-    const tablePtr = this.sab[HDR.ID_TABLE_PTR]
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const tablePtr = Atomics.load(this.sab, HDR.ID_TABLE_PTR)
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     const tableOffsetI32 = tablePtr / 4
     const totalI32 = capacity * ID_TABLE.ENTRY_SIZE_I32
 
-    // Zero out entire table
+    // Zero out entire table using Atomics
     for (let i = 0; i < totalI32; i++) {
-      this.sab[tableOffsetI32 + i] = 0
+      Atomics.store(this.sab, tableOffsetI32 + i, 0)
     }
 
-    // Reset used count
+    // Reset used count and clear load factor warning
     Atomics.store(this.sab, HDR.ID_TABLE_USED, 0)
+    // Clear ERROR_FLAG only if it was LOAD_FACTOR_WARNING
+    const currentError = Atomics.load(this.sab, HDR.ERROR_FLAG)
+    if (currentError === ERROR.LOAD_FACTOR_WARNING) {
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.OK)
+    }
   }
 
   // ===========================================================================

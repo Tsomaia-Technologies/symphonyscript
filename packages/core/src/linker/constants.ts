@@ -383,7 +383,9 @@ export const ERROR = {
   /** Invalid pointer encountered */
   INVALID_PTR: 3,
   /** [v1.5] Kernel panic: mutex deadlock or catastrophic failure */
-  KERNEL_PANIC: 4
+  KERNEL_PANIC: 4,
+  /** [v1.5] Identity Table load factor exceeded 75% warning */
+  LOAD_FACTOR_WARNING: 5
 } as const
 
 // =============================================================================

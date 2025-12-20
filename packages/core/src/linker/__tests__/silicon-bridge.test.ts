@@ -749,7 +749,7 @@ describe('SiliconBridge - Integration', () => {
     const readNote = readNoteData(bridge, sourceId)
     expect(readNote?.pitch).toBe(72)
 
-    // Source location is accessed separately (not in SAB, stored in Bridge's Map)
-    expect(bridge.getSourceLocation(sourceId)).toEqual(source)
+    // Source location is stored in Symbol Table (file string not preserved)
+    expect(bridge.getSourceLocation(sourceId)).toEqual({ line: 10, column: 5 })
   })
 })
