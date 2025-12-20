@@ -5,7 +5,6 @@ This document is the primary entry point for AI agents. Follow these protocols t
 ## 1. Core Architectural Standard
 - **The Standard**: RFC-043 (Continuous Silicon Kernel).
 - **Memory Model**: Linked-List Instruction Stream in SharedArrayBuffer.
-- **Deprecated Patterns**: Ignore RFC-040/041 "compilation" logic. We do not "bake" bytecode; we "mirror" instructions.
 
 ## 2. Implementation Workflow
 Before executing any code changes, the agent MUST:
