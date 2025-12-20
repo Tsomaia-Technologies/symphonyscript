@@ -55,6 +55,7 @@ SymphonyScript is designed for "Breath-Speed" live coding. The transition to the
 * **Live Coding:** You need instant feedback between writing code and hearing sound.
 * **High-Density Sequencing:** You are managing thousands of musical events without wanting Garbage Collection to cause audio glitches.
 * **Programmable Music:** You want to generate complex, algorithmic patterns that can be modified while the transport is running.
+* **Offline Playback:** You want to write sheet music as code and have offline playback anytime
 
 ```typescript
 // Real-time algorithmic generation
