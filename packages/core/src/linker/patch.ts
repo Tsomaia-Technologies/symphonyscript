@@ -3,7 +3,17 @@
 // =============================================================================
 // Immediate attribute patching with SEQ counter updates for ABA protection.
 
-import { NODE, NODE_SIZE_I32, PACKED, SEQ, FLAG, NULL_PTR, HEAP_START_OFFSET } from './constants'
+import {
+  NODE,
+  NODE_SIZE_I32,
+  PACKED,
+  SEQ,
+  FLAG,
+  NULL_PTR,
+  HEAP_START_OFFSET,
+  HDR,
+  CONCURRENCY
+} from './constants'
 import type { NodePtr } from './types'
 import { InvalidPointerError } from './types'
 
@@ -268,12 +278,23 @@ export class AttributePatcher {
   }
 
   /**
-   * Read current attribute values from a node.
+   * Read current attribute values from a node with versioned read protection.
+   *
+   * This implements the versioned-read loop (v1.5) to prevent "torn reads"
+   * where a writer mutates fields mid-read. The sequence counter (SEQ_FLAGS)
+   * acts as a version number that's incremented before/after mutations.
+   *
+   * Concurrency Model:
+   * - Reads SEQ before reading fields
+   * - Reads all node fields
+   * - Reads SEQ again
+   * - If SEQ changed, retry (writer was mutating during our read)
+   * - Hybrid CPU yield after 100 spins to prevent starvation
    *
    * @param ptr - Node byte pointer
-   * @returns Object with current attribute values
+   * @returns Promise resolving to object with current attribute values
    */
-  readAttributes(ptr: NodePtr): {
+  async readAttributes(ptr: NodePtr): Promise<{
     opcode: number
     pitch: number
     velocity: number
@@ -283,23 +304,72 @@ export class AttributePatcher {
     nextPtr: NodePtr
     sourceId: number
     seq: number
-  } {
+  }> {
     this.validatePtr(ptr)
     const offset = this.nodeOffset(ptr)
 
-    const packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
-    const seqFlags = Atomics.load(this.sab, offset + NODE.SEQ_FLAGS)
+    let seq1: number, seq2: number
+    let packed: number,
+      duration: number,
+      baseTick: number,
+      nextPtr: NodePtr,
+      sourceId: number
+    let spinCount = 0
 
+    do {
+      // Read SEQ before reading fields (version number)
+      seq1 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+      // Read all fields atomically
+      packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
+      duration = Atomics.load(this.sab, offset + NODE.DURATION)
+      baseTick = Atomics.load(this.sab, offset + NODE.BASE_TICK)
+      nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+      sourceId = Atomics.load(this.sab, offset + NODE.SOURCE_ID)
+
+      // Read SEQ after reading fields
+      seq2 = (Atomics.load(this.sab, offset + NODE.SEQ_FLAGS) & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+
+      // If SEQ changed, writer was mutating during our read - retry
+      if (seq1 !== seq2) {
+        spinCount++
+
+        // **v1.5 HYBRID YIELD**: Prevent CPU starvation after 100 spins
+        if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
+          // Priority 1: setImmediate (Node.js/some browsers)
+          if (typeof setImmediate !== 'undefined') {
+            await new Promise((resolve) => setImmediate(resolve))
+          }
+          // Priority 2: scheduler.yield (modern browsers with Scheduler API)
+          else if (typeof (globalThis as any).scheduler?.yield === 'function') {
+            await (globalThis as any).scheduler.yield()
+          }
+          // Priority 3: Atomics.wait fallback (use dedicated YIELD_SLOT)
+          else {
+            // Note: Atomics.wait requires SharedArrayBuffer and may block
+            // Using 0ms timeout for immediate re-schedule
+            try {
+              Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 0)
+            } catch {
+              // Atomics.wait may throw if not supported, continue without yield
+            }
+          }
+          spinCount = 0 // Reset counter after yield
+        }
+      }
+    } while (seq1 !== seq2)
+
+    // SEQ is stable - safe to return data
     return {
       opcode: (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT,
       pitch: (packed & PACKED.PITCH_MASK) >>> PACKED.PITCH_SHIFT,
       velocity: (packed & PACKED.VELOCITY_MASK) >>> PACKED.VELOCITY_SHIFT,
       flags: packed & PACKED.FLAGS_MASK,
-      duration: this.sab[offset + NODE.DURATION],
-      baseTick: this.sab[offset + NODE.BASE_TICK],
-      nextPtr: this.sab[offset + NODE.NEXT_PTR],
-      sourceId: this.sab[offset + NODE.SOURCE_ID],
-      seq: (seqFlags & SEQ.SEQ_MASK) >>> SEQ.SEQ_SHIFT
+      duration,
+      baseTick,
+      nextPtr,
+      sourceId,
+      seq: seq1 // Return the stable sequence number
     }
   }
 }

@@ -122,6 +122,22 @@ export class InvalidPointerError extends Error {
 }
 
 /**
+ * Error thrown when kernel panic occurs (mutex deadlock or catastrophic failure).
+ * This indicates a crashed worker is holding a lock or other unrecoverable state.
+ * System requires a warm restart.
+ *
+ * @remarks
+ * This error is part of the Dead-Man's Switch mechanism (v1.5) to prevent
+ * permanent system freezes when a worker crashes while holding the Chain Mutex.
+ */
+export class KernelPanicError extends Error {
+  constructor(message: string) {
+    super(`Silicon Linker: Kernel Panic - ${message}`)
+    this.name = 'KernelPanicError'
+  }
+}
+
+/**
  * Silicon Linker interface.
  * Acts as MMU for the SharedArrayBuffer, handling all memory operations.
  */
@@ -157,10 +173,10 @@ export interface ISiliconLinker {
   insertNode(afterPtr: NodePtr, data: NodeData): NodePtr
 
   /** Insert a new node at the head of the chain. */
-  insertHead(data: NodeData): NodePtr
+  insertHead(data: NodeData): Promise<NodePtr>
 
   /** Delete a node from the chain. Throws if in safe zone. */
-  deleteNode(ptr: NodePtr): void
+  deleteNode(ptr: NodePtr): Promise<void>
 
   // --- Commit Protocol ---
 
@@ -170,13 +186,13 @@ export interface ISiliconLinker {
   // --- Read Operations ---
 
   /** Read node data at pointer. */
-  readNode(ptr: NodePtr): NodeView
+  readNode(ptr: NodePtr): Promise<NodeView>
 
   /** Get head of chain. */
   getHead(): NodePtr
 
   /** Iterate all nodes in chain order. */
-  iterateChain(): Generator<NodeView, void, unknown>
+  iterateChain(): AsyncGenerator<NodeView, void, unknown>
 
   // --- Register Operations ---
 

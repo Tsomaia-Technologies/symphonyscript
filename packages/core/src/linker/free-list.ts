@@ -87,7 +87,7 @@ export class FreeList {
     this.sab[offset + NODE.PREV_PTR] = NULL_PTR
     this.sab[offset + NODE.SOURCE_ID] = 0
     // Keep SEQ_FLAGS - we increment SEQ on free, don't reset it
-    this.sab[offset + NODE.RESERVED] = 0
+    this.sab[offset + NODE.LAST_PASS_ID] = 0
   }
 
   /**
@@ -258,7 +258,7 @@ export class FreeList {
       sab[offset + NODE.NEXT_PTR] = NULL_PTR
       sab[offset + NODE.PREV_PTR] = NULL_PTR
       sab[offset + NODE.SOURCE_ID] = 0
-      sab[offset + NODE.RESERVED] = 0
+      sab[offset + NODE.LAST_PASS_ID] = 0
     }
 
     // Set header pointers

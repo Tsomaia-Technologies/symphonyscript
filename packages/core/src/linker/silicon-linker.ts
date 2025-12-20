@@ -14,7 +14,8 @@ import {
   SEQ,
   FLAG,
   NODE_SIZE_I32,
-  HEAP_START_OFFSET
+  HEAP_START_OFFSET,
+  CONCURRENCY
 } from './constants'
 import { FreeList } from './free-list'
 import { AttributePatcher } from './patch'
@@ -29,7 +30,8 @@ import type {
 import {
   HeapExhaustedError,
   SafeZoneViolationError,
-  InvalidPointerError
+  InvalidPointerError,
+  KernelPanicError
 } from './types'
 
 /**
@@ -79,6 +81,82 @@ export class SiliconLinker implements ISiliconLinker {
   static create(config?: LinkerConfig): SiliconLinker {
     const buffer = createLinkerSAB(config)
     return new SiliconLinker(buffer)
+  }
+
+  // ===========================================================================
+  // Chain Mutex (v1.5) - Concurrency Control
+  // ===========================================================================
+
+  /**
+   * Acquire the Chain Mutex for structural operations.
+   *
+   * This implements a spin-lock with:
+   * - CAS-based locking (0 → 1 transition)
+   * - Hybrid CPU yield after 100 spins to prevent starvation
+   * - Dead-Man's Switch: Throws KernelPanicError after 1M iterations
+   *
+   * The Dead-Man's Switch prevents permanent system freeze if a worker
+   * crashes while holding the lock.
+   *
+   * @throws KernelPanicError if lock cannot be acquired after 1M iterations
+   */
+  private async _acquireChainMutex(): Promise<void> {
+    let spinCount = 0
+    let totalIterations = 0
+
+    // Spin until we successfully CAS 0 → 1
+    while (
+      Atomics.compareExchange(
+        this.sab,
+        HDR.CHAIN_MUTEX,
+        CONCURRENCY.MUTEX_UNLOCKED, // expected: unlocked
+        CONCURRENCY.MUTEX_LOCKED // desired: locked
+      ) !== CONCURRENCY.MUTEX_UNLOCKED
+    ) {
+      // **v1.5 DEAD-MAN'S SWITCH**: Prevent permanent deadlock
+      totalIterations++
+      if (totalIterations > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
+        // Set ERROR_FLAG to indicate kernel panic
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
+        throw new KernelPanicError(
+          `Chain Mutex deadlock detected: Failed to acquire lock after ${CONCURRENCY.MUTEX_PANIC_THRESHOLD} iterations. ` +
+            `A worker may have crashed while holding the lock. System requires warm restart.`
+        )
+      }
+
+      // **v1.5 HYBRID YIELD**: Prevent CPU starvation
+      spinCount++
+      if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
+        // Priority 1: setImmediate (Node.js/some browsers)
+        if (typeof setImmediate !== 'undefined') {
+          await new Promise((resolve) => setImmediate(resolve))
+        }
+        // Priority 2: scheduler.yield (modern browsers with Scheduler API)
+        else if (typeof (globalThis as any).scheduler?.yield === 'function') {
+          await (globalThis as any).scheduler.yield()
+        }
+        // Priority 3: Atomics.wait fallback (use dedicated YIELD_SLOT)
+        else {
+          try {
+            Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 0)
+          } catch {
+            // Atomics.wait may throw if not supported, continue without yield
+          }
+        }
+        spinCount = 0 // Reset yield counter (NOT totalIterations!)
+      }
+    }
+  }
+
+  /**
+   * Release the Chain Mutex.
+   *
+   * This must ALWAYS be called after acquiring the mutex, even if an error occurs.
+   * Use try-finally pattern to ensure release.
+   */
+  private _releaseChainMutex(): void {
+    // Release lock: 1 → 0
+    Atomics.store(this.sab, HDR.CHAIN_MUTEX, CONCURRENCY.MUTEX_UNLOCKED)
   }
 
   // ===========================================================================
@@ -231,10 +309,16 @@ export class SiliconLinker implements ISiliconLinker {
   /**
    * Insert a new node at the head of the chain.
    *
+   * Uses Chain Mutex (v1.5) to protect structural mutations from concurrent workers.
+   * Implements CAS loop for HEAD_PTR updates as specified in the decree.
+   *
    * @param data - New node data
    * @returns Pointer to new node
+   * @throws HeapExhaustedError if no free nodes
+   * @throws SafeZoneViolationError if too close to playhead
+   * @throws KernelPanicError if mutex deadlock detected
    */
-  insertHead(data: NodeData): NodePtr {
+  async insertHead(data: NodeData): Promise<NodePtr> {
     // Check safe zone against new node's tick
     this.checkSafeZone(data.baseTick)
 
@@ -248,66 +332,108 @@ export class SiliconLinker implements ISiliconLinker {
     // Write attributes
     this.writeNodeData(newOffset, data)
 
-    // Link to current head
-    const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
-    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
-    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+    // **v1.5 CHAIN MUTEX**: Protect structural mutation
+    await this._acquireChainMutex()
+    try {
+      // **v1.5 CAS LOOP**: Atomic HEAD_PTR update
+      let currentHead: NodePtr
+      do {
+        currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
 
-    // Update old head's PREV_PTR to point to new head
-    if (currentHead !== NULL_PTR) {
-      const currentHeadOffset = this.nodeOffset(currentHead)
-      Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+        // Link to current head
+        Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
+        Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+
+        // Update old head's PREV_PTR to point to new head
+        if (currentHead !== NULL_PTR) {
+          const currentHeadOffset = this.nodeOffset(currentHead)
+          Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+        }
+
+        // CAS: Try to become new head
+        // If HEAD_PTR changed since we read it, retry
+      } while (
+        Atomics.compareExchange(this.sab, HDR.HEAD_PTR, currentHead, newPtr) !== currentHead
+      )
+
+      // Increment NODE_COUNT
+      Atomics.add(this.sab, HDR.NODE_COUNT, 1)
+
+      // Signal structural change
+      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+      return newPtr
+    } finally {
+      // **CRITICAL**: Always release mutex, even if error occurs
+      this._releaseChainMutex()
     }
-
-    // Atomic: become new head
-    Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
-
-    // Signal structural change
-    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-    return newPtr
   }
 
   /**
    * Delete a node from the chain.
    *
+   * Uses Chain Mutex (v1.5) to protect structural mutations from concurrent workers.
+   * Implements CAS loop for HEAD_PTR updates when deleting the head node.
+   *
    * O(1) deletion using PREV_PTR (doubly-linked list).
    *
    * @param ptr - Node to delete
    * @throws SafeZoneViolationError if too close to playhead
+   * @throws KernelPanicError if mutex deadlock detected
    */
-  deleteNode(ptr: NodePtr): void {
+  async deleteNode(ptr: NodePtr): Promise<void> {
     if (ptr === NULL_PTR) return
 
     const offset = this.nodeOffset(ptr)
     const targetTick = this.sab[offset + NODE.BASE_TICK]
     this.checkSafeZone(targetTick)
 
-    // Read prev and next pointers
-    const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
-    const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+    // **v1.5 CHAIN MUTEX**: Protect structural mutation
+    await this._acquireChainMutex()
+    try {
+      // Read prev and next pointers
+      const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
+      const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
 
-    // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
-    if (prevPtr === NULL_PTR) {
-      // Deleting head - update HEAD_PTR
-      Atomics.store(this.sab, HDR.HEAD_PTR, nextPtr)
-    } else {
-      // Update previous node's NEXT_PTR to skip over deleted node
-      const prevOffset = this.nodeOffset(prevPtr)
-      Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, nextPtr)
+      // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
+      if (prevPtr === NULL_PTR) {
+        // **v1.5 CAS LOOP**: Deleting head - atomic HEAD_PTR update
+        let currentHead: NodePtr
+        do {
+          currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+          // Verify we're still deleting the head (it might have changed)
+          if (currentHead !== ptr) {
+            // Head changed - this node is no longer at head, abort
+            throw new Error('Node is no longer at head during deletion')
+          }
+          // CAS: Try to update HEAD_PTR to next node
+        } while (
+          Atomics.compareExchange(this.sab, HDR.HEAD_PTR, currentHead, nextPtr) !== currentHead
+        )
+      } else {
+        // Update previous node's NEXT_PTR to skip over deleted node
+        const prevOffset = this.nodeOffset(prevPtr)
+        Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, nextPtr)
+      }
+
+      // Update next's PREV_PTR (if next exists)
+      if (nextPtr !== NULL_PTR) {
+        const nextOffset = this.nodeOffset(nextPtr)
+        Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
+      }
+
+      // Decrement NODE_COUNT
+      Atomics.sub(this.sab, HDR.NODE_COUNT, 1)
+
+      // Free the node
+      this.freeNode(ptr)
+
+      // Signal structural change
+      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+    } finally {
+      // **CRITICAL**: Always release mutex, even if error occurs
+      this._releaseChainMutex()
     }
-
-    // Update next's PREV_PTR (if next exists)
-    if (nextPtr !== NULL_PTR) {
-      const nextOffset = this.nodeOffset(nextPtr)
-      Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
-    }
-
-    // Free the node
-    this.freeNode(ptr)
-
-    // Signal structural change
-    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
   }
 
   // ===========================================================================
@@ -351,14 +477,21 @@ export class SiliconLinker implements ISiliconLinker {
   // ===========================================================================
 
   /**
-   * Read node data at pointer.
+   * Read node data at pointer with versioned read protection.
+   *
+   * This method uses the versioned read loop (v1.5) implemented in AttributePatcher
+   * to prevent torn reads during concurrent attribute mutations.
+   *
+   * @param ptr - Node byte pointer
+   * @returns Promise resolving to node view
+   * @throws InvalidPointerError if pointer is NULL or invalid
    */
-  readNode(ptr: NodePtr): NodeView {
+  async readNode(ptr: NodePtr): Promise<NodeView> {
     if (ptr === NULL_PTR) {
       throw new InvalidPointerError(ptr)
     }
 
-    const attrs = this.patcher.readAttributes(ptr)
+    const attrs = await this.patcher.readAttributes(ptr)
 
     return {
       ptr,
@@ -382,13 +515,18 @@ export class SiliconLinker implements ISiliconLinker {
   }
 
   /**
-   * Iterate all nodes in chain order.
+   * Iterate all nodes in chain order with versioned read protection.
+   *
+   * This async generator uses the versioned read loop (v1.5) for each node
+   * to prevent torn reads during traversal.
+   *
+   * @yields Promise resolving to NodeView for each node in chain order
    */
-  *iterateChain(): Generator<NodeView, void, unknown> {
+  async *iterateChain(): AsyncGenerator<NodeView, void, unknown> {
     let ptr = this.getHead()
 
     while (ptr !== NULL_PTR) {
-      const node = this.readNode(ptr)
+      const node = await this.readNode(ptr)
       yield node
       ptr = node.nextPtr
     }
