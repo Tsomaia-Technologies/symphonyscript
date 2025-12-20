@@ -1045,13 +1045,13 @@ export class SiliconLinker implements ISiliconLinker {
   symTableStore(sourceId: number, fileHash: number, line: number, column: number): boolean {
     if (sourceId <= 0) return false
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     // Probe to find the slot where sourceId is stored in Identity Table
     for (let i = 0; i < capacity; i++) {
       const idOffset = this.idTableSlotOffset(slot)
-      const tid = this.sab[idOffset]
+      const tid = Atomics.load(this.sab, idOffset)
 
       if (tid === ID_TABLE.EMPTY_TID) {
         // Empty slot - sourceId not in Identity Table
@@ -1063,13 +1063,13 @@ export class SiliconLinker implements ISiliconLinker {
         const symOffset = this.symTableSlotOffset(slot)
         const lineCol = ((line & SYM_TABLE.MAX_LINE) << SYM_TABLE.LINE_SHIFT) |
                         (column & SYM_TABLE.COLUMN_MASK)
-        this.sab[symOffset] = fileHash | 0
-        this.sab[symOffset + 1] = lineCol
+        Atomics.store(this.sab, symOffset, fileHash | 0)
+        Atomics.store(this.sab, symOffset + 1, lineCol)
         return true
       }
 
-      // Linear probe to next slot
-      slot = (slot + 1) % capacity
+      // Linear probe to next slot (bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Not found after full scan
@@ -1090,13 +1090,13 @@ export class SiliconLinker implements ISiliconLinker {
   ): boolean {
     if (sourceId <= 0) return false
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     // Probe to find the slot where sourceId is stored in Identity Table
     for (let i = 0; i < capacity; i++) {
       const idOffset = this.idTableSlotOffset(slot)
-      const tid = this.sab[idOffset]
+      const tid = Atomics.load(this.sab, idOffset)
 
       if (tid === ID_TABLE.EMPTY_TID) {
         // Empty slot - sourceId not found
@@ -1106,8 +1106,8 @@ export class SiliconLinker implements ISiliconLinker {
       if (tid === sourceId) {
         // Found the slot - read from Symbol Table at same slot
         const symOffset = this.symTableSlotOffset(slot)
-        const fileHash = this.sab[symOffset]
-        const lineCol = this.sab[symOffset + 1]
+        const fileHash = Atomics.load(this.sab, symOffset)
+        const lineCol = Atomics.load(this.sab, symOffset + 1)
 
         // Check if location was stored (fileHash != 0)
         if (fileHash === SYM_TABLE.EMPTY_ENTRY) {
@@ -1121,8 +1121,8 @@ export class SiliconLinker implements ISiliconLinker {
         return true
       }
 
-      // Linear probe (continue past tombstones)
-      slot = (slot + 1) % capacity
+      // Linear probe (continue past tombstones, bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Not found after full scan
@@ -1139,13 +1139,13 @@ export class SiliconLinker implements ISiliconLinker {
   symTableRemove(sourceId: number): boolean {
     if (sourceId <= 0) return false
 
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
     // Probe to find the slot where sourceId is stored in Identity Table
     for (let i = 0; i < capacity; i++) {
       const idOffset = this.idTableSlotOffset(slot)
-      const tid = this.sab[idOffset]
+      const tid = Atomics.load(this.sab, idOffset)
 
       if (tid === ID_TABLE.EMPTY_TID) {
         // Empty slot - sourceId not found
@@ -1155,13 +1155,13 @@ export class SiliconLinker implements ISiliconLinker {
       if (tid === sourceId) {
         // Found the slot - clear Symbol Table entry at same slot
         const symOffset = this.symTableSlotOffset(slot)
-        this.sab[symOffset] = SYM_TABLE.EMPTY_ENTRY
-        this.sab[symOffset + 1] = 0
+        Atomics.store(this.sab, symOffset, SYM_TABLE.EMPTY_ENTRY)
+        Atomics.store(this.sab, symOffset + 1, 0)
         return true
       }
 
-      // Linear probe
-      slot = (slot + 1) % capacity
+      // Linear probe (bitwise for power-of-2 capacity)
+      slot = (slot + 1) & (capacity - 1)
     }
 
     // Not found
@@ -1174,13 +1174,13 @@ export class SiliconLinker implements ISiliconLinker {
    */
   symTableClear(): void {
     const tableOffset = getSymbolTableOffset(this.nodeCapacity)
-    const capacity = this.sab[HDR.ID_TABLE_CAPACITY]
+    const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     const tableOffsetI32 = tableOffset / 4
     const totalI32 = capacity * SYM_TABLE.ENTRY_SIZE_I32
 
-    // Zero out entire table
+    // Zero out entire table using Atomics
     for (let i = 0; i < totalI32; i++) {
-      this.sab[tableOffsetI32 + i] = 0
+      Atomics.store(this.sab, tableOffsetI32 + i, 0)
     }
   }
 }
