@@ -522,6 +522,9 @@ export class SiliconBridge {
 
     try {
       const node = this.linker.readNode(ptr)
+      // Handle contention - return undefined if node read failed
+      if (node === null) return undefined
+
       return {
         pitch: node.pitch,
         velocity: node.velocity,
