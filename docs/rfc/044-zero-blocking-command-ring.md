@@ -101,7 +101,7 @@ When the user writes `.note(60, 100, 1)`:
 
 
 
-### 4.2. The Read Path (Worker / `SiliconLinker`)
+### 4.2. The Read Path (Worker / `SiliconSynapse`)
 
 1. **The Hybrid Trigger:**
 * **Active (Immediate):** Worker wakes up via `Atomics.wait` on `HDR.YIELD_SLOT`.
@@ -153,7 +153,7 @@ This introduces **Eventual Consistency** to the data structure topology.
 
 1. Define Opcodes: `INSERT`, `DELETE`, `PATCH`, `CLEAR`.
 2. Implement `LiveClipBuilder` to use `LocalFreeList` + `RingBuffer` + `Atomics.notify`.
-3. Implement `SiliconLinker.processCommands()` method (The Hybrid Trigger).
+3. Implement `SiliconSynapse.processCommands()` method (The Hybrid Trigger).
 
 ### Phase 3: Cleanup
 

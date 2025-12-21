@@ -54,7 +54,7 @@ import {
  * - AudioWorklet consumer reads from SAB
  * - All shared state accessed via Atomics
  */
-export class SiliconLinker implements ISiliconLinker {
+export class SiliconSynapse implements ISiliconLinker {
   private sab: Int32Array
   private sab64: BigInt64Array
   private buffer: SharedArrayBuffer
@@ -90,11 +90,11 @@ export class SiliconLinker implements ISiliconLinker {
    * Create a Silicon Linker with a new SAB.
    *
    * @param config - Optional configuration
-   * @returns New SiliconLinker instance
+   * @returns New SiliconSynapse instance
    */
-  static create(config?: LinkerConfig): SiliconLinker {
+  static create(config?: LinkerConfig): SiliconSynapse {
     const buffer = createLinkerSAB(config)
-    return new SiliconLinker(buffer)
+    return new SiliconSynapse(buffer)
   }
 
   // ===========================================================================
@@ -766,7 +766,7 @@ export class SiliconLinker implements ISiliconLinker {
           // Safety bailout: prevent infinite loop on severe contention
           if (retries >= 1000) {
             throw new Error(
-              'SiliconLinker: Traversal read timeout - severe contention ' +
+              'SiliconSynapse: Traversal read timeout - severe contention ' +
                 `(node ptr=${ptr}, ${retries} retries exhausted)`
             )
           }
@@ -913,6 +913,7 @@ export class SiliconLinker implements ISiliconLinker {
    * - Clears Identity and Symbol tables
    * - Resets Ring Buffer headers
    * - Clears error flags
+   * - Wakes blocked Worker threads via Atomics.notify
    *
    * **Thread Safety:**
    * NOT thread-safe. Only call when no other threads are accessing the SAB.
@@ -928,6 +929,10 @@ export class SiliconLinker implements ISiliconLinker {
    */
   reset(): void {
     resetLinkerSAB(this.buffer)
+
+    // Wake any Worker threads blocked on Atomics.wait(YIELD_SLOT)
+    // This ensures Workers immediately see the reset state (HEAD_PTR = NULL, etc.)
+    Atomics.notify(this.sab, HDR.YIELD_SLOT, 1)
   }
 
   /**

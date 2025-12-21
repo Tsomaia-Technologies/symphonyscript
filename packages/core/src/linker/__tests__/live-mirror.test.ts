@@ -7,7 +7,7 @@ import { LiveClipBuilder } from '../LiveClipBuilder'
 import { LiveSession, executeUserScript } from '../LiveSession'
 import { Clip } from '../Clip'
 import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
-import { SiliconLinker } from '../silicon-linker'
+import { SiliconSynapse } from '../silicon-synapse'
 import { MockConsumer } from '../mock-consumer'
 
 // =============================================================================
@@ -24,7 +24,7 @@ afterAll(() => {
 // =============================================================================
 
 function createTestBridge(): SiliconBridge {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0 // Disable safe zone for testing
   })
@@ -35,7 +35,7 @@ function createTestBridge(): SiliconBridge {
 }
 
 function createTestEnvironment() {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0
   })
@@ -639,7 +639,7 @@ describe('LiveClipBuilder - Performance', () => {
 
   test('SAB operations are fast (without SOURCE_ID generation)', () => {
     // Create bridge with larger capacity for benchmark
-    const linker = SiliconLinker.create({
+    const linker = SiliconSynapse.create({
       nodeCapacity: 2048,
       safeZoneTicks: 0
     })

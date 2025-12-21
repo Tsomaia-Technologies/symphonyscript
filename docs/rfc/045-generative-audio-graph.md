@@ -62,7 +62,7 @@ We append the **Synapse Region** to the SAB Memory Map.
 
 ### 3.1. The Synapse Lookup
 
-The `SiliconLinker` does not scan the table. Instead, we use a **Synapse Hash Map** (similar to the Identity Table) or directly embed a `SYNAPSE_HEAD_PTR` in the Node struct (if we have space in `RESERVED` fields).
+The `SiliconSynapse` does not scan the table. Instead, we use a **Synapse Hash Map** (similar to the Identity Table) or directly embed a `SYNAPSE_HEAD_PTR` in the Node struct (if we have space in `RESERVED` fields).
 
 *Decision:* To save Node space, we will use a **Linear Probe Hash Table** in the Synapse Region, keyed by `SOURCE_PTR`.
 
@@ -70,7 +70,7 @@ The `SiliconLinker` does not scan the table. Instead, we use a **Synapse Hash Ma
 
 ## 4. Execution Model: The Signal Propagation
 
-The Kernel (`SiliconLinker`) shifts from a "Playhead Follower" to a "Signal Processor."
+The Kernel (`SiliconSynapse`) shifts from a "Playhead Follower" to a "Signal Processor."
 
 **The Cycle:**
 
@@ -133,5 +133,5 @@ bridge.connect(bass, [
 
 ### Phase 3: The Linker Logic
 
-1. Update `SiliconLinker.advance()` to perform Synapse Lookups on node completion.
+1. Update `SiliconSynapse.advance()` to perform Synapse Lookups on node completion.
 2. Implement `cursorPool` (Fixed-size array of active playheads) to handle polyphony.

@@ -3,7 +3,7 @@
 // =============================================================================
 // Verifies <0.001ms target for attribute patches and measures structural ops.
 
-import { SiliconLinker } from '../silicon-linker'
+import { SiliconSynapse } from '../silicon-synapse'
 import { OPCODE } from '../constants'
 
 // Benchmark configuration
@@ -51,11 +51,11 @@ function measureLatency(operation: () => void, iterations: number): {
 }
 
 describe('RFC-043 Latency Benchmarks', () => {
-  let linker: SiliconLinker
+  let linker: SiliconSynapse
   let nodePtr: number
 
   beforeEach(() => {
-    linker = SiliconLinker.create({ nodeCapacity: 1000, safeZoneTicks: 0 })
+    linker = SiliconSynapse.create({ nodeCapacity: 1000, safeZoneTicks: 0 })
 
     // Pre-allocate a node for patching tests
     nodePtr = linker.insertHead({
@@ -151,7 +151,7 @@ describe('RFC-043 Latency Benchmarks', () => {
   describe('2. Structural Operation Latency', () => {
     it('insertHead latency should be under 1ms', () => {
       // Need fresh linker for each insertion
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
 
       const result = measureLatency(() => {
         freshLinker.insertHead({
@@ -176,7 +176,7 @@ describe('RFC-043 Latency Benchmarks', () => {
 
     it('deleteNode latency should be under 1ms (O(1))', () => {
       // Pre-allocate nodes to delete
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
       const ptrs: number[] = []
 
       for (let i = 0; i < BENCHMARK_ITERATIONS; i++) {
@@ -213,7 +213,7 @@ describe('RFC-043 Latency Benchmarks', () => {
 
   describe('3. Memory Allocation Latency', () => {
     it('allocNode should be fast (CAS operation)', () => {
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
 
       const result = measureLatency(() => {
         freshLinker.allocNode()
@@ -229,7 +229,7 @@ describe('RFC-043 Latency Benchmarks', () => {
     })
 
     it('freeNode should be fast (CAS operation)', () => {
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
       const ptrs: number[] = []
 
       // Pre-allocate
@@ -257,7 +257,7 @@ describe('RFC-043 Latency Benchmarks', () => {
 
   describe('4. Batch Operation Latency', () => {
     it('should handle 5000 note insertions in under 500ms', () => {
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 6000, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 6000, safeZoneTicks: 0 })
 
       const start = performance.now()
 
@@ -281,7 +281,7 @@ describe('RFC-043 Latency Benchmarks', () => {
     })
 
     it('should handle 5000 attribute patches in under 5ms', () => {
-      const freshLinker = SiliconLinker.create({ nodeCapacity: 100, safeZoneTicks: 0 })
+      const freshLinker = SiliconSynapse.create({ nodeCapacity: 100, safeZoneTicks: 0 })
 
       const ptr = freshLinker.insertHead({
         opcode: OPCODE.NOTE,

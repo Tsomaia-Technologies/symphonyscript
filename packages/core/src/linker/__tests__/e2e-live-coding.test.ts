@@ -1,11 +1,11 @@
 // =============================================================================
 // SymphonyScript - End-to-End Live Coding Tests (RFC-043 Phase 4)
 // =============================================================================
-// Tests the complete flow: Editor → SiliconBridge → SiliconLinker → Consumer
+// Tests the complete flow: Editor → SiliconBridge → SiliconSynapse → Consumer
 
 import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
 import type { EditorNoteData, SourceLocation } from '../silicon-bridge'
-import { SiliconLinker } from '../silicon-linker'
+import { SiliconSynapse } from '../silicon-synapse'
 import { MockConsumer } from '../mock-consumer'
 import type { ConsumerNoteEvent } from '../mock-consumer'
 
@@ -72,7 +72,7 @@ function createTestNote(overrides: Partial<EditorNoteData> = {}): EditorNoteData
 }
 
 function createLiveEnvironment() {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0 // Disable for testing
   })

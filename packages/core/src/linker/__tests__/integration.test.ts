@@ -1,10 +1,10 @@
 // =============================================================================
 // SymphonyScript - Silicon Linker Integration Tests (RFC-043 Phase 2)
 // =============================================================================
-// Tests the interaction between SiliconLinker and MockConsumer.
+// Tests the interaction between SiliconSynapse and MockConsumer.
 
 import {
-  SiliconLinker,
+  SiliconSynapse,
   createLinkerSAB,
   OPCODE,
   HDR,
@@ -31,7 +31,7 @@ function createTestPair(options?: {
     nodeCapacity: options?.nodeCapacity ?? 256,
     safeZoneTicks: options?.safeZoneTicks ?? 0
   })
-  const linker = new SiliconLinker(buffer)
+  const linker = new SiliconSynapse(buffer)
   const consumer = new MockConsumer(buffer, options?.tickRate ?? 24)
   return { linker, consumer, buffer }
 }
@@ -53,7 +53,7 @@ function note(pitch: number, baseTick: number, duration = 96) {
 /**
  * Helper to collect all nodes from traverse into an array for test assertions.
  */
-function collectNodes(linker: SiliconLinker): Array<{
+function collectNodes(linker: SiliconSynapse): Array<{
   ptr: number
   opcode: number
   pitch: number

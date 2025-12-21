@@ -39,7 +39,7 @@ declare function registerProcessor(
 // Sync Strategy:
 // 1. Any changes to constants.ts must be manually reflected here
 // 2. Run `npm test -- silicon-processor` to verify sync via shared tests
-// 3. The integration tests use the same SiliconLinker + MockConsumer,
+// 3. The integration tests use the same SiliconSynapse + MockConsumer,
 //    ensuring the constants produce identical behavior
 //
 // Future: Consider a build-time code generation step to auto-sync constants.

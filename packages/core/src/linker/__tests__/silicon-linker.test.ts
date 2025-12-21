@@ -3,7 +3,7 @@
 // =============================================================================
 
 import {
-  SiliconLinker,
+  SiliconSynapse,
   createLinkerSAB,
   validateLinkerSAB,
   getLinkerConfig,
@@ -32,8 +32,8 @@ import {
 /**
  * Create a test linker with small capacity for faster tests.
  */
-function createTestLinker(nodeCapacity = 64): SiliconLinker {
-  return SiliconLinker.create({ nodeCapacity, safeZoneTicks: 0 })
+function createTestLinker(nodeCapacity = 64): SiliconSynapse {
+  return SiliconSynapse.create({ nodeCapacity, safeZoneTicks: 0 })
 }
 
 /**
@@ -58,7 +58,7 @@ function noteData(
 /**
  * Helper to read a node using callback pattern.
  */
-function readNodeData(linker: SiliconLinker, ptr: number): {
+function readNodeData(linker: SiliconSynapse, ptr: number): {
   opcode: number
   pitch: number
   velocity: number
@@ -79,7 +79,7 @@ function readNodeData(linker: SiliconLinker, ptr: number): {
 /**
  * Helper to collect all nodes from traverse into an array for test assertions.
  */
-function collectNodes(linker: SiliconLinker): Array<{
+function collectNodes(linker: SiliconSynapse): Array<{
   ptr: number
   opcode: number
   pitch: number
@@ -458,7 +458,7 @@ describe('RFC-043: Silicon Linker', () => {
         nodeCapacity: 64,
         safeZoneTicks: 960 // 2 beats
       })
-      const linker = new SiliconLinker(buffer)
+      const linker = new SiliconSynapse(buffer)
 
       const sab = new Int32Array(buffer)
 
@@ -482,7 +482,7 @@ describe('RFC-043: Silicon Linker', () => {
         nodeCapacity: 64,
         safeZoneTicks: 960
       })
-      const linker = new SiliconLinker(buffer)
+      const linker = new SiliconSynapse(buffer)
 
       // Set playhead at tick 0
       const sab = new Int32Array(buffer)

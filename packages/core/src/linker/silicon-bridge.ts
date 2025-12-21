@@ -4,7 +4,7 @@
 // Editor integration layer that wires ClipBuilder to Silicon Linker.
 // Provides SOURCE_ID ↔ NodePtr bidirectional mapping and 10ms debounce.
 
-import { SiliconLinker } from './silicon-linker'
+import { SiliconSynapse } from './silicon-synapse'
 import { OPCODE, NULL_PTR, HDR, CMD, FLAG, NODE, PACKED } from './constants'
 import type { NodePtr } from './types'
 import { LocalAllocator } from './local-allocator'
@@ -94,7 +94,7 @@ export interface SiliconBridgeOptions {
  * - Maintains the mapping as nodes are added/removed
  */
 export class SiliconBridge {
-  private linker: SiliconLinker
+  private linker: SiliconSynapse
 
   // RFC-044: Zero-Blocking Command Ring Infrastructure
   private localAllocator: LocalAllocator
@@ -144,7 +144,7 @@ export class SiliconBridge {
   // TraverseSourceIds callback state (for zero-alloc traverseSourceIds)
   private traverseSourceIdsCallback: ((sourceId: number) => void) | null = null
 
-  constructor(linker: SiliconLinker, options: SiliconBridgeOptions = {}) {
+  constructor(linker: SiliconSynapse, options: SiliconBridgeOptions = {}) {
     this.linker = linker
     this.attributeDebounceMs = options.attributeDebounceMs ?? 10
     this.structuralDebounceMs = options.structuralDebounceMs ?? 10
@@ -1094,7 +1094,7 @@ export class SiliconBridge {
   /**
    * Get the underlying Silicon Linker.
    */
-  getLinker(): SiliconLinker {
+  getLinker(): SiliconSynapse {
     return this.linker
   }
 }
@@ -1105,7 +1105,7 @@ export class SiliconBridge {
 export function createSiliconBridge(
   options?: SiliconBridgeOptions & { nodeCapacity?: number; safeZoneTicks?: number }
 ): SiliconBridge {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: options?.nodeCapacity ?? 4096,
     safeZoneTicks: options?.safeZoneTicks
   })

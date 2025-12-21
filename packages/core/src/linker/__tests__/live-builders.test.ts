@@ -15,7 +15,7 @@ import { LiveDrumHitCursor } from '../cursors/LiveDrumHitCursor'
 import { LiveSession } from '../LiveSession'
 import { Clip } from '../Clip'
 import { SiliconBridge } from '../silicon-bridge'
-import { SiliconLinker } from '../silicon-linker'
+import { SiliconSynapse } from '../silicon-synapse'
 import { MockConsumer } from '../mock-consumer'
 
 // =============================================================================
@@ -32,7 +32,7 @@ afterAll(() => {
 // =============================================================================
 
 function createTestBridge(): SiliconBridge {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0
   })
@@ -43,7 +43,7 @@ function createTestBridge(): SiliconBridge {
 }
 
 function createTestEnvironment() {
-  const linker = SiliconLinker.create({
+  const linker = SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0
   })

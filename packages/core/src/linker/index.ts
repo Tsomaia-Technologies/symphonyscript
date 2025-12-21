@@ -4,7 +4,7 @@
 // Direct-to-Silicon Mirroring for zero-latency live coding.
 
 // Main class
-export { SiliconLinker } from './silicon-linker'
+export { SiliconSynapse } from './silicon-synapse'
 
 // Constants
 export {

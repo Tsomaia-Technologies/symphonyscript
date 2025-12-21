@@ -4,14 +4,14 @@
 
 import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
 import type { EditorNoteData, PatchType, SourceLocation } from '../silicon-bridge'
-import { SiliconLinker } from '../silicon-linker'
+import { SiliconSynapse } from '../silicon-synapse'
 
 // =============================================================================
 // Test Helpers
 // =============================================================================
 
-function createTestLinker(): SiliconLinker {
-  return SiliconLinker.create({
+function createTestLinker(): SiliconSynapse {
+  return SiliconSynapse.create({
     nodeCapacity: 256,
     safeZoneTicks: 0 // Disable safe zone for testing
   })
@@ -654,7 +654,7 @@ describe('SiliconBridge - Factory Function', () => {
     const bridge = createSiliconBridge()
 
     expect(bridge).toBeInstanceOf(SiliconBridge)
-    expect(bridge.getLinker()).toBeInstanceOf(SiliconLinker)
+    expect(bridge.getLinker()).toBeInstanceOf(SiliconSynapse)
   })
 
   test('createSiliconBridge accepts node capacity option', () => {
