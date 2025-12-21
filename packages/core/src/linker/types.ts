@@ -170,7 +170,7 @@ export interface ISiliconLinker {
   // --- Symbol Table (sourceId ↔ SourceLocation mapping) ---
 
   /** Lookup source location by sourceId with callback pattern. Returns true if found. */
-  symTableLookup(sourceId: number, cb: (line: number, column: number) => void): boolean
+  symTableLookup(sourceId: number, cb: (fileHash: number, line: number, column: number) => void): boolean
 
   /** Store source location for sourceId. Returns true if stored, false if table full. */
   symTableStore(sourceId: number, fileHash: number, line: number, column: number): boolean
