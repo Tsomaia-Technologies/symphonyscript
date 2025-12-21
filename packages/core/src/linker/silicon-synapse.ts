@@ -62,6 +62,9 @@ export class SiliconSynapse implements ISiliconLinker {
   // RFC-044: Command processing state
   private commandBuffer: Int32Array // Pre-allocated buffer for reading commands
 
+  // RFC-045-04: Context-aware mutex behavior
+  private isAudioContext: boolean = false
+
   /**
    * Create a new Silicon Linker.
    *
@@ -90,6 +93,38 @@ export class SiliconSynapse implements ISiliconLinker {
   static create(config?: LinkerConfig): SiliconSynapse {
     const buffer = createLinkerSAB(config)
     return new SiliconSynapse(buffer)
+  }
+
+  // ===========================================================================
+  // RFC-045-04: Context-Aware Execution
+  // ===========================================================================
+
+  /**
+   * Set execution context for mutex behavior (RFC-045-04).
+   *
+   * **CRITICAL:** Call `setAudioContext(true)` from AudioWorklet.process() entry
+   * to enable audio-safe try-lock behavior. Call `setAudioContext(false)` on exit.
+   *
+   * **Audio Context Behavior:**
+   * - Maximum 3 CAS attempts (~300ns)
+   * - Immediate return false on contention (no blocking)
+   * - No kernel panic (contention is acceptable, retry next block)
+   *
+   * **Main Thread Behavior:**
+   * - Full spin-wait with yield (up to 200 iterations with 1ms yields)
+   * - Kernel panic on exhaustion (deadlock detected)
+   *
+   * @param isAudio - true if called from AudioWorklet context
+   */
+  setAudioContext(isAudio: boolean): void {
+    this.isAudioContext = isAudio
+  }
+
+  /**
+   * Get current execution context.
+   */
+  getAudioContext(): boolean {
+    return this.isAudioContext
   }
 
   // ===========================================================================
@@ -144,46 +179,61 @@ export class SiliconSynapse implements ISiliconLinker {
   }
 
   /**
-   * Acquire the Chain Mutex for structural operations.
+   * Context-aware mutex acquisition (RFC-045-04 ISSUE-001).
    *
-   * This implements a spin-lock with:
-   * - CAS-based locking (0 → 1 transition)
-   * - Zero-alloc CPU yield after 100 spins to prevent starvation
-   * - Dead-Man's Switch: Returns false after 1M iterations (sets ERROR_FLAG)
+   * **Audio Context** (isAudioContext = true):
+   * - Maximum AUDIO_SAFE_MAX_SPINS (3) CAS attempts (~300ns total)
+   * - Immediate return false on contention (no blocking)
+   * - No kernel panic (contention is acceptable, retry next audio block)
    *
-   * RFC-045-04: Returns boolean instead of throwing.
+   * **Main Thread Context** (isAudioContext = false):
+   * - Full spin-wait with yield (up to MUTEX_PANIC_THRESHOLD × YIELD_AFTER_SPINS)
+   * - Kernel panic on exhaustion (deadlock detected, sets ERROR_FLAG)
    *
-   * @returns true if acquired, false if deadlock detected (ERROR_FLAG set)
+   * @returns true if acquired, false if contention (audio) or deadlock (main)
    */
   private _acquireChainMutex(): boolean {
-    let spinCount = 0
-    let totalIterations = 0
+    // Determine max spins based on execution context
+    const maxSpins = this.isAudioContext
+      ? CONCURRENCY.AUDIO_SAFE_MAX_SPINS
+      : CONCURRENCY.MUTEX_PANIC_THRESHOLD * (CONCURRENCY.YIELD_AFTER_SPINS + 1)
 
-    // Spin until we successfully CAS 0 → 1
-    while (
-      Atomics.compareExchange(
+    let spins = 0
+    let yieldCounter = 0
+
+    while (spins < maxSpins) {
+      // Attempt CAS: 0 → 1
+      const prev = Atomics.compareExchange(
         this.sab,
         HDR.CHAIN_MUTEX,
-        CONCURRENCY.MUTEX_UNLOCKED, // expected: unlocked
-        CONCURRENCY.MUTEX_LOCKED // desired: locked
-      ) !== CONCURRENCY.MUTEX_UNLOCKED
-    ) {
-      // **v1.5 DEAD-MAN'S SWITCH**: Prevent permanent deadlock
-      totalIterations = totalIterations + 1
-      if (totalIterations > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
-        // Set ERROR_FLAG to indicate kernel panic
-        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
-        return false // RFC-045-04: Return error instead of throwing
+        CONCURRENCY.MUTEX_UNLOCKED,
+        CONCURRENCY.MUTEX_LOCKED
+      )
+
+      if (prev === CONCURRENCY.MUTEX_UNLOCKED) {
+        return true // Successfully acquired
       }
 
-      // **v1.5 ZERO-ALLOC YIELD**: Prevent CPU starvation without garbage
-      spinCount = spinCount + 1
-      if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
-        this._yieldToCPU()
-        spinCount = 0 // Reset yield counter (NOT totalIterations!)
+      spins = spins + 1
+
+      // Only yield in non-audio context (blocking is forbidden in audio thread)
+      if (!this.isAudioContext) {
+        yieldCounter = yieldCounter + 1
+        if (yieldCounter > CONCURRENCY.YIELD_AFTER_SPINS) {
+          this._yieldToCPU()
+          yieldCounter = 0
+        }
       }
     }
-    return true
+
+    // Contention handling:
+    // - Audio context: Return false (acceptable, retry next block)
+    // - Main context: Kernel panic (deadlock detected)
+    if (!this.isAudioContext) {
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
+    }
+
+    return false
   }
 
   /**
@@ -1553,7 +1603,11 @@ export class SiliconSynapse implements ISiliconLinker {
    * @returns Number of commands processed
    */
   poll(): number {
-    return this.processCommands()
+    // RFC-045-04 ISSUE-001: Set audio context for safe mutex behavior
+    this.isAudioContext = true
+    const result = this.processCommands()
+    this.isAudioContext = false
+    return result
   }
 
   // ===========================================================================

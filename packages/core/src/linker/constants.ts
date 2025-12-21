@@ -498,7 +498,9 @@ export const CONCURRENCY = {
   /** CPU yield threshold: yield after this many spins */
   YIELD_AFTER_SPINS: 100,
   /** Dead-Man's Switch: panic after this many mutex acquisition attempts (~200ms with 1ms yields) */
-  MUTEX_PANIC_THRESHOLD: 200
+  MUTEX_PANIC_THRESHOLD: 200,
+  /** [RFC-045-04] Maximum spins for audio-safe try-lock (~300ns, sub-microsecond) */
+  AUDIO_SAFE_MAX_SPINS: 3
 } as const
 
 // =============================================================================
