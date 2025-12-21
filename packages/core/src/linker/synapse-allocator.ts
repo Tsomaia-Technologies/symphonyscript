@@ -12,7 +12,8 @@ import {
   SYNAPSE_ERR,
   KNUTH_HASH_CONST,
   REVERSE_INDEX,
-  getReverseIndexOffset
+  getReverseIndexOffset,
+  ERROR
 } from './constants'
 import type { SynapsePtr } from './types'
 
@@ -42,6 +43,18 @@ export class SynapseAllocator {
   /** Tracks number of used slots for load factor monitoring (RFC-045-02 directive) */
   private usedSlots: number = 0
 
+  /** Tracks number of tombstoned entries (ISSUE-021) */
+  private tombstoneCount: number = 0
+
+  /** Pre-allocated staging array for compaction - source pointers (ISSUE-021) */
+  private readonly stagingSourcePtrs: Int32Array
+
+  /** Pre-allocated staging array for compaction - target pointers (ISSUE-021) */
+  private readonly stagingTargetPtrs: Int32Array
+
+  /** Pre-allocated staging array for compaction - weight data (ISSUE-021) */
+  private readonly stagingWeightData: Int32Array
+
   constructor(buffer: SharedArrayBuffer) {
     this.sab = new Int32Array(buffer)
 
@@ -56,22 +69,47 @@ export class SynapseAllocator {
 
     // Capacity is fixed by RFC-045 at 65536
     this.capacity = SYNAPSE_TABLE.MAX_CAPACITY
+
+    // Pre-allocate staging arrays for compaction (ISSUE-021)
+    // Init-time allocation is acceptable per RFC-045-04
+    this.stagingSourcePtrs = new Int32Array(SYNAPSE_TABLE.MAX_CAPACITY)
+    this.stagingTargetPtrs = new Int32Array(SYNAPSE_TABLE.MAX_CAPACITY)
+    this.stagingWeightData = new Int32Array(SYNAPSE_TABLE.MAX_CAPACITY)
   }
 
   /**
    * Get the current load factor of the Synapse Table.
+   * Accounts for tombstoned entries to reflect actual usage.
    * @returns Load factor as a ratio (0.0 to 1.0)
    */
   getLoadFactor(): number {
-    return this.usedSlots / this.capacity
+    return (this.usedSlots - this.tombstoneCount) / this.capacity
   }
 
   /**
-   * Get the number of used slots in the Synapse Table.
+   * Get the number of used slots in the Synapse Table (including tombstones).
    * @returns Number of slots currently in use
    */
   getUsedSlots(): number {
     return this.usedSlots
+  }
+
+  /**
+   * Get the number of active (non-tombstoned) slots.
+   * @returns Number of live synapse entries
+   */
+  getActiveSlots(): number {
+    return this.usedSlots - this.tombstoneCount
+  }
+
+  /**
+   * Get the ratio of tombstoned entries to total used slots.
+   * High ratio (>0.5) indicates table should be compacted.
+   * @returns Tombstone ratio (0.0 to 1.0)
+   */
+  getTombstoneRatio(): number {
+    if (this.usedSlots === 0) return 0
+    return this.tombstoneCount / this.usedSlots
   }
 
   /**
@@ -82,6 +120,7 @@ export class SynapseAllocator {
    */
   clear(): void {
     this.usedSlots = 0
+    this.tombstoneCount = 0
   }
 
   /**
@@ -227,9 +266,11 @@ export class SynapseAllocator {
       // Check if this is the target (or if we are wiping all)
       const currentTarget = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
 
-      if (targetPtr === undefined || currentTarget === targetPtr) {
+      // Only tombstone if not already tombstoned (ISSUE-021)
+      if (currentTarget !== NULL_PTR && (targetPtr === undefined || currentTarget === targetPtr)) {
         // Tombstone it: Set TARGET to NULL
         Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
+        this.tombstoneCount = this.tombstoneCount + 1
 
         // If we are disconnecting a specific target, we can stop if we assume no duplicates.
         // But to be safe (and support 'all'), we continue if targetPtr is undefined.
@@ -243,6 +284,146 @@ export class SynapseAllocator {
       ops = ops + 1
       if (ops > 1000) break // Safety
     }
+  }
+
+  // ===========================================================================
+  // Compaction (ISSUE-021)
+  // ===========================================================================
+
+  /**
+   * Check if compaction is needed and perform if so.
+   * COLD PATH - Called after disconnect operations.
+   *
+   * @returns Number of entries compacted (0 if no compaction needed)
+   */
+  maybeCompact(): number {
+    // Skip if below minimum threshold
+    if (this.usedSlots < SYNAPSE_TABLE.COMPACTION_MIN_SLOTS) {
+      return 0
+    }
+
+    // Skip if tombstone ratio below threshold
+    if (this.getTombstoneRatio() < SYNAPSE_TABLE.COMPACTION_THRESHOLD) {
+      return 0
+    }
+
+    return this.compactTable()
+  }
+
+  /**
+   * Compact the synapse table by rehashing all live entries.
+   * COLD PATH - O(n) where n = table capacity.
+   *
+   * **Thread Safety:** Must NOT be called while audio thread is active.
+   * Caller must ensure exclusive access (e.g., during pause or clear).
+   *
+   * **Algorithm:**
+   * 1. Scan table for live entries (SOURCE_PTR != NULL && TARGET_PTR != NULL)
+   * 2. Collect live entries into staging arrays
+   * 3. Clear entire table
+   * 4. Clear reverse index buckets
+   * 5. Reinsert live entries with fresh hash positions
+   *
+   * @returns Number of entries compacted
+   */
+  compactTable(): number {
+    // Phase 1: Scan and collect live entries to staging
+    let liveCount = 0
+    let scanSlot = 0
+
+    while (scanSlot < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = this.tableOffsetI32 + scanSlot * SYNAPSE_TABLE.STRIDE_I32
+
+      const sourcePtr = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
+      const targetPtr = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
+
+      // Live entry: both pointers non-null
+      if (sourcePtr !== NULL_PTR && targetPtr !== NULL_PTR) {
+        const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
+
+        this.stagingSourcePtrs[liveCount] = sourcePtr
+        this.stagingTargetPtrs[liveCount] = targetPtr
+        this.stagingWeightData[liveCount] = weightData
+        liveCount = liveCount + 1
+      }
+
+      scanSlot = scanSlot + 1
+    }
+
+    // Phase 2: Clear entire table
+    let clearSlot = 0
+    while (clearSlot < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = this.tableOffsetI32 + clearSlot * SYNAPSE_TABLE.STRIDE_I32
+      Atomics.store(this.sab, offset + SYNAPSE.SOURCE_PTR, NULL_PTR)
+      Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
+      Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, 0)
+      Atomics.store(this.sab, offset + SYNAPSE.META_NEXT, 0)
+      Atomics.store(this.sab, offset + SYNAPSE.NEXT_SAME_TARGET, REVERSE_INDEX.EMPTY)
+      clearSlot = clearSlot + 1
+    }
+
+    // Phase 3: Clear reverse index buckets
+    let bucket = 0
+    while (bucket < REVERSE_INDEX.BUCKET_COUNT) {
+      Atomics.store(this.sab, this.reverseIndexI32 + bucket, REVERSE_INDEX.EMPTY)
+      bucket = bucket + 1
+    }
+
+    // Phase 4: Reinsert live entries with fresh hash positions
+    this.usedSlots = 0
+    this.tombstoneCount = 0
+
+    let reinsertIdx = 0
+    while (reinsertIdx < liveCount) {
+      this._insertDirect(
+        this.stagingSourcePtrs[reinsertIdx],
+        this.stagingTargetPtrs[reinsertIdx],
+        this.stagingWeightData[reinsertIdx]
+      )
+      reinsertIdx = reinsertIdx + 1
+    }
+
+    return liveCount
+  }
+
+  /**
+   * Direct insertion during compaction (bypasses validation).
+   * @internal
+   */
+  private _insertDirect(sourcePtr: number, targetPtr: number, weightData: number): void {
+    // Find empty slot using linear probing from hash position
+    const idealSlot = this.hash(sourcePtr)
+    let slot = idealSlot
+    let probes = 0
+
+    while (probes < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = this.tableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
+      const existing = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
+
+      if (existing === NULL_PTR) {
+        // Found empty slot - write entry
+        Atomics.store(this.sab, offset + SYNAPSE.SOURCE_PTR, sourcePtr)
+        Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, targetPtr)
+        Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, weightData)
+        Atomics.store(this.sab, offset + SYNAPSE.META_NEXT, 0)
+
+        // Update reverse index
+        const bucketIdx = ((targetPtr * KNUTH_HASH_CONST) >>> 0) & REVERSE_INDEX.BUCKET_MASK
+        const bucketOffset = this.reverseIndexI32 + bucketIdx
+        const currentHead = Atomics.load(this.sab, bucketOffset)
+        Atomics.store(this.sab, offset + SYNAPSE.NEXT_SAME_TARGET, currentHead)
+        Atomics.store(this.sab, bucketOffset, slot)
+
+        this.usedSlots = this.usedSlots + 1
+        return
+      }
+
+      slot = (slot + 1) % SYNAPSE_TABLE.MAX_CAPACITY
+      probes = probes + 1
+    }
+
+    // Should never happen during compaction (we cleared first)
+    Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
   }
 
   // ===========================================================================

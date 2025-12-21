@@ -622,6 +622,10 @@ export class SiliconBridge {
 
     // Unregister mapping
     this.unregisterMapping(sourceId)
+
+    // ISSUE-021: Check for compaction need (cold path)
+    this.synapseAllocator.maybeCompact()
+
     return BRIDGE_ERR.OK
   }
 
@@ -1360,6 +1364,23 @@ export class SiliconBridge {
     }
 
     return BRIDGE_ERR.OK
+  }
+
+  /**
+   * Compact the synapse table by rehashing all live entries.
+   * COLD PATH - O(n) where n = table capacity.
+   *
+   * **Thread Safety:** Must NOT be called while audio thread is active.
+   * Caller must ensure exclusive access (e.g., during pause or clear).
+   *
+   * Use this for explicit compaction control. Automatic compaction
+   * is triggered by maybeCompact() after delete operations when
+   * tombstone ratio exceeds threshold.
+   *
+   * @returns Number of entries compacted
+   */
+  compactSynapses(): number {
+    return this.synapseAllocator.compactTable()
   }
 
   /**

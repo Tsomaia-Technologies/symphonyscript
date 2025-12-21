@@ -582,7 +582,11 @@ export const SYNAPSE_TABLE = {
   /** Synapse stride in bytes (20 bytes for 5 × i32) */
   STRIDE_BYTES: 20,
   /** Synapse stride in i32 units (5 words) */
-  STRIDE_I32: 5
+  STRIDE_I32: 5,
+  /** Trigger compaction when tombstones exceed this ratio (ISSUE-021) */
+  COMPACTION_THRESHOLD: 0.5,
+  /** Minimum slots before compaction is worthwhile (ISSUE-021) */
+  COMPACTION_MIN_SLOTS: 100
 } as const
 
 /**
