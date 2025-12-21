@@ -110,13 +110,14 @@ export class RingBuffer {
     // Calculate write position in data region
     const writeIndex = this.dataStartI32 + tail * COMMAND.STRIDE_I32
 
-    // Write command (4 words, 16 bytes)
-    this.sab[writeIndex + 0] = opcode
-    this.sab[writeIndex + 1] = param1
-    this.sab[writeIndex + 2] = param2
-    this.sab[writeIndex + 3] = 0 // RESERVED
+    // Write command atomically (4 words, 16 bytes)
+    // RFC-045-04: Use Atomics.store for cross-platform memory ordering (ARM compatibility)
+    Atomics.store(this.sab, writeIndex + 0, opcode)
+    Atomics.store(this.sab, writeIndex + 1, param1)
+    Atomics.store(this.sab, writeIndex + 2, param2)
+    Atomics.store(this.sab, writeIndex + 3, 0) // RESERVED
 
-    // Advance tail atomically (release semantics)
+    // Advance tail atomically (release semantics - consumer sees all writes before this)
     Atomics.store(this.sab, HDR.RB_TAIL, nextTail)
 
     return RING_ERR.OK
@@ -144,13 +145,14 @@ export class RingBuffer {
     // Calculate read position in data region
     const readIndex = this.dataStartI32 + head * COMMAND.STRIDE_I32
 
-    // Read command (4 words, 16 bytes)
-    outCommand[0] = this.sab[readIndex + 0] // OPCODE
-    outCommand[1] = this.sab[readIndex + 1] // PARAM_1
-    outCommand[2] = this.sab[readIndex + 2] // PARAM_2
-    outCommand[3] = this.sab[readIndex + 3] // RESERVED
+    // Read command atomically (4 words, 16 bytes)
+    // RFC-045-04: Use Atomics.load for cross-platform memory ordering (ARM compatibility)
+    outCommand[0] = Atomics.load(this.sab, readIndex + 0) // OPCODE
+    outCommand[1] = Atomics.load(this.sab, readIndex + 1) // PARAM_1
+    outCommand[2] = Atomics.load(this.sab, readIndex + 2) // PARAM_2
+    outCommand[3] = Atomics.load(this.sab, readIndex + 3) // RESERVED
 
-    // Advance head atomically (acquire semantics)
+    // Advance head atomically (acquire semantics - producer can reuse slot after this)
     const nextHead = (head + 1) % this.capacity
     Atomics.store(this.sab, HDR.RB_HEAD, nextHead)
 
