@@ -1,0 +1,32 @@
+{
+    "name": "@symphonyscript/composer",
+    "version": "0.1.0",
+    "description": "SymphonyScript Composer - Fluent DSL for musical composition",
+    "license": "MIT",
+    "author": "Tsomaia Technologies",
+    "main": "./dist/index.js",
+    "module": "./dist/index.mjs",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsup src/index.ts --format esm,cjs --dts",
+        "test": "jest --config jest.config.js"
+    },
+    "dependencies": {
+        "@symphonyscript/builder": "file:../builder",
+        "@symphonyscript/core": "file:../core"
+    },
+    "devDependencies": {
+        "tsup": "^8.5.1"
+    }
+}
