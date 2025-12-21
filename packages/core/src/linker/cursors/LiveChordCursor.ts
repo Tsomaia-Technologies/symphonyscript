@@ -101,7 +101,7 @@ export class LiveChordCursor<B extends {
         const newMidi = noteData.pitch + (octaveShift * 12)
         if (newMidi >= 0 && newMidi <= 127) {
           noteData.pitch = newMidi
-          this.bridge.patchImmediate(noteData.sourceId, 'pitch', newMidi)
+          this.bridge.patchDirect(noteData.sourceId, 'pitch', newMidi)
         }
         oi = oi + 1
       }
@@ -117,7 +117,7 @@ export class LiveChordCursor<B extends {
       const newMidi = lowest.pitch + 12
       if (newMidi <= 127) {
         lowest.pitch = newMidi
-        this.bridge.patchImmediate(lowest.sourceId, 'pitch', newMidi)
+        this.bridge.patchDirect(lowest.sourceId, 'pitch', newMidi)
       }
       ri = ri + 1
     }
@@ -140,7 +140,7 @@ export class LiveChordCursor<B extends {
     while (vi < this.noteDataList.length) {
       const noteData = this.noteDataList[vi]
       noteData.velocity = clamped
-      this.bridge.patchImmediate(noteData.sourceId, 'velocity', clamped)
+      this.bridge.patchDirect(noteData.sourceId, 'velocity', clamped)
       vi = vi + 1
     }
     this.chordData.velocity = clamped
@@ -157,7 +157,7 @@ export class LiveChordCursor<B extends {
       const noteData = this.noteDataList[si]
       const newDuration = Math.round(noteData.duration * 0.5)
       noteData.duration = newDuration
-      this.bridge.patchImmediate(noteData.sourceId, 'duration', newDuration)
+      this.bridge.patchDirect(noteData.sourceId, 'duration', newDuration)
       si = si + 1
     }
     this.chordData.duration = Math.round(this.chordData.duration * 0.5)
@@ -173,7 +173,7 @@ export class LiveChordCursor<B extends {
       const noteData = this.noteDataList[li]
       const newDuration = Math.round(noteData.duration * 1.05)
       noteData.duration = newDuration
-      this.bridge.patchImmediate(noteData.sourceId, 'duration', newDuration)
+      this.bridge.patchDirect(noteData.sourceId, 'duration', newDuration)
       li = li + 1
     }
     this.chordData.duration = Math.round(this.chordData.duration * 1.05)
@@ -189,7 +189,7 @@ export class LiveChordCursor<B extends {
       const noteData = this.noteDataList[ai]
       const boosted = Math.min(127, Math.round(noteData.velocity * 1.2))
       noteData.velocity = boosted
-      this.bridge.patchImmediate(noteData.sourceId, 'velocity', boosted)
+      this.bridge.patchDirect(noteData.sourceId, 'velocity', boosted)
       ai = ai + 1
     }
     return this
@@ -211,7 +211,7 @@ export class LiveChordCursor<B extends {
       const noteData = this.noteDataList[mi]
       const boosted = Math.min(127, Math.round(noteData.velocity * 1.3))
       noteData.velocity = boosted
-      this.bridge.patchImmediate(noteData.sourceId, 'velocity', boosted)
+      this.bridge.patchDirect(noteData.sourceId, 'velocity', boosted)
       mi = mi + 1
     }
     return this

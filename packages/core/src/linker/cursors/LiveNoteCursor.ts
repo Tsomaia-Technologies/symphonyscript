@@ -55,7 +55,7 @@ export interface LiveBuilderBase {
  *
  * Unlike AST cursors that build a data structure, Live cursors:
  * - Hold a reference to a note already inserted in SAB
- * - Apply modifiers immediately via patchImmediate()
+ * - Apply modifiers immediately via patchDirect()
  * - Return the cursor for chaining
  * - commit() returns the builder for fluent API continuation
  */
@@ -84,7 +84,7 @@ export class LiveNoteCursor<B extends LiveBuilderBase> {
     const clamped = Math.max(0, Math.min(127, normalizedVelocity))
 
     this.noteData.velocity = clamped
-    this.bridge.patchImmediate(this.noteData.sourceId, 'velocity', clamped)
+    this.bridge.patchDirect(this.noteData.sourceId, 'velocity', clamped)
 
     return this
   }
@@ -96,7 +96,7 @@ export class LiveNoteCursor<B extends LiveBuilderBase> {
     this.noteData.articulation = 'staccato'
     const newDuration = Math.round(this.noteData.duration * 0.5)
     this.noteData.duration = newDuration
-    this.bridge.patchImmediate(this.noteData.sourceId, 'duration', newDuration)
+    this.bridge.patchDirect(this.noteData.sourceId, 'duration', newDuration)
     return this
   }
 
@@ -107,7 +107,7 @@ export class LiveNoteCursor<B extends LiveBuilderBase> {
     this.noteData.articulation = 'legato'
     const newDuration = Math.round(this.noteData.duration * 1.05)
     this.noteData.duration = newDuration
-    this.bridge.patchImmediate(this.noteData.sourceId, 'duration', newDuration)
+    this.bridge.patchDirect(this.noteData.sourceId, 'duration', newDuration)
     return this
   }
 
@@ -118,7 +118,7 @@ export class LiveNoteCursor<B extends LiveBuilderBase> {
     this.noteData.articulation = 'accent'
     const boosted = Math.min(127, Math.round(this.noteData.velocity * 1.2))
     this.noteData.velocity = boosted
-    this.bridge.patchImmediate(this.noteData.sourceId, 'velocity', boosted)
+    this.bridge.patchDirect(this.noteData.sourceId, 'velocity', boosted)
     return this
   }
 
@@ -138,7 +138,7 @@ export class LiveNoteCursor<B extends LiveBuilderBase> {
     this.noteData.articulation = 'marcato'
     const boosted = Math.min(127, Math.round(this.noteData.velocity * 1.3))
     this.noteData.velocity = boosted
-    this.bridge.patchImmediate(this.noteData.sourceId, 'velocity', boosted)
+    this.bridge.patchDirect(this.noteData.sourceId, 'velocity', boosted)
     return this
   }
 

@@ -206,7 +206,7 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     expect(sourceIds.length).toBe(1)
 
     // Patch the existing note
-    bridge.patchImmediate(sourceIds[0], 'pitch', 72)
+    bridge.patchDirect(sourceIds[0], 'pitch', 72)
 
     // Should still have only 1 node
     expect(bridge.getMappingCount()).toBe(1)
@@ -248,9 +248,9 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     expect(note?.velocity).toBe(100)
 
     // Patch attributes
-    bridge.patchImmediate(sourceId, 'pitch', 72)
-    bridge.patchImmediate(sourceId, 'velocity', 64)
-    bridge.patchImmediate(sourceId, 'duration', 240)
+    bridge.patchDirect(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'velocity', 64)
+    bridge.patchDirect(sourceId, 'duration', 240)
 
     // Verify patched state
     note = readNoteData(bridge, sourceId)
@@ -675,7 +675,7 @@ describe('LiveClipBuilder - Performance', () => {
         duration: 480,
         baseTick: i * 480
       })
-      bridge.patchImmediate(id, 'velocity', 80)
+      bridge.patchDirect(id, 'velocity', 80)
     }
 
     const end = performance.now()

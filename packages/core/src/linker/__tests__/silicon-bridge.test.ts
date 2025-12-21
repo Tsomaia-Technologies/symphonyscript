@@ -271,60 +271,60 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 
-  test('patchImmediate updates pitch', () => {
+  test('patchDirect updates pitch', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
-    bridge.patchImmediate(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'pitch', 72)
 
     expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
   })
 
-  test('patchImmediate updates velocity', () => {
+  test('patchDirect updates velocity', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ velocity: 100 }))
-    bridge.patchImmediate(sourceId, 'velocity', 64)
+    bridge.patchDirect(sourceId, 'velocity', 64)
 
     expect(readNoteData(bridge, sourceId)!.velocity).toBe(64)
   })
 
-  test('patchImmediate updates duration', () => {
+  test('patchDirect updates duration', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ duration: 480 }))
-    bridge.patchImmediate(sourceId, 'duration', 240)
+    bridge.patchDirect(sourceId, 'duration', 240)
 
     expect(readNoteData(bridge, sourceId)!.duration).toBe(240)
   })
 
-  test('patchImmediate updates baseTick', () => {
+  test('patchDirect updates baseTick', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
-    bridge.patchImmediate(sourceId, 'baseTick', 960)
+    bridge.patchDirect(sourceId, 'baseTick', 960)
 
     expect(readNoteData(bridge, sourceId)!.baseTick).toBe(960)
   })
 
-  test('patchImmediate updates muted state', () => {
+  test('patchDirect updates muted state', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ muted: false }))
     expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
 
-    bridge.patchImmediate(sourceId, 'muted', true)
+    bridge.patchDirect(sourceId, 'muted', true)
     expect(readNoteData(bridge, sourceId)!.muted).toBe(true)
 
-    bridge.patchImmediate(sourceId, 'muted', false)
+    bridge.patchDirect(sourceId, 'muted', false)
     expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
   })
 
-  test('patchImmediate with invalid sourceId returns error', () => {
+  test('patchDirect with invalid sourceId returns error', () => {
     const bridge = createTestBridge()
 
-    // RFC-045-05: patchImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
-    const result = bridge.patchImmediate(99999, 'pitch', 60)
+    // RFC-045-05: patchDirect now returns BRIDGE_ERR.NOT_FOUND instead of throwing
+    const result = bridge.patchDirect(99999, 'pitch', 60)
     expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 })
@@ -409,7 +409,7 @@ describe('SiliconBridge - Debounced Operations', () => {
     })
 
     const sourceId = bridge.insertNoteImmediate(createTestNote())
-    bridge.patchImmediate(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'pitch', 72)
 
     expect(patches.length).toBe(1)
     expect(patches[0]).toEqual({ sourceId, type: 'pitch', value: 72 })
@@ -769,7 +769,7 @@ describe('SiliconBridge - Integration', () => {
     const sourceId = bridge.insertNoteImmediate(note)
 
     // Patch the note
-    bridge.patchImmediate(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'pitch', 72)
 
     // Read back and verify note data is correct
     const readNote = readNoteData(bridge, sourceId)
@@ -939,7 +939,7 @@ describe('RFC-044: Async Path & Resilience', () => {
       linker.processCommands()
 
       // Queue a patch (triggers debounce timer)
-      bridge.patchImmediate(1001, 'pitch', 72)
+      bridge.patchDirect(1001, 'pitch', 72)
 
       // Hard reset should clear timers
       bridge.hardReset()

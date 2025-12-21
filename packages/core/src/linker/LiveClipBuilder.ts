@@ -519,10 +519,10 @@ export class LiveClipBuilder {
       this.bridge.readNote(sourceId, this.handleSyncReadNote)
       const existingMuted = this._syncReadMuted
 
-      this.bridge.patchImmediate(sourceId, 'pitch', pitch)
-      this.bridge.patchImmediate(sourceId, 'velocity', velocity)
-      this.bridge.patchImmediate(sourceId, 'duration', transformedDuration)
-      this.bridge.patchImmediate(sourceId, 'baseTick', transformedTick)
+      this.bridge.patchDirect(sourceId, 'pitch', pitch)
+      this.bridge.patchDirect(sourceId, 'velocity', velocity)
+      this.bridge.patchDirect(sourceId, 'duration', transformedDuration)
+      this.bridge.patchDirect(sourceId, 'baseTick', transformedTick)
 
       this.setBit(this.touchedBitmap, sourceId)
       this.lastSourceId = sourceId

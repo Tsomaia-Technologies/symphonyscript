@@ -68,7 +68,7 @@ export class LiveDrumHitCursor<B extends {
   ghost(): this {
     const ghostVelocity = Math.round(0.3 * 127)
     this.drumData.velocity = ghostVelocity
-    this.bridge.patchImmediate(this.drumData.sourceId, 'velocity', ghostVelocity)
+    this.bridge.patchDirect(this.drumData.sourceId, 'velocity', ghostVelocity)
     return this
   }
 

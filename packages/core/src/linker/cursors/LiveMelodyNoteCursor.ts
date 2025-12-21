@@ -147,7 +147,7 @@ export class LiveMelodyNoteCursor<B extends LiveMelodyBuilderBase> extends LiveN
         const newMidi = noteToMidi(stripped as NoteName)
         if (newMidi !== null && newMidi !== midi) {
           this.melodyNoteData.pitch = newMidi
-          this.bridge.patchImmediate(this.melodyNoteData.sourceId, 'pitch', newMidi)
+          this.bridge.patchDirect(this.melodyNoteData.sourceId, 'pitch', newMidi)
         }
       }
     }
@@ -167,7 +167,7 @@ export class LiveMelodyNoteCursor<B extends LiveMelodyBuilderBase> extends LiveN
         const newMidi = match[2] === 'b' ? midi : midi + 1
         if (newMidi !== midi && newMidi <= 127) {
           this.melodyNoteData.pitch = newMidi
-          this.bridge.patchImmediate(this.melodyNoteData.sourceId, 'pitch', newMidi)
+          this.bridge.patchDirect(this.melodyNoteData.sourceId, 'pitch', newMidi)
         }
       }
     }
@@ -187,7 +187,7 @@ export class LiveMelodyNoteCursor<B extends LiveMelodyBuilderBase> extends LiveN
         const newMidi = match[2] === '#' ? midi : midi - 1
         if (newMidi !== midi && newMidi >= 0) {
           this.melodyNoteData.pitch = newMidi
-          this.bridge.patchImmediate(this.melodyNoteData.sourceId, 'pitch', newMidi)
+          this.bridge.patchDirect(this.melodyNoteData.sourceId, 'pitch', newMidi)
         }
       }
     }

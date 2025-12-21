@@ -626,11 +626,18 @@ export class SiliconBridge {
   }
 
   /**
-   * Patch an attribute immediately (bypasses debounce).
+   * Patch an attribute directly (no command ring, immediate effect).
    *
+   * Attribute patches are atomic and do not require structural synchronization.
+   * This method is safe to call from the Main Thread without going through
+   * the Command Ring.
+   *
+   * @param sourceId - Source ID of the note to patch
+   * @param type - Attribute type to patch (pitch, velocity, duration, baseTick, muted)
+   * @param value - New value for the attribute
    * @returns BRIDGE_ERR.OK on success, BRIDGE_ERR.NOT_FOUND if not found
    */
-  patchImmediate(sourceId: number, type: PatchType, value: number | boolean): number {
+  patchDirect(sourceId: number, type: PatchType, value: number | boolean): number {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
       return BRIDGE_ERR.NOT_FOUND
@@ -787,7 +794,7 @@ export class SiliconBridge {
                 : 'muted'
 
       const actualValue = type === 'muted' ? value !== 0 : value
-      const result = this.patchImmediate(sourceId, type, actualValue)
+      const result = this.patchDirect(sourceId, type, actualValue)
 
       if (result < 0 && this.onError !== null) {
         this.onError(result)

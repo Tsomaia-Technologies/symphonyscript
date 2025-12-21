@@ -138,7 +138,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
 
     // Patch pitch before consumer advances
-    bridge.patchImmediate(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'pitch', 72)
 
     // Consumer sees patched value
     consumer.advance(960)
@@ -155,7 +155,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ muted: false }))
 
     // Mute it
-    bridge.patchImmediate(sourceId, 'muted', true)
+    bridge.patchDirect(sourceId, 'muted', true)
 
     // Consumer should not see it
     consumer.advance(960)
@@ -290,8 +290,8 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     const sourceId = bridge.insertNoteImmediate(createTestNote({ source }))
 
     // Edit the note
-    bridge.patchImmediate(sourceId, 'pitch', 72)
-    bridge.patchImmediate(sourceId, 'velocity', 64)
+    bridge.patchDirect(sourceId, 'pitch', 72)
+    bridge.patchDirect(sourceId, 'velocity', 64)
 
     // Source location should still be retrievable (file is not stored in Symbol Table)
     // Use callback pattern (zero-alloc)
@@ -461,7 +461,7 @@ describe('E2E Live Coding - Performance', () => {
     const start = performance.now()
 
     for (let i = 0; i < iterations; i++) {
-      bridge.patchImmediate(sourceId, 'pitch', 60 + (i % 12))
+      bridge.patchDirect(sourceId, 'pitch', 60 + (i % 12))
     }
 
     const elapsed = performance.now() - start
@@ -600,7 +600,7 @@ describe('E2E Live Coding - Edge Cases', () => {
     expect(events.length).toBe(1)
 
     // Move note to tick 960 (ahead of playhead)
-    bridge.patchImmediate(sourceId, 'baseTick', 960)
+    bridge.patchDirect(sourceId, 'baseTick', 960)
 
     // Note won't fire again at tick 960 because consumer already passed its old position
     // This is expected behavior - the chain is sorted by insertion order, not baseTick
