@@ -135,7 +135,3 @@ bridge.connect(bass, [
 
 1. Update `SiliconLinker.advance()` to perform Synapse Lookups on node completion.
 2. Implement `cursorPool` (Fixed-size array of active playheads) to handle polyphony.
-
----
-
-### Immediate Action
