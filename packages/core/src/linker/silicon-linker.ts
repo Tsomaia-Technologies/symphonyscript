@@ -18,11 +18,13 @@ import {
   CONCURRENCY,
   ID_TABLE,
   SYM_TABLE,
-  getSymbolTableOffset
+  getSymbolTableOffset,
+  CMD
 } from './constants'
 // Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
 import { AttributePatcher } from './patch'
+import { RingBuffer } from './ring-buffer'
 import { createLinkerSAB } from './init'
 import type {
   NodePtr,
@@ -58,8 +60,12 @@ export class SiliconLinker implements ISiliconLinker {
   private buffer: SharedArrayBuffer
   private freeList: FreeList
   private patcher: AttributePatcher
+  private ringBuffer: RingBuffer
   private heapStartI32: number
   private nodeCapacity: number
+
+  // RFC-044: Command processing state
+  private commandBuffer: Int32Array // Pre-allocated buffer for reading commands
 
   /**
    * Create a new Silicon Linker.
@@ -74,6 +80,10 @@ export class SiliconLinker implements ISiliconLinker {
     this.nodeCapacity = this.sab[HDR.NODE_CAPACITY]
     this.freeList = new FreeList(this.sab, this.sab64)
     this.patcher = new AttributePatcher(this.sab, this.nodeCapacity)
+
+    // RFC-044: Initialize Command Ring Buffer infrastructure
+    this.ringBuffer = new RingBuffer(this.sab)
+    this.commandBuffer = new Int32Array(4) // Pre-allocate for zero-alloc reads
   }
 
   /**
@@ -172,6 +182,83 @@ export class SiliconLinker implements ISiliconLinker {
   private _releaseChainMutex(): void {
     // Release lock: 1 → 0
     Atomics.store(this.sab, HDR.CHAIN_MUTEX, CONCURRENCY.MUTEX_UNLOCKED)
+  }
+
+  // ===========================================================================
+  // RFC-044: Low-Level Linking Helpers
+  // ===========================================================================
+
+  /**
+   * Link an existing node into the chain after a given node (RFC-044).
+   *
+   * **CRITICAL:** This method assumes:
+   * - Chain Mutex is already acquired by caller
+   * - Node data is already written to SAB
+   * - newPtr points to a valid, initialized node
+   * - afterPtr points to a valid node in the chain
+   *
+   * This is the extracted linking logic from insertNode(), used by both
+   * the old insertNode() method and the new RFC-044 executeInsert().
+   *
+   * @param newPtr - Pointer to node to link (already allocated and written)
+   * @param afterPtr - Pointer to node to insert after
+   */
+  private _linkNode(newPtr: NodePtr, afterPtr: NodePtr): void {
+    const newOffset = this.nodeOffset(newPtr)
+    const afterOffset = this.nodeOffset(afterPtr)
+
+    // 1. Link Future: newNode.NEXT_PTR = afterNode.NEXT_PTR, newNode.PREV_PTR = afterPtr
+    const nextPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
+    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, nextPtr)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
+
+    // 2. Update nextNode.PREV_PTR = newPtr (if nextNode exists)
+    if (nextPtr !== NULL_PTR) {
+      const nextOffset = this.nodeOffset(nextPtr)
+      Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, newPtr)
+    }
+
+    // 3. Atomic Splice: afterNode.NEXT_PTR = newPtr
+    Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
+
+    // 4. Signal structural change
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+  }
+
+  /**
+   * Link an existing node at the head of the chain (RFC-044).
+   *
+   * **CRITICAL:** This method assumes:
+   * - Chain Mutex is already acquired by caller
+   * - Node data is already written to SAB
+   * - newPtr points to a valid, initialized node
+   *
+   * This is the extracted linking logic from insertHead(), used by both
+   * the old insertHead() method and the new RFC-044 executeInsert().
+   *
+   * @param newPtr - Pointer to node to link (already allocated and written)
+   */
+  private _linkHead(newPtr: NodePtr): void {
+    const newOffset = this.nodeOffset(newPtr)
+
+    // 1. Load current head
+    const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+
+    // 2. Link new node to current head
+    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+
+    // 3. Update old head's PREV_PTR to point to new head
+    if (currentHead !== NULL_PTR) {
+      const currentHeadOffset = this.nodeOffset(currentHead)
+      Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+    }
+
+    // 4. Update HEAD_PTR
+    Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
+
+    // 5. Signal structural change
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
   }
 
   // ===========================================================================
@@ -1184,5 +1271,199 @@ export class SiliconLinker implements ISiliconLinker {
     for (let i = 0; i < totalI32; i++) {
       Atomics.store(this.sab, tableOffsetI32 + i, 0)
     }
+  }
+
+  // ===========================================================================
+  // RFC-044: Command Ring Processing (Worker/Consumer Side)
+  // ===========================================================================
+
+  /**
+   * Process pending commands from the Ring Buffer (RFC-044).
+   *
+   * This is the "Read Path" of the RFC-044 protocol. The Worker dequeues
+   * commands written by the Main Thread and executes them asynchronously.
+   *
+   * **Hybrid Trigger:**
+   * - Passive: Called by AudioWorklet at start of process() (polling)
+   * - Active: Worker wakes via Atomics.wait() on YIELD_SLOT
+   *
+   * **Performance:**
+   * - Processes max 256 commands per call to prevent audio starvation
+   * - Each command: ~1-2µs (linking only, allocation already done)
+   *
+   * @returns Number of commands processed
+   */
+  processCommands(): number {
+    const MAX_COMMANDS_PER_CYCLE = 256
+    let commandsProcessed = 0
+
+    // Process commands until ring is empty or limit reached
+    while (commandsProcessed < MAX_COMMANDS_PER_CYCLE) {
+      // Read next command (zero-alloc: reuses this.commandBuffer)
+      const hasCommand = this.ringBuffer.read(this.commandBuffer)
+      if (!hasCommand) {
+        break // Ring buffer is empty
+      }
+
+      // Decode command
+      const opcode = this.commandBuffer[0]
+      const param1 = this.commandBuffer[1]
+      const param2 = this.commandBuffer[2]
+      // param3 (commandBuffer[3]) is RESERVED
+
+      // Execute command based on opcode
+      switch (opcode) {
+        case CMD.INSERT:
+          this.executeInsert(param1, param2)
+          break
+        case CMD.DELETE:
+          this.executeDelete(param1)
+          break
+        case CMD.CLEAR:
+          this.executeClear()
+          break
+        case CMD.PATCH:
+          // PATCH not implemented in MVP (direct patches are immediate)
+          // Could be used for batched/deferred patches in future
+          break
+        default:
+          // Unknown opcode - log error but continue processing
+          console.error(`SiliconLinker: Unknown command opcode ${opcode}`)
+      }
+
+      commandsProcessed++
+    }
+
+    return commandsProcessed
+  }
+
+  /**
+   * Execute INSERT command: Link a floating node into the chain (RFC-044).
+   *
+   * **Protocol:**
+   * - ptr: Byte offset to node (already allocated in Zone B and written)
+   * - prevPtr: Byte offset to insert after (NULL_PTR = head insert)
+   *
+   * **Steps:**
+   * 1. Acquire Chain Mutex
+   * 2. Validate pointers
+   * 3. Link node using _linkNode or _linkHead
+   * 4. Update Identity Table
+   * 5. Release mutex
+   *
+   * @param ptr - Pointer to node to link (Zone B)
+   * @param prevPtr - Pointer to insert after (or NULL_PTR for head)
+   */
+  private executeInsert(ptr: NodePtr, prevPtr: NodePtr): void {
+    // Acquire mutex for structural operation
+    this._acquireChainMutex()
+
+    try {
+      // Validate ptr is in valid range
+      const ptrOffset = ptr / 4
+      if (ptrOffset < this.heapStartI32 || ptr >= this.buffer.byteLength) {
+        throw new InvalidPointerError(ptr)
+      }
+
+      // Read sourceId from the node (already written by Main Thread)
+      const nodeOffset = this.nodeOffset(ptr)
+      const sourceId = Atomics.load(this.sab, nodeOffset + NODE.SOURCE_ID)
+
+      // Link the node into the chain
+      if (prevPtr === NULL_PTR) {
+        // Head insert
+        this._linkHead(ptr)
+      } else {
+        // Insert after prevPtr
+        // Validate prevPtr is in valid range
+        const prevPtrOffset = prevPtr / 4
+        if (prevPtrOffset < this.heapStartI32 || prevPtr >= this.buffer.byteLength) {
+          throw new InvalidPointerError(prevPtr)
+        }
+        this._linkNode(ptr, prevPtr)
+      }
+
+      // Update Identity Table (sourceId → ptr mapping)
+      if (sourceId > 0) {
+        this.idTableInsert(sourceId, ptr)
+      }
+
+      // Increment NODE_COUNT (node is now linked)
+      const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
+      Atomics.store(this.sab, HDR.NODE_COUNT, currentCount + 1)
+    } finally {
+      this._releaseChainMutex()
+    }
+  }
+
+  /**
+   * Execute DELETE command: Remove a node from the chain (RFC-044).
+   *
+   * **Note:** This uses the existing deleteNode() method which already
+   * handles mutex acquisition and Identity Table cleanup.
+   *
+   * @param ptr - Pointer to node to delete
+   */
+  private executeDelete(ptr: NodePtr): void {
+    try {
+      this.deleteNode(ptr)
+    } catch (error) {
+      // Log error but don't crash - continue processing other commands
+      console.error(`SiliconLinker: Failed to delete node ${ptr}:`, error)
+    }
+  }
+
+  /**
+   * Execute CLEAR command: Remove all nodes from the chain (RFC-044).
+   *
+   * **Implementation:** Uses while-head deletion loop (zero-alloc).
+   */
+  private executeClear(): void {
+    this._acquireChainMutex()
+    try {
+      // While-head deletion loop (zero-alloc)
+      let headPtr = Atomics.load(this.sab, HDR.HEAD_PTR)
+      while (headPtr !== NULL_PTR) {
+        const headOffset = this.nodeOffset(headPtr)
+        const nextPtr = Atomics.load(this.sab, headOffset + NODE.NEXT_PTR)
+
+        // Return node to free list
+        this.freeList.free(headPtr)
+
+        // Move to next
+        headPtr = nextPtr
+      }
+
+      // Update header
+      Atomics.store(this.sab, HDR.HEAD_PTR, NULL_PTR)
+      Atomics.store(this.sab, HDR.NODE_COUNT, 0)
+      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+      // Clear Identity and Symbol tables
+      this.idTableClear()
+      this.symTableClear()
+    } finally {
+      this._releaseChainMutex()
+    }
+  }
+
+  /**
+   * Poll for pending commands (passive trigger for AudioWorklet).
+   *
+   * This method should be called at the start of the AudioWorklet's
+   * process() method to consume any pending commands from the Ring Buffer.
+   *
+   * **Usage:**
+   * ```typescript
+   * process(inputs, outputs, parameters) {
+   *   this.linker.poll() // Process pending structural edits
+   *   // ... then render audio
+   * }
+   * ```
+   *
+   * @returns Number of commands processed
+   */
+  poll(): number {
+    return this.processCommands()
   }
 }

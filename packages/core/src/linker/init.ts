@@ -21,6 +21,8 @@ import {
   getSymbolTableOffset,
   getGrooveTemplateOffset,
   getZoneSplitIndex,
+  getRingBufferOffset,
+  DEFAULT_RING_CAPACITY,
   ID_TABLE,
   SYM_TABLE
 } from './constants'
@@ -79,6 +81,9 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
 
   // Initialize Symbol Table
   initializeSymbolTable(sab, cfg.nodeCapacity)
+
+  // Initialize Ring Buffer header (RFC-044)
+  initializeRingBufferHeader(sab, cfg.nodeCapacity)
 
   return buffer
 }
@@ -190,6 +195,35 @@ function initializeSymbolTable(sab: Int32Array, nodeCapacity: number): void {
 }
 
 /**
+ * Initialize the Command Ring Buffer header (RFC-044).
+ *
+ * The Ring Buffer header fields must be initialized here (not in RingBuffer constructor)
+ * to ensure the SAB is fully formatted before any threads access it.
+ *
+ * **Critical Hygiene:**
+ * If the Worker starts before the Main Thread instantiates RingBuffer, it must see
+ * valid header fields. This function ensures the SAB is "pre-formatted" for RFC-044.
+ *
+ * Header fields initialized:
+ * - HDR.RB_CAPACITY: Maximum commands that can be queued
+ * - HDR.COMMAND_RING_PTR: Byte offset to ring buffer data region
+ * - HDR.RB_HEAD: Read index (initially 0, empty)
+ * - HDR.RB_TAIL: Write index (initially 0, empty)
+ */
+function initializeRingBufferHeader(sab: Int32Array, nodeCapacity: number): void {
+  // Set capacity (fixed at compile time)
+  Atomics.store(sab, HDR.RB_CAPACITY, DEFAULT_RING_CAPACITY)
+
+  // Calculate and store data region pointer
+  const ringOffset = getRingBufferOffset(nodeCapacity)
+  Atomics.store(sab, HDR.COMMAND_RING_PTR, ringOffset)
+
+  // Initialize indices (empty ring: head === tail)
+  Atomics.store(sab, HDR.RB_HEAD, 0)
+  Atomics.store(sab, HDR.RB_TAIL, 0)
+}
+
+/**
  * Validate that a SharedArrayBuffer has the correct Silicon Linker format.
  *
  * @param buffer - Buffer to validate
@@ -273,6 +307,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 
   // Re-initialize Symbol Table
   initializeSymbolTable(sab, nodeCapacity)
+
+  // Re-initialize Ring Buffer header (RFC-044)
+  initializeRingBufferHeader(sab, nodeCapacity)
 }
 
 /**

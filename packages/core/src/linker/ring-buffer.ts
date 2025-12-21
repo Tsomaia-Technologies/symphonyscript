@@ -49,25 +49,30 @@ export class RingBuffer {
    * Create a Ring Buffer Controller.
    *
    * @param sab - SharedArrayBuffer as Int32Array view
-   * @param nodeCapacity - Total node capacity (used to calculate data offset)
+   *
+   * @remarks
+   * RFC-044 Hygiene: The ring buffer header fields are initialized by init.ts.
+   * This constructor merely loads the pre-formatted values from the SAB.
+   * This ensures the Worker can safely access the ring buffer even if the Main Thread
+   * hasn't instantiated RingBuffer yet.
    */
-  constructor(sab: Int32Array, nodeCapacity: number) {
+  constructor(sab: Int32Array) {
     this.sab = sab
 
-    // Calculate data region offset
-    const dataStartBytes = getRingBufferOffset(nodeCapacity)
+    // Load capacity from header (set by init.ts)
+    this.capacity = Atomics.load(this.sab, HDR.RB_CAPACITY)
+
+    // Load data region offset from header (set by init.ts)
+    const dataStartBytes = Atomics.load(this.sab, HDR.COMMAND_RING_PTR)
     this.dataStartI32 = dataStartBytes / 4
 
-    // Initialize capacity in header (only on construction)
-    this.capacity = DEFAULT_RING_CAPACITY
-    Atomics.store(this.sab, HDR.RB_CAPACITY, this.capacity)
-
-    // Initialize head/tail to 0 (empty state)
-    Atomics.store(this.sab, HDR.RB_HEAD, 0)
-    Atomics.store(this.sab, HDR.RB_TAIL, 0)
-
-    // Store data pointer in header
-    Atomics.store(this.sab, HDR.COMMAND_RING_PTR, dataStartBytes)
+    // Validate that header was properly initialized
+    if (this.capacity === 0 || dataStartBytes === 0) {
+      throw new Error(
+        'RingBuffer: SAB not properly initialized. ' +
+          'Ensure createLinkerSAB() was called before instantiating RingBuffer.'
+      )
+    }
   }
 
   /**
