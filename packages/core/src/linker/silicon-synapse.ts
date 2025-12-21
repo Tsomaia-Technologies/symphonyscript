@@ -577,22 +577,22 @@ export class SiliconSynapse implements ISiliconLinker {
   /**
    * Synchronously wait for consumer to acknowledge structural change.
    *
-   * **Blocking Synchronization Model**: Spins on COMMIT_FLAG until it returns
-   * to IDLE (0), using zero-alloc CPU yield to prevent starvation.
+   * **Blocking Synchronization Model**: Spins on COMMIT_FLAG until Consumer
+   * sets ACK (2), then clears to IDLE (0) to complete the handshake.
    *
    * This method blocks until:
-   * - Consumer acknowledges the change (COMMIT_FLAG → IDLE)
+   * - Consumer acknowledges the change (COMMIT_FLAG → ACK)
    * - Panic threshold is reached (AudioWorklet unresponsive)
    *
-   * @throws KernelPanicError if AudioWorklet fails to acknowledge after 1M iterations
+   * @throws KernelPanicError if AudioWorklet fails to acknowledge after 200 iterations
    *
-   * @deprecated Use Command Ring approach instead
+   * @deprecated Use Command Ring approach instead (RFC-044)
    */
   syncAck(): void {
     let spins = 0
 
-    // Loop until COMMIT_FLAG equals IDLE (0)
-    while (Atomics.load(this.sab, HDR.COMMIT_FLAG) !== COMMIT.IDLE) {
+    // Wait for Consumer to set ACK (2)
+    while (Atomics.load(this.sab, HDR.COMMIT_FLAG) !== COMMIT.ACK) {
       // Zero-alloc yield to prevent CPU starvation
       this._yieldToCPU()
       spins++
@@ -606,6 +606,9 @@ export class SiliconSynapse implements ISiliconLinker {
         )
       }
     }
+
+    // Clear ACK to IDLE (complete the handshake)
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.IDLE)
   }
 
   // ===========================================================================

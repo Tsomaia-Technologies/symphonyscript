@@ -5,6 +5,7 @@
 import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
 import type { EditorNoteData, PatchType, SourceLocation } from '../silicon-bridge'
 import { SiliconSynapse } from '../silicon-synapse'
+import { HDR, NULL_PTR, OPCODE, getZoneSplitIndex, HEAP_START_OFFSET, NODE_SIZE_BYTES } from '../constants'
 
 // =============================================================================
 // Test Helpers
@@ -776,5 +777,209 @@ describe('SiliconBridge - Integration', () => {
     expect(found).toBe(true)
     expect(retrievedLine).toBe(10)
     expect(retrievedColumn).toBe(5)
+  })
+})
+
+// =============================================================================
+// RFC-044: Zero-Blocking Command Ring Architecture
+// =============================================================================
+describe('RFC-044: Async Path & Resilience', () => {
+  describe('insertAsync', () => {
+    it('should return pointer from Zone B', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+
+      // Calculate Zone B start boundary
+      const zoneSplitIndex = getZoneSplitIndex(nodeCapacity)
+      const zoneBStartOffset = HEAP_START_OFFSET + zoneSplitIndex * NODE_SIZE_BYTES
+
+      const ptr = bridge.insertAsync(
+        OPCODE.NOTE,
+        60, // pitch
+        100, // velocity
+        480, // duration
+        0, // baseTick
+        false, // muted
+        1001 // sourceId
+      )
+
+      // Verify pointer is from Zone B
+      expect(ptr).toBeGreaterThanOrEqual(zoneBStartOffset)
+      expect(ptr).toBeLessThan(HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES)
+    })
+
+    it('should advance RB_TAIL in Ring Buffer', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+
+      const initialTail = sab[HDR.RB_TAIL]
+      expect(initialTail).toBe(0)
+
+      bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+
+      const newTail = sab[HDR.RB_TAIL]
+      expect(newTail).toBe(1)
+    })
+
+    it('should NOT link node until processCommands', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+
+      // Call insertAsync
+      const ptr = bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      expect(ptr).not.toBe(NULL_PTR)
+
+      // Verify node is NOT in chain yet (eventual consistency)
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+      expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
+
+      // Process commands (simulate Worker)
+      linker.processCommands()
+
+      // NOW verify node is in chain
+      expect(sab[HDR.NODE_COUNT]).toBe(1)
+      expect(sab[HDR.HEAD_PTR]).toBe(ptr)
+    })
+
+    it('should queue multiple async inserts correctly', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+
+      // Queue 3 async inserts
+      const ptr1 = bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      const ptr2 = bridge.insertAsync(OPCODE.NOTE, 64, 100, 480, 480, false, 1002)
+      const ptr3 = bridge.insertAsync(OPCODE.NOTE, 67, 100, 480, 960, false, 1003)
+
+      // All should be unique Zone B pointers
+      expect(ptr1).not.toBe(ptr2)
+      expect(ptr2).not.toBe(ptr3)
+      expect(ptr1).not.toBe(ptr3)
+
+      // Tail should advance by 3
+      expect(sab[HDR.RB_TAIL]).toBe(3)
+
+      // No nodes in chain yet
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+
+      // Process commands
+      linker.processCommands()
+
+      // All 3 nodes should now be in chain
+      expect(sab[HDR.NODE_COUNT]).toBe(3)
+    })
+  })
+
+  describe('hardReset', () => {
+    it('should reset LocalAllocator utilization to 0.0', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+
+      // Allocate several nodes via insertAsync
+      bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      bridge.insertAsync(OPCODE.NOTE, 64, 100, 480, 480, false, 1002)
+      bridge.insertAsync(OPCODE.NOTE, 67, 100, 480, 960, false, 1003)
+
+      // Process to link them
+      linker.processCommands()
+
+      // Utilization should be > 0
+      const statsBeforeReset = bridge.getZoneBStats()
+      expect(statsBeforeReset.usage).toBeGreaterThan(0)
+
+      // Hard reset
+      bridge.hardReset()
+
+      // Utilization should be 0.0
+      const statsAfterReset = bridge.getZoneBStats()
+      expect(statsAfterReset.usage).toBe(0)
+      expect(statsAfterReset.freeNodes).toBeGreaterThan(0)
+    })
+
+    it('should clear all pending structural edits', () => {
+      const bridge = createTestBridge()
+
+      // Queue several async inserts (not yet processed)
+      bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      bridge.insertAsync(OPCODE.NOTE, 64, 100, 480, 480, false, 1002)
+
+      // Hard reset before processing
+      bridge.hardReset()
+
+      // Ring buffer should be empty
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+      expect(sab[HDR.RB_HEAD]).toBe(0)
+      expect(sab[HDR.RB_TAIL]).toBe(0)
+
+      // No nodes should be in chain
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+      expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
+    })
+
+    it('should clear debounce timers', async () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+
+      // Insert a note and queue a patch (which triggers debounce)
+      const ptr = bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      linker.processCommands()
+
+      // Queue a patch (triggers debounce timer)
+      bridge.patchImmediate(1001, 'pitch', 72)
+
+      // Hard reset should clear timers
+      bridge.hardReset()
+
+      // Wait for what would have been the debounce period
+      await wait(20)
+
+      // Node should not exist (was cleared by reset)
+      const sab = new Int32Array(linker.getSAB())
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+    })
+
+    it('should coordinate reset between Linker (Zone A) and LocalAllocator (Zone B)', () => {
+      const bridge = createTestBridge()
+      const linker = bridge['linker'] as SiliconSynapse
+      const sab = new Int32Array(linker.getSAB())
+
+      // Allocate in Zone A (via immediate path)
+      bridge.insertImmediate(
+        OPCODE.NOTE,
+        60, // pitch
+        100, // velocity
+        480, // duration
+        0, // baseTick
+        false, // muted
+        undefined, // source
+        undefined, // afterSourceId
+        2001 // explicitSourceId
+      )
+
+      // Allocate in Zone B (via async path)
+      bridge.insertAsync(OPCODE.NOTE, 64, 100, 480, 480, false, 3001)
+      linker.processCommands()
+
+      // Both zones should have allocations
+      expect(sab[HDR.NODE_COUNT]).toBe(2)
+      const zoneBStats = bridge.getZoneBStats()
+      expect(zoneBStats.usage).toBeGreaterThan(0)
+
+      // Hard reset
+      bridge.hardReset()
+
+      // Zone A should be cleared
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+      expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
+
+      // Zone B should be reset
+      const zoneBStatsAfter = bridge.getZoneBStats()
+      expect(zoneBStatsAfter.usage).toBe(0)
+    })
   })
 })

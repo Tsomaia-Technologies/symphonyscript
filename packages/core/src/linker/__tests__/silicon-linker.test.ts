@@ -22,7 +22,15 @@ import {
   NULL_PTR,
   DEFAULT_PPQ,
   HeapExhaustedError,
-  SafeZoneViolationError
+  SafeZoneViolationError,
+  KernelPanicError,
+  CMD,
+  RingBuffer,
+  LocalAllocator,
+  PACKED,
+  getZoneSplitIndex,
+  HEAP_START_OFFSET,
+  NODE_SIZE_BYTES
 } from '../index'
 
 // =============================================================================
@@ -141,7 +149,8 @@ describe('RFC-043: Silicon Linker', () => {
       const buffer = createLinkerSAB({ nodeCapacity: 32 })
       const sab = new Int32Array(buffer)
 
-      expect(sab[HDR.FREE_COUNT]).toBe(32)
+      // RFC-044: Zone A gets 50% of capacity (32 / 2 = 16)
+      expect(sab[HDR.FREE_COUNT]).toBe(16)
       expect(sab[HDR.NODE_COUNT]).toBe(0)
       expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
       // Verify 64-bit free list head is initialized (check low word)
@@ -190,7 +199,8 @@ describe('RFC-043: Silicon Linker', () => {
       // Verify reset state
       const sab = new Int32Array(linker.getSAB())
       expect(sab[HDR.NODE_COUNT]).toBe(0)
-      expect(sab[HDR.FREE_COUNT]).toBe(32)
+      // RFC-044: Zone A gets 50% of capacity (32 / 2 = 16)
+      expect(sab[HDR.FREE_COUNT]).toBe(16)
       expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
     })
   })
@@ -202,12 +212,13 @@ describe('RFC-043: Silicon Linker', () => {
     it('should allocate nodes from free list', () => {
       const linker = createTestLinker(8)
 
-      expect(linker.getFreeCount()).toBe(8)
+      // RFC-044: Zone A gets 50% of capacity (8 / 2 = 4)
+      expect(linker.getFreeCount()).toBe(4)
       expect(linker.getNodeCount()).toBe(0)
 
       const ptr = linker.allocNode()
       expect(ptr).not.toBe(NULL_PTR)
-      expect(linker.getFreeCount()).toBe(7)
+      expect(linker.getFreeCount()).toBe(3)
       expect(linker.getNodeCount()).toBe(1)
     })
 
@@ -229,10 +240,12 @@ describe('RFC-043: Silicon Linker', () => {
       const linker = createTestLinker(8)
 
       const ptr = linker.allocNode()
-      expect(linker.getFreeCount()).toBe(7)
+      // RFC-044: Zone A = 4, after alloc = 3
+      expect(linker.getFreeCount()).toBe(3)
 
       linker.freeNode(ptr)
-      expect(linker.getFreeCount()).toBe(8)
+      // After free, returns to 4
+      expect(linker.getFreeCount()).toBe(4)
       expect(linker.getNodeCount()).toBe(0)
     })
 
@@ -639,11 +652,13 @@ describe('RFC-043: Silicon Linker', () => {
     })
 
     it('should throw HeapExhaustedError on insertHead when full', () => {
-      const linker = createTestLinker(2)
+      // RFC-044: capacity=4 means Zone A=2
+      const linker = createTestLinker(4)
 
       linker.insertHead(...noteData(60, 0))
       linker.insertHead(...noteData(64, 96))
 
+      // Third insert should exhaust Zone A
       expect(() => {
         linker.insertHead(...noteData(67, 192))
       }).toThrow(HeapExhaustedError)
@@ -711,17 +726,133 @@ describe('RFC-043: Silicon Linker', () => {
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
     })
 
-    it('should timeout and clear flag if no ACK', async () => {
+    it('should timeout and throw KernelPanicError if no ACK', async () => {
       const linker = createTestLinker()
       const sab = new Int32Array(linker.getSAB())
 
       linker.insertHead(...noteData(60, 0))
+      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
 
-      // Don't simulate ACK - let it timeout
-      linker.syncAck()
+      // Don't simulate ACK - Dead-Man's Switch should trigger
+      expect(() => {
+        linker.syncAck()
+      }).toThrow(KernelPanicError)
 
-      // Should still clear to IDLE after timeout
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
+      // Error flag should be set
+      expect(sab[HDR.ERROR_FLAG]).toBe(ERROR.KERNEL_PANIC)
+    })
+  })
+
+  // ===========================================================================
+  // 12. RFC-044: Command Ring Architecture
+  // ===========================================================================
+  describe('12. RFC-044: Command Ring Architecture', () => {
+    it('should process INSERT command from Ring Buffer', () => {
+      const linker = createTestLinker(32)
+      const sab = new Int32Array(linker.getSAB())
+      const localAllocator = new LocalAllocator(sab, 32)
+      const ringBuffer = new RingBuffer(sab)
+
+      // 1. Allocate node in Zone B (Main Thread simulation)
+      const ptr = localAllocator.alloc()
+      expect(ptr).toBeGreaterThan(0)
+
+      // 2. Write node data to SAB
+      const offset = ptr / 4
+      const flags = FLAG.ACTIVE
+      const packedA =
+        (OPCODE.NOTE << PACKED.OPCODE_SHIFT) |
+        (60 << PACKED.PITCH_SHIFT) |
+        (100 << PACKED.VELOCITY_SHIFT) |
+        flags
+
+      sab[offset + NODE.PACKED_A] = packedA
+      sab[offset + NODE.BASE_TICK] = 0
+      sab[offset + NODE.DURATION] = 480
+      sab[offset + NODE.NEXT_PTR] = NULL_PTR
+      sab[offset + NODE.PREV_PTR] = NULL_PTR
+      sab[offset + NODE.SOURCE_ID] = 1001
+      sab[offset + NODE.SEQ_FLAGS] = 0
+      sab[offset + NODE.LAST_PASS_ID] = 0
+
+      // 3. Verify node is NOT in chain yet (eventual consistency)
+      expect(linker.getNodeCount()).toBe(0)
+      expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
+
+      // 4. Enqueue INSERT command (Main Thread writes to Ring Buffer)
+      ringBuffer.write(CMD.INSERT, ptr, NULL_PTR) // Insert at head
+
+      // 5. Verify command is in buffer
+      expect(sab[HDR.RB_TAIL]).toBe(1)
+      expect(sab[HDR.RB_HEAD]).toBe(0)
+
+      // 6. Process commands (Worker Thread simulation)
+      const processed = linker.processCommands()
+      expect(processed).toBe(1)
+
+      // 7. Verify node is NOW in chain
+      expect(linker.getNodeCount()).toBe(1)
+      expect(sab[HDR.HEAD_PTR]).toBe(ptr)
+
+      // 8. Verify ring buffer consumed the command
+      expect(sab[HDR.RB_HEAD]).toBe(1)
+      expect(sab[HDR.RB_TAIL]).toBe(1)
+    })
+
+    it('should process multiple INSERT commands in order', () => {
+      const linker = createTestLinker(32)
+      const sab = new Int32Array(linker.getSAB())
+      const localAllocator = new LocalAllocator(sab, 32)
+      const ringBuffer = new RingBuffer(sab)
+
+      // Allocate and write 3 nodes
+      const ptr1 = localAllocator.alloc()
+      const ptr2 = localAllocator.alloc()
+      const ptr3 = localAllocator.alloc()
+
+      const writeNode = (ptr: number, pitch: number, tick: number, sourceId: number) => {
+        const offset = ptr / 4
+        const packedA =
+          (OPCODE.NOTE << PACKED.OPCODE_SHIFT) |
+          (pitch << PACKED.PITCH_SHIFT) |
+          (100 << PACKED.VELOCITY_SHIFT) |
+          FLAG.ACTIVE
+        sab[offset + NODE.PACKED_A] = packedA
+        sab[offset + NODE.BASE_TICK] = tick
+        sab[offset + NODE.DURATION] = 480
+        sab[offset + NODE.NEXT_PTR] = NULL_PTR
+        sab[offset + NODE.PREV_PTR] = NULL_PTR
+        sab[offset + NODE.SOURCE_ID] = sourceId
+        sab[offset + NODE.SEQ_FLAGS] = 0
+        sab[offset + NODE.LAST_PASS_ID] = 0
+      }
+
+      writeNode(ptr1, 60, 0, 1001)
+      writeNode(ptr2, 64, 480, 1002)
+      writeNode(ptr3, 67, 960, 1003)
+
+      // Enqueue INSERT commands
+      ringBuffer.write(CMD.INSERT, ptr1, NULL_PTR) // Insert at head
+      ringBuffer.write(CMD.INSERT, ptr2, ptr1) // Insert after ptr1
+      ringBuffer.write(CMD.INSERT, ptr3, ptr2) // Insert after ptr2
+
+      // Process all commands
+      const processed = linker.processCommands()
+      expect(processed).toBe(3)
+
+      // Verify chain structure
+      expect(linker.getNodeCount()).toBe(3)
+      expect(sab[HDR.HEAD_PTR]).toBe(ptr1)
+
+      // Verify chain links: ptr1 -> ptr2 -> ptr3
+      const ptr1Offset = ptr1 / 4
+      const ptr2Offset = ptr2 / 4
+      const ptr3Offset = ptr3 / 4
+      expect(sab[ptr1Offset + NODE.NEXT_PTR]).toBe(ptr2)
+      expect(sab[ptr2Offset + NODE.PREV_PTR]).toBe(ptr1)
+      expect(sab[ptr2Offset + NODE.NEXT_PTR]).toBe(ptr3)
+      expect(sab[ptr3Offset + NODE.PREV_PTR]).toBe(ptr2)
+      expect(sab[ptr3Offset + NODE.NEXT_PTR]).toBe(NULL_PTR)
     })
   })
 })

@@ -14,6 +14,7 @@ import {
   FLAG,
   HEAP_START_OFFSET
 } from './constants'
+import type { SiliconSynapse } from './silicon-synapse'
 
 /**
  * Event emitted when consumer reads a node.
@@ -45,11 +46,20 @@ export class MockConsumer {
   private events: ConsumerNoteEvent[] = []
   private isRunning: boolean = false
   private tickRate: number // ticks per process() call
+  private linker: SiliconSynapse | null = null // RFC-044: Worker-side linker for command processing
 
   constructor(buffer: SharedArrayBuffer, tickRate = 24) {
     this.sab = new Int32Array(buffer)
     this.heapStartI32 = HEAP_START_OFFSET / 4
     this.tickRate = tickRate
+  }
+
+  /**
+   * Set the linker instance for RFC-044 command processing.
+   * In real system, Worker would create its own SiliconSynapse instance.
+   */
+  setLinker(linker: SiliconSynapse): void {
+    this.linker = linker
   }
 
   /**
@@ -87,6 +97,7 @@ export class MockConsumer {
    * Simulate one audio quantum (~128 frames = ~2.9ms at 44.1kHz).
    *
    * This method:
+   * 0. Process pending commands from Ring Buffer (RFC-044)
    * 1. Checks for COMMIT_FLAG and acknowledges
    * 2. Advances playhead by tickRate
    * 3. Reads any nodes that fall within the current tick window
@@ -95,6 +106,11 @@ export class MockConsumer {
    */
   process(): ConsumerNoteEvent[] {
     const quantumEvents: ConsumerNoteEvent[] = []
+
+    // 0. RFC-044: Process pending commands from Ring Buffer
+    if (this.linker) {
+      this.linker.processCommands()
+    }
 
     // 1. Check for structural changes
     this.handleCommitFlag()

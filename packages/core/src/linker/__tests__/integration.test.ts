@@ -11,8 +11,11 @@ import {
   REG,
   COMMIT,
   NULL_PTR,
-  writeGrooveTemplate
+  writeGrooveTemplate,
+  HEAP_START_OFFSET,
+  NODE_SIZE_BYTES
 } from '../index'
+import { getGrooveTemplateOffset } from '../constants'
 import { MockConsumer } from '../mock-consumer'
 
 // =============================================================================
@@ -33,21 +36,24 @@ function createTestPair(options?: {
   })
   const linker = new SiliconSynapse(buffer)
   const consumer = new MockConsumer(buffer, options?.tickRate ?? 24)
+  // RFC-044: Consumer needs linker reference to process commands
+  consumer.setLinker(linker)
   return { linker, consumer, buffer }
 }
 
 /**
- * Create note data helper.
+ * Create note data helper - returns array of parameters for insertHead.
  */
-function note(pitch: number, baseTick: number, duration = 96) {
-  return {
-    opcode: OPCODE.NOTE,
+function note(pitch: number, baseTick: number, duration = 96): [number, number, number, number, number, number, number] {
+  return [
+    OPCODE.NOTE, // opcode
     pitch,
-    velocity: 100,
+    100, // velocity
     duration,
     baseTick,
-    sourceId: pitch * 1000 + baseTick
-  }
+    pitch * 1000 + baseTick, // sourceId
+    0 // flags
+  ]
 }
 
 /**
@@ -96,9 +102,9 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer } = createTestPair()
 
       // Insert notes in tick order (insertHead puts at front)
-      linker.insertHead(note(67, 192)) // G4
-      linker.insertHead(note(64, 96)) // E4
-      linker.insertHead(note(60, 0)) // C4
+      linker.insertHead(...note(67, 192)) // G4
+      linker.insertHead(...note(64, 96)) // E4
+      linker.insertHead(...note(60, 0)) // C4
 
       // Run consumer past all notes
       const events = consumer.runUntilTick(300)
@@ -123,7 +129,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should handle single note', () => {
       const { linker, consumer } = createTestPair()
 
-      linker.insertHead(note(60, 48))
+      linker.insertHead(...note(60, 48))
 
       const events = consumer.runUntilTick(100)
 
@@ -142,8 +148,8 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Insert initial notes - note: insertHead puts them at the front
       // So we insert in reverse tick order to get correct chain order
-      linker.insertHead(note(67, 192))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(67, 192))
+      linker.insertHead(...note(60, 0))
 
       // Play first note
       consumer.runUntilTick(50)
@@ -152,7 +158,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Insert new note at head with tick ahead of playhead
       // Using insertHead so it becomes the new first node
-      linker.insertHead(note(64, 96))
+      linker.insertHead(...note(64, 96))
 
       // Consumer processes and acknowledges the change
       consumer.process()
@@ -171,8 +177,8 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer } = createTestPair({ tickRate: 48 })
 
       // Insert notes at tick 200, 400
-      linker.insertHead(note(67, 400))
-      linker.insertHead(note(64, 200))
+      linker.insertHead(...note(67, 400))
+      linker.insertHead(...note(64, 200))
 
       // Play past first note
       consumer.runUntilTick(250)
@@ -180,7 +186,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       expect(consumer.getEvents()[0].pitch).toBe(64)
 
       // Insert new note at tick 300 (ahead of playhead)
-      linker.insertHead(note(60, 300))
+      linker.insertHead(...note(60, 300))
 
       // Consumer acknowledges the change
       consumer.process()
@@ -208,7 +214,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
 
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(60, 0))
 
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
     })
@@ -217,7 +223,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer, buffer } = createTestPair()
       const sab = new Int32Array(buffer)
 
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(60, 0))
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
 
       // Consumer processes - should acknowledge
@@ -230,7 +236,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer, buffer } = createTestPair()
       const sab = new Int32Array(buffer)
 
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(60, 0))
 
       // Consumer acknowledges
       consumer.process()
@@ -245,10 +251,10 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
       // Insert notes
-      linker.insertHead(note(72, 300))
-      linker.insertHead(note(67, 200))
-      linker.insertHead(note(64, 100))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(72, 300))
+      linker.insertHead(...note(67, 200))
+      linker.insertHead(...note(64, 100))
+      linker.insertHead(...note(60, 0))
 
       // Play past first two notes
       consumer.runUntilTick(150)
@@ -282,7 +288,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
       // Insert note at tick 100
-      const ptr = linker.insertHead(note(60, 100))
+      const ptr = linker.insertHead(...note(60, 100))
 
       // Play up to just before the note
       consumer.runUntilTick(96)
@@ -302,7 +308,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should reflect velocity changes', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      const ptr = linker.insertHead(note(60, 50))
+      const ptr = linker.insertHead(...note(60, 50))
 
       consumer.runUntilTick(48)
       linker.patchVelocity(ptr, 50)
@@ -315,7 +321,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should mute notes when muted flag set', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      const ptr = linker.insertHead(note(60, 50))
+      const ptr = linker.insertHead(...note(60, 50))
 
       // Mute before it plays
       linker.patchMuted(ptr, true)
@@ -329,7 +335,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should unmute and play when flag cleared', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      const ptr = linker.insertHead(note(60, 100))
+      const ptr = linker.insertHead(...note(60, 100))
       linker.patchMuted(ptr, true)
 
       consumer.runUntilTick(50)
@@ -350,7 +356,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should apply global transpose', () => {
       const { linker, consumer } = createTestPair()
 
-      linker.insertHead(note(60, 0)) // C4
+      linker.insertHead(...note(60, 0)) // C4
       linker.setTranspose(12) // Up one octave
 
       consumer.runUntilTick(50)
@@ -361,7 +367,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should apply velocity multiplier', () => {
       const { linker, consumer } = createTestPair()
 
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(60, 0))
       linker.setVelocityMult(500) // 0.5x
 
       consumer.runUntilTick(50)
@@ -372,7 +378,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should clamp transposed pitch to MIDI range', () => {
       const { linker, consumer } = createTestPair()
 
-      linker.insertHead(note(120, 0)) // High pitch
+      linker.insertHead(...note(120, 0)) // High pitch
       linker.setTranspose(20) // Would exceed 127
 
       consumer.runUntilTick(50)
@@ -383,8 +389,8 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should update transforms live', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      linker.insertHead(note(60, 100))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(60, 100))
+      linker.insertHead(...note(60, 0))
 
       // First note with no transpose
       consumer.runUntilTick(50)
@@ -410,16 +416,16 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Set groove active (point to template 0)
       const sab = new Int32Array(buffer)
-      // Calculate groove start dynamically: after node heap
+      // Calculate groove start dynamically: after node heap and symbol table
       const nodeCapacity = sab[HDR.NODE_CAPACITY]
-      const grooveStart = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
+      const grooveStart = getGrooveTemplateOffset(nodeCapacity)
       linker.setGroove(grooveStart, 4)
 
       // Insert notes at tick 0, 1, 2, 3 (relative to groove steps)
-      linker.insertHead(note(63, 3))
-      linker.insertHead(note(62, 2))
-      linker.insertHead(note(61, 1))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(63, 3))
+      linker.insertHead(...note(62, 2))
+      linker.insertHead(...note(61, 1))
+      linker.insertHead(...note(60, 0))
 
       consumer.runUntilTick(50)
 
@@ -442,13 +448,13 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       writeGrooveTemplate(buffer, 0, [0, 20]) // step 0 = +0, step 1 = +20
 
       const sab = new Int32Array(buffer)
-      // Calculate groove start dynamically: after node heap
+      // Calculate groove start dynamically: after node heap and symbol table
       const nodeCapacity = sab[HDR.NODE_CAPACITY]
-      const grooveStart = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
+      const grooveStart = getGrooveTemplateOffset(nodeCapacity)
 
       // Notes: one at step 0 position, one at step 1 position
-      linker.insertHead(note(61, 100)) // 100 % 2 = 0 (step 0, offset +0)
-      linker.insertHead(note(60, 1)) // 1 % 2 = 1 (step 1, offset +20)
+      linker.insertHead(...note(61, 100)) // 100 % 2 = 0 (step 0, offset +0)
+      linker.insertHead(...note(60, 1)) // 1 % 2 = 1 (step 1, offset +20)
 
       // Enable groove
       linker.setGroove(grooveStart, 2)
@@ -477,7 +483,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       linker.setHumanize(50, 0)
 
       // Insert a single note and verify it gets humanized
-      linker.insertHead(note(60, 200))
+      linker.insertHead(...note(60, 200))
 
       consumer.runUntilTick(300)
 
@@ -504,13 +510,13 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       linker2.setHumanize(100, 0)
 
       // Same notes
-      linker.insertHead(note(62, 200))
-      linker.insertHead(note(61, 100))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(62, 200))
+      linker.insertHead(...note(61, 100))
+      linker.insertHead(...note(60, 0))
 
-      linker2.insertHead(note(62, 200))
-      linker2.insertHead(note(61, 100))
-      linker2.insertHead(note(60, 0))
+      linker2.insertHead(...note(62, 200))
+      linker2.insertHead(...note(61, 100))
+      linker2.insertHead(...note(60, 0))
 
       consumer.runUntilTick(300)
       consumer2.runUntilTick(300)
@@ -530,9 +536,9 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
       // Insert three notes
-      linker.insertHead(note(67, 200))
-      const ptr2 = linker.insertHead(note(64, 100))
-      linker.insertHead(note(60, 0))
+      linker.insertHead(...note(67, 200))
+      const ptr2 = linker.insertHead(...note(64, 100))
+      linker.insertHead(...note(60, 0))
 
       // Play first note
       consumer.runUntilTick(50)
@@ -540,6 +546,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Delete middle note before it plays
       linker.deleteNode(ptr2)
+      consumer.process() // Consumer acknowledges the change
       linker.syncAck()
 
       // Continue playback
@@ -553,13 +560,14 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should handle deletion of head during playback', async () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      linker.insertHead(note(67, 200))
-      linker.insertHead(note(64, 100))
-      const headPtr = linker.insertHead(note(60, 50))
+      linker.insertHead(...note(67, 200))
+      linker.insertHead(...note(64, 100))
+      const headPtr = linker.insertHead(...note(60, 50))
 
       // Delete head before it plays
       consumer.runUntilTick(24)
       linker.deleteNode(headPtr)
+      consumer.process() // Consumer acknowledges the change
       linker.syncAck()
 
       consumer.runUntilTick(300)
@@ -583,9 +591,10 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Insert 100 notes
       for (let i = 99; i >= 0; i--) {
-        linker.insertHead(note(60 + (i % 12), i * 10))
+        linker.insertHead(...note(60 + (i % 12), i * 10))
       }
 
+      consumer.process() // Consumer acknowledges the changes
       linker.syncAck()
 
       // Play all notes
@@ -597,7 +606,7 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
     it('should handle interleaved insertions and playback', async () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })
 
-      let lastPtr = linker.insertHead(note(60, 0))
+      let lastPtr = linker.insertHead(...note(60, 0))
 
       for (let i = 1; i < 20; i++) {
         // Play a bit
@@ -605,10 +614,11 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
         // Insert another note
         if (linker.getNodeCount() < 256) {
-          lastPtr = linker.insertHead(note(60 + i, i * 50))
+          lastPtr = linker.insertHead(...note(60 + i, i * 50))
         }
       }
 
+      consumer.process() // Consumer acknowledges the changes
       linker.syncAck()
 
       // Finish playback
