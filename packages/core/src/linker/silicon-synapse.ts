@@ -814,7 +814,7 @@ export class SiliconSynapse implements ISiliconLinker {
     ) => void
   ): boolean {
     let ptr = this.getHead()
-    let contentionError = false
+    let hadContention = false
 
     while (ptr !== NULL_PTR) {
       const offset = this.nodeOffset(ptr)
@@ -827,6 +827,7 @@ export class SiliconSynapse implements ISiliconLinker {
         nextPtr: number,
         sourceId: number
       let retries = 0
+      let bailedOut = false
 
       do {
         // Read SEQ before reading fields (version number)
@@ -850,7 +851,8 @@ export class SiliconSynapse implements ISiliconLinker {
           if (retries >= 1000) {
             // RFC-045-04: Set error flag and skip node instead of throwing
             Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
-            contentionError = true
+            hadContention = true
+            bailedOut = true
             // Skip to next node using NEXT_PTR from last read
             ptr = nextPtr
             break
@@ -860,8 +862,7 @@ export class SiliconSynapse implements ISiliconLinker {
       } while (seq1 !== seq2)
 
       // If we bailed out due to contention, continue to next iteration
-      if (contentionError) {
-        contentionError = false // Reset for next node
+      if (bailedOut) {
         continue
       }
 
@@ -878,7 +879,7 @@ export class SiliconSynapse implements ISiliconLinker {
       ptr = nextPtr
     }
 
-    return true
+    return !hadContention
   }
 
   // ===========================================================================
