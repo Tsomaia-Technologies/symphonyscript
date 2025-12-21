@@ -21,8 +21,8 @@ function createTestLinker(): SiliconSynapse {
 function createTestBridge(): SiliconBridge {
   const linker = createTestLinker()
   return new SiliconBridge(linker, {
-    attributeDebounceMs: 10,
-    structuralDebounceMs: 10
+    attributeDebounceTicks: 10,
+    structuralDebounceTicks: 10
   })
 }
 
@@ -37,9 +37,11 @@ function createTestNote(overrides: Partial<EditorNoteData> = {}): EditorNoteData
   }
 }
 
-// Helper to wait for debounce
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+// RFC-045-06: Helper to advance ticks (replaces setTimeout-based wait)
+function advanceTicks(bridge: SiliconBridge, count: number): void {
+  for (let i = 0; i < count; i++) {
+    bridge.tick()
+  }
 }
 
 // Helper to collect notes from traverseNotes into an array for test assertions
@@ -342,7 +344,7 @@ describe('SiliconBridge - Debounced Operations', () => {
     expect(bridge.getPendingPatchCount()).toBe(1)
   })
 
-  test('patchDebounced coalesces multiple patches to same field', async () => {
+  test('patchDebounced coalesces multiple patches to same field', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
@@ -355,14 +357,14 @@ describe('SiliconBridge - Debounced Operations', () => {
     // Should only have one pending patch (the latest)
     expect(bridge.getPendingPatchCount()).toBe(1)
 
-    // Wait for debounce
-    await wait(20)
+    // RFC-045-06: Advance ticks past debounce threshold (10 ticks)
+    advanceTicks(bridge, 11)
 
     // Final value should be 64
     expect(readNoteData(bridge, sourceId)!.pitch).toBe(64)
   })
 
-  test('patchDebounced does not coalesce different fields', async () => {
+  test('patchDebounced does not coalesce different fields', () => {
     const bridge = createTestBridge()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote())
@@ -373,8 +375,8 @@ describe('SiliconBridge - Debounced Operations', () => {
     // Should have two pending patches
     expect(bridge.getPendingPatchCount()).toBe(2)
 
-    // Wait for debounce
-    await wait(20)
+    // RFC-045-06: Advance ticks past debounce threshold
+    advanceTicks(bridge, 11)
 
     expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
     expect(readNoteData(bridge, sourceId)!.velocity).toBe(80)
@@ -422,7 +424,8 @@ describe('SiliconBridge - Structural Debounce', () => {
   test('insertNoteDebounced queues insert', () => {
     const bridge = createTestBridge()
 
-    bridge.insertNoteDebounced(createTestNote())
+    const note = createTestNote()
+    bridge.insertNoteDebounced(note.pitch, note.velocity, note.duration, note.baseTick, note.muted ?? false)
 
     expect(bridge.getPendingStructuralCount()).toBe(1)
     expect(bridge.getMappingCount()).toBe(0) // Not yet applied
@@ -438,18 +441,20 @@ describe('SiliconBridge - Structural Debounce', () => {
     expect(bridge.getMappingCount()).toBe(1) // Not yet deleted
   })
 
-  test('flushStructural processes operations in order', async () => {
+  test('flushStructural processes operations in order', () => {
     const bridge = createTestBridge()
 
     // Queue multiple operations
-    bridge.insertNoteDebounced(createTestNote({ baseTick: 0 }))
-    bridge.insertNoteDebounced(createTestNote({ baseTick: 480 }))
+    const note1 = createTestNote({ baseTick: 0 })
+    const note2 = createTestNote({ baseTick: 480 })
+    bridge.insertNoteDebounced(note1.pitch, note1.velocity, note1.duration, note1.baseTick, note1.muted ?? false)
+    bridge.insertNoteDebounced(note2.pitch, note2.velocity, note2.duration, note2.baseTick, note2.muted ?? false)
 
     expect(bridge.getPendingStructuralCount()).toBe(2)
     expect(bridge.getMappingCount()).toBe(0)
 
-    // Wait for debounce
-    await wait(20)
+    // RFC-045-06: Advance ticks past debounce threshold
+    advanceTicks(bridge, 11)
 
     expect(bridge.getPendingStructuralCount()).toBe(0)
     expect(bridge.getMappingCount()).toBe(2)
@@ -547,7 +552,8 @@ describe('SiliconBridge - Batch Operations', () => {
 
     const sourceId = bridge.insertNoteImmediate(createTestNote())
     bridge.patchDebounced(sourceId, 'pitch', 72)
-    bridge.insertNoteDebounced(createTestNote())
+    const note = createTestNote()
+    bridge.insertNoteDebounced(note.pitch, note.velocity, note.duration, note.baseTick, note.muted ?? false)
 
     expect(bridge.hasPending()).toBe(true)
 
@@ -623,26 +629,23 @@ describe('SiliconBridge - Read Operations', () => {
 // =============================================================================
 
 describe('SiliconBridge - Error Handling', () => {
-  test('onError callback receives errors during flush', async () => {
+  test('onError callback receives errors during flush', () => {
     const linker = createTestLinker()
-    const errors: Error[] = []
+    const errorCodes: number[] = []
 
     const bridge = new SiliconBridge(linker, {
-      onError: (error) => errors.push(error)
+      attributeDebounceTicks: 10,
+      onError: (errorCode) => errorCodes.push(errorCode)
     })
 
     // Queue patch for non-existent sourceId (will fail during flush)
-    ;(bridge as unknown as { pendingPatches: Map<string, unknown> }).pendingPatches.set('99999:pitch', {
-      sourceId: 99999,
-      type: 'pitch',
-      value: 72,
-      timestamp: Date.now()
-    })
+    bridge.patchDebounced(99999, 'pitch', 72)
 
-    bridge.flushPatches()
+    // Advance ticks to trigger flush
+    advanceTicks(bridge, 11)
 
-    expect(errors.length).toBe(1)
-    expect(errors[0].message).toContain('Unknown sourceId')
+    expect(errorCodes.length).toBe(1)
+    expect(errorCodes[0]).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 })
 
@@ -666,18 +669,18 @@ describe('SiliconBridge - Factory Function', () => {
     expect(linker).toBeDefined()
   })
 
-  test('createSiliconBridge accepts debounce options', async () => {
+  test('createSiliconBridge accepts debounce options', () => {
     const bridge = createSiliconBridge({
       nodeCapacity: 256,
       safeZoneTicks: 0,
-      attributeDebounceMs: 5
+      attributeDebounceTicks: 5
     })
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
     bridge.patchDebounced(sourceId, 'pitch', 72)
 
-    // Wait shorter than default but longer than custom
-    await wait(10)
+    // RFC-045-06: Advance ticks past custom debounce threshold (5 ticks)
+    advanceTicks(bridge, 6)
 
     expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
   })
@@ -688,12 +691,12 @@ describe('SiliconBridge - Factory Function', () => {
 // =============================================================================
 
 describe('SiliconBridge - Integration', () => {
-  test('full edit cycle: load, patch, delete', async () => {
+  test('full edit cycle: load, patch, delete', () => {
     const bridge = createSiliconBridge({
       nodeCapacity: 256,
       safeZoneTicks: 0,
-      attributeDebounceMs: 5,
-      structuralDebounceMs: 5
+      attributeDebounceTicks: 5,
+      structuralDebounceTicks: 5
     })
 
     // Load clip
@@ -707,7 +710,9 @@ describe('SiliconBridge - Integration', () => {
 
     // Debounced patch
     bridge.patchDebounced(sourceIds[1], 'pitch', 65)
-    await wait(10)
+
+    // RFC-045-06: Advance ticks past debounce threshold (5 ticks)
+    advanceTicks(bridge, 6)
 
     expect(readNoteData(bridge, sourceIds[1])!.pitch).toBe(65)
 
@@ -722,11 +727,11 @@ describe('SiliconBridge - Integration', () => {
     expect(notes[1].note.baseTick).toBe(960)
   })
 
-  test('concurrent debounced operations', async () => {
+  test('concurrent debounced operations', () => {
     const bridge = createSiliconBridge({
       nodeCapacity: 256,
       safeZoneTicks: 0,
-      attributeDebounceMs: 5
+      attributeDebounceTicks: 5
     })
 
     const sourceId = bridge.insertNoteImmediate(createTestNote())
@@ -740,7 +745,8 @@ describe('SiliconBridge - Integration', () => {
     // Should have coalesced
     expect(bridge.getPendingPatchCount()).toBe(2) // One for pitch, one for velocity
 
-    await wait(10)
+    // RFC-045-06: Advance ticks past debounce threshold (5 ticks)
+    advanceTicks(bridge, 6)
 
     // Final values
     const note = readNoteData(bridge, sourceId)!
@@ -921,12 +927,12 @@ describe('RFC-044: Async Path & Resilience', () => {
       expect(sab[HDR.HEAD_PTR]).toBe(NULL_PTR)
     })
 
-    it('should clear debounce timers', async () => {
+    it('should clear debounce timers', () => {
       const bridge = createTestBridge()
       const linker = bridge['linker'] as SiliconSynapse
 
       // Insert a note and queue a patch (which triggers debounce)
-      const ptr = bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
+      bridge.insertAsync(OPCODE.NOTE, 60, 100, 480, 0, false, 1001)
       linker.processCommands()
 
       // Queue a patch (triggers debounce timer)
@@ -935,8 +941,8 @@ describe('RFC-044: Async Path & Resilience', () => {
       // Hard reset should clear timers
       bridge.hardReset()
 
-      // Wait for what would have been the debounce period
-      await wait(20)
+      // RFC-045-06: Advance ticks to where flush would have happened
+      advanceTicks(bridge, 11)
 
       // Node should not exist (was cleared by reset)
       const sab = new Int32Array(linker.getSAB())

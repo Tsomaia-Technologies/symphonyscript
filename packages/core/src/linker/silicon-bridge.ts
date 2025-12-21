@@ -315,19 +315,19 @@ export class SiliconBridge {
 
   /**
    * Get SOURCE_ID for a NodePtr.
-   * Returns 0 (not found) if node is not active.
+   * Returns undefined if node is not active or not found.
    *
    * **Zero-Alloc Implementation**: Uses hoisted handler.
    */
-  getSourceId(ptr: NodePtr): number {
-    if (ptr === NULL_PTR) return 0
+  getSourceId(ptr: NodePtr): number | undefined {
+    if (ptr === NULL_PTR) return undefined
 
     this._getSourceIdResult = 0
     this._getSourceIdIsActive = false
 
     this.linker.readNode(ptr, this.handleGetSourceIdNode)
 
-    return this._getSourceIdResult
+    return this._getSourceIdIsActive ? this._getSourceIdResult : undefined
   }
 
   /**
@@ -568,12 +568,10 @@ export class SiliconBridge {
 
   /**
    * Queue an attribute patch with debouncing.
+   * RFC-045-06: Implements coalescing - updates existing pending patch if found.
    */
   patchDebounced(sourceId: number, type: PatchType, value: number | boolean): void {
-    const idx = this.patchTail & SiliconBridge.PATCH_RING_MASK
-
-    this.patchSourceIds[idx] = sourceId
-    this.patchTypes[idx] =
+    const patchType =
       type === 'pitch'
         ? PATCH_TYPE.PITCH
         : type === 'velocity'
@@ -583,7 +581,26 @@ export class SiliconBridge {
             : type === 'baseTick'
               ? PATCH_TYPE.BASE_TICK
               : PATCH_TYPE.MUTED
-    this.patchValues[idx] = typeof value === 'boolean' ? (value ? 1 : 0) : (value as number)
+    const patchValue = typeof value === 'boolean' ? (value ? 1 : 0) : (value as number)
+
+    // RFC-045-06: Coalesce - scan pending patches for matching sourceId+type
+    let i = this.patchHead
+    while (i < this.patchTail) {
+      const idx = i & SiliconBridge.PATCH_RING_MASK
+      if (this.patchSourceIds[idx] === sourceId && this.patchTypes[idx] === patchType) {
+        // Found match - update in place
+        this.patchValues[idx] = patchValue
+        this.patchDebounceTick = this.currentTick + this.attributeDebounceTicks
+        return
+      }
+      i = i + 1
+    }
+
+    // No match - append new patch
+    const idx = this.patchTail & SiliconBridge.PATCH_RING_MASK
+    this.patchSourceIds[idx] = sourceId
+    this.patchTypes[idx] = patchType
+    this.patchValues[idx] = patchValue
 
     this.patchTail = this.patchTail + 1
     this.patchDebounceTick = this.currentTick + this.attributeDebounceTicks
@@ -803,7 +820,7 @@ export class SiliconBridge {
       )
 
       this.registerMapping(sourceId, ptr, note.source)
-      sourceIds[notes.length - 1 - i] = sourceId
+      sourceIds[i] = sourceId
       i = i - 1
     }
 
