@@ -67,6 +67,16 @@ export class SynapseAllocator {
   }
 
   /**
+   * Reset allocator state after table clear.
+   *
+   * **Note:** Actual memory clearing is done by SiliconSynapse.synapseTableClear().
+   * This method resets the allocator's internal tracking counters.
+   */
+  clear(): void {
+    this.usedSlots = 0
+  }
+
+  /**
    * Create a synaptic connection between two Axons.
    *
    * This is an O(1) operation (amortized) that writes a "Dendrite" into the

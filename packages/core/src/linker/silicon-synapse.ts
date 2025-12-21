@@ -19,7 +19,10 @@ import {
   ID_TABLE,
   SYM_TABLE,
   getSymbolTableOffset,
-  CMD
+  CMD,
+  SYNAPSE_TABLE,
+  SYNAPSE,
+  getSynapseTableOffset
 } from './constants'
 // Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
@@ -1394,6 +1397,35 @@ export class SiliconSynapse implements ISiliconLinker {
   }
 
   // ===========================================================================
+  // RFC-045: Synapse Table Operations
+  // ===========================================================================
+
+  /**
+   * Clear the entire Synapse Table (memset-style).
+   * Sets all SOURCE_PTR fields to NULL_PTR, effectively tombstoning all synapses.
+   *
+   * **Performance:** O(n) where n = SYNAPSE_TABLE.MAX_CAPACITY (65536).
+   * Approximately 260KB of memory touched. ~1ms on modern hardware.
+   *
+   * **Thread Safety:** Must be called with Chain Mutex held.
+   */
+  private synapseTableClear(): void {
+    const nodeCapacity = Atomics.load(this.sab, HDR.NODE_CAPACITY)
+    const tableOffsetI32 = getSynapseTableOffset(nodeCapacity) / 4
+
+    let slot = 0
+    while (slot < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = tableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
+      // Zero all 4 words of each synapse entry
+      Atomics.store(this.sab, offset + SYNAPSE.SOURCE_PTR, NULL_PTR)
+      Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
+      Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, 0)
+      Atomics.store(this.sab, offset + SYNAPSE.META_NEXT, 0)
+      slot = slot + 1
+    }
+  }
+
+  // ===========================================================================
   // RFC-044: Command Ring Processing (Worker/Consumer Side)
   // ===========================================================================
 
@@ -1575,9 +1607,10 @@ export class SiliconSynapse implements ISiliconLinker {
     Atomics.store(this.sab, HDR.NODE_COUNT, 0)
     Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
-    // Clear Identity and Symbol tables
+    // Clear Identity, Symbol, and Synapse tables
     this.idTableClear()
     this.symTableClear()
+    this.synapseTableClear()
 
     // Track operation for telemetry
     this._incrementTelemetry()

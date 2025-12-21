@@ -907,7 +907,10 @@ export class SiliconBridge {
     this.linker.processCommands()
 
     // Clear bridge state
-    // (linker.executeClear already cleared idTable and symTable)
+    // (linker.executeClear already cleared idTable, symTable, and synapseTable)
+
+    // Reset SynapseAllocator tracking counters (RFC-045)
+    this.synapseAllocator.clear()
 
     // Reset fired ring
     this.firedRingHead = 0
