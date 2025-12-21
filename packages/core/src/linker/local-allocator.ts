@@ -30,6 +30,7 @@ export class LocalAllocator {
   private readonly sab: Int32Array
   private nextPtr: number // Byte offset to next free node
   private readonly limitPtr: number // Byte offset to end of heap
+  private readonly startPtr: number // Byte offset where Zone B begins (for telemetry)
 
   /**
    * Create a Local Allocator for Zone B.
@@ -45,6 +46,7 @@ export class LocalAllocator {
     const zoneBStartOffset = HEAP_START_OFFSET + zoneSplitIndex * NODE_SIZE_BYTES
     const heapEndOffset = HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
 
+    this.startPtr = zoneBStartOffset
     this.nextPtr = zoneBStartOffset
     this.limitPtr = heapEndOffset
   }
@@ -78,6 +80,24 @@ export class LocalAllocator {
   getFreeCount(): number {
     const remainingBytes = this.limitPtr - this.nextPtr
     return Math.floor(remainingBytes / NODE_SIZE_BYTES)
+  }
+
+  /**
+   * Get Zone B utilization (RFC-044 Telemetry).
+   *
+   * @returns Utilization ratio from 0.0 (empty) to 1.0 (full)
+   *
+   * @remarks
+   * **Fuel Gauge:** Monitor this to detect approaching Zone B exhaustion.
+   * - < 0.5: Healthy
+   * - 0.5 - 0.75: Monitor
+   * - 0.75 - 0.9: Warning
+   * - > 0.9: Critical (consider hardReset or defragmentation)
+   */
+  getUtilization(): number {
+    const used = this.nextPtr - this.startPtr
+    const total = this.limitPtr - this.startPtr
+    return total === 0 ? 0 : used / total
   }
 
   /**

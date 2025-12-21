@@ -1009,6 +1009,89 @@ export class SiliconBridge {
   }
 
   /**
+   * Hard reset the entire system (RFC-044 Resilience).
+   *
+   * **DANGER - THE EJECT BUTTON:**
+   * This nukes all state:
+   * - All nodes in the chain (Zone A + Zone B)
+   * - All Identity/Symbol table mappings
+   * - All pending patches and structural edits
+   * - Ring Buffer state
+   * - Zone B allocator reset to offset 0
+   *
+   * **Use Cases:**
+   * 1. **Page Reload Recovery:** If SAB persists but app reloads, stale Zone B
+   *    nodes may be referenced by the Worker. Hard reset clears everything.
+   * 2. **Zone B Exhaustion:** When getZoneBStats() shows > 90% usage and you
+   *    want to reclaim Zone B space.
+   * 3. **Error Recovery:** After KERNEL_PANIC or other catastrophic failures.
+   *
+   * **Thread Safety:**
+   * NOT thread-safe. Only call during initialization or when you can guarantee
+   * no Worker thread is accessing the SAB (e.g., after stopping AudioWorklet).
+   *
+   * @remarks
+   * After calling this, the system is in a clean initial state. You can
+   * immediately start writing new notes.
+   */
+  hardReset(): void {
+    // 1. Reset Linker (clears SAB: header, Zone A free list, tables, ring buffer)
+    this.linker.reset()
+
+    // 2. Reset Zone B allocator (bump pointer back to start)
+    const nodeCapacity = this.sab[HDR.NODE_CAPACITY]
+    this.localAllocator.reset(nodeCapacity)
+
+    // 3. Clear pending debounce state
+    this.pendingPatches.clear()
+    this.pendingStructural = []
+
+    // 4. Clear any active debounce timers
+    if (this.attributeDebounceTimer) {
+      clearTimeout(this.attributeDebounceTimer)
+      this.attributeDebounceTimer = null
+    }
+    if (this.structuralDebounceTimer) {
+      clearTimeout(this.structuralDebounceTimer)
+      this.structuralDebounceTimer = null
+    }
+
+    // Note: RingBuffer is stateless (reads from SAB headers), so it auto-resets
+    // when linker.reset() clears the SAB headers.
+  }
+
+  /**
+   * Get Zone B statistics (RFC-044 Telemetry).
+   *
+   * **The Fuel Gauge:**
+   * Monitor this to detect approaching Zone B exhaustion and decide when
+   * to call hardReset() or trigger defragmentation.
+   *
+   * @returns Zone B usage statistics
+   *
+   * @example
+   * ```typescript
+   * const stats = bridge.getZoneBStats()
+   * if (stats.usage > 0.9) {
+   *   console.warn('Zone B critical! Utilization:', stats.usage)
+   *   // Consider: bridge.hardReset() or trigger defragmentation
+   * }
+   * ```
+   *
+   * **Thresholds:**
+   * - < 0.5: Healthy (green)
+   * - 0.5 - 0.75: Monitor (yellow)
+   * - 0.75 - 0.9: Warning (orange)
+   * - > 0.9: Critical (red) - hardReset recommended
+   */
+  getZoneBStats(): { usage: number; freeNodes: number } {
+    return {
+      usage: this.localAllocator.getUtilization(),
+      freeNodes: this.localAllocator.getFreeCount()
+    }
+  }
+
+  /**
    * Get the underlying Silicon Linker.
    */
   getLinker(): SiliconLinker {

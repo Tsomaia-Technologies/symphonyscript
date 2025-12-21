@@ -25,7 +25,7 @@ import {
 import { FreeList } from './free-list'
 import { AttributePatcher } from './patch'
 import { RingBuffer } from './ring-buffer'
-import { createLinkerSAB } from './init'
+import { createLinkerSAB, resetLinkerSAB } from './init'
 import type {
   NodePtr,
   LinkerConfig,
@@ -902,6 +902,32 @@ export class SiliconLinker implements ISiliconLinker {
    */
   getSAB(): SharedArrayBuffer {
     return this.buffer
+  }
+
+  /**
+   * Reset the entire Linker state (RFC-044 Resilience).
+   *
+   * **DANGER:** This nukes all memory state:
+   * - Clears all nodes and resets chain to empty
+   * - Reinitializes Zone A free list (Zone B left untouched)
+   * - Clears Identity and Symbol tables
+   * - Resets Ring Buffer headers
+   * - Clears error flags
+   *
+   * **Thread Safety:**
+   * NOT thread-safe. Only call when no other threads are accessing the SAB.
+   * Typically used during app initialization or after detecting a stale SAB.
+   *
+   * **Use Cases:**
+   * - Page reload detected (SAB persists but app state is fresh)
+   * - Zone B exhaustion recovery
+   * - Error recovery after KERNEL_PANIC
+   *
+   * After calling reset(), the SiliconBridge must also call
+   * `localAllocator.reset()` to reset Zone B bump pointer.
+   */
+  reset(): void {
+    resetLinkerSAB(this.buffer)
   }
 
   /**
