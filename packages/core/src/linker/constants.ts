@@ -562,30 +562,31 @@ export const COMMAND = {
 /**
  * Synapse Table constants for the "Silicon Brain" Neural Audio Processor.
  *
- * The Synapse Table is a 1MB linear-probe hash table that connects musical
+ * The Synapse Table is a 1.25MB linear-probe hash table that connects musical
  * "Axons" (Clips) via probabilistic "Synapses" (Connections). This enables
  * non-linear, generative music where clips trigger each other based on weights,
  * jitter, and plasticity.
  *
- * Each Synapse occupies exactly 16 bytes (4 × i32) with tightly packed fields:
+ * Each Synapse occupies exactly 20 bytes (5 × i32) with tightly packed fields:
  * - SOURCE_PTR: The trigger node (end of clip) - used as hash key
  * - TARGET_PTR: The destination node (start of next clip)
  * - WEIGHT_DATA: Packed [Weight (16b) | Jitter (16b)]
  * - META_NEXT: Packed [Plasticity Flags (8b) | Next Synapse Ptr (24b)]
+ * - NEXT_SAME_TARGET: Slot index for reverse index linked list (synapses TO same target)
  */
 export const SYNAPSE_TABLE = {
-  /** Synapse Table size in bytes (1MB) */
-  SIZE_BYTES: 1048576,
-  /** Maximum number of synapses (1MB / 16 bytes) */
+  /** Synapse Table size in bytes (~1.25MB for 65536 × 20 bytes) */
+  SIZE_BYTES: 1310720,
+  /** Maximum number of synapses */
   MAX_CAPACITY: 65536,
-  /** Synapse stride in bytes (16 bytes for 4 × i32) */
-  STRIDE_BYTES: 16,
-  /** Synapse stride in i32 units (4 words) */
-  STRIDE_I32: 4
+  /** Synapse stride in bytes (20 bytes for 5 × i32) */
+  STRIDE_BYTES: 20,
+  /** Synapse stride in i32 units (5 words) */
+  STRIDE_I32: 5
 } as const
 
 /**
- * Synapse structure offsets (4 × i32 = 16 bytes per synapse).
+ * Synapse structure offsets (5 × i32 = 20 bytes per synapse).
  *
  * The Synapse struct represents a connection between two Axons (clips) in the
  * neural topology. It is tightly packed for cache efficiency and atomic operations.
@@ -595,6 +596,7 @@ export const SYNAPSE_TABLE = {
  * - [+1] TARGET_PTR: Byte offset to destination node
  * - [+2] WEIGHT_DATA: Packed (weight << 0) | (jitter << 16)
  * - [+3] META_NEXT: Packed (plasticity << 0) | (nextSynapse << 8)
+ * - [+4] NEXT_SAME_TARGET: Slot index for reverse index linked list (-1 = end)
  */
 export const SYNAPSE = {
   /** Source node pointer (trigger point, used as hash key) */
@@ -603,8 +605,10 @@ export const SYNAPSE = {
   TARGET_PTR: 1,
   /** Packed weight (0-1000) and jitter (0-65535) data */
   WEIGHT_DATA: 2,
-  /** Packed plasticity flags (8 bits) and next synapse pointer (24 bits) */
-  META_NEXT: 3
+  /** Packed plasticity flags (8 bits) and next synapse pointer (24 bits) for SOURCE chain */
+  META_NEXT: 3,
+  /** Slot index of next synapse with same TARGET (reverse index), -1 = end of list */
+  NEXT_SAME_TARGET: 4
 } as const
 
 /**
@@ -650,6 +654,42 @@ export const SYNAPSE_QUOTA = {
   /** Maximum synapses that can fire per audio block (default: 64) */
   MAX_FIRES_PER_BLOCK: 64
 } as const
+
+/**
+ * Reverse Index constants for O(k) disconnectAllToTarget() (RFC-045-04 ISSUE-016).
+ *
+ * The Reverse Index is a hash table that maps TARGET_PTR → linked list of synapses.
+ * This enables O(k) disconnect operations where k = number of synapses pointing
+ * to a target, instead of O(65536) full table scan.
+ *
+ * Memory Layout:
+ * - 256 buckets × 4 bytes = 1KB total
+ * - Each bucket stores the head slot index of a linked list
+ * - Synapses in the same bucket are chained via NEXT_SAME_TARGET field
+ */
+export const REVERSE_INDEX = {
+  /** Number of hash buckets (power of 2 for fast modulo) */
+  BUCKET_COUNT: 256,
+  /** Bitmask for bucket index calculation (BUCKET_COUNT - 1) */
+  BUCKET_MASK: 255,
+  /** Stride per bucket in i32 units (1 word = slot index) */
+  STRIDE_I32: 1,
+  /** Sentinel value for empty bucket or end of list */
+  EMPTY: -1
+} as const
+
+/**
+ * Calculate the byte offset to the Reverse Index table in the SAB.
+ *
+ * Layout: [Header][Nodes][IdTable][SymTable][RingBuffer][SynapseTable][ReverseIndex]
+ *
+ * @param nodeCapacity - Number of nodes in the SAB
+ * @returns Byte offset to the start of the Reverse Index table
+ */
+export function getReverseIndexOffset(nodeCapacity: number): number {
+  const synapseTableEnd = getSynapseTableOffset(nodeCapacity) + SYNAPSE_TABLE.SIZE_BYTES
+  return synapseTableEnd
+}
 
 // =============================================================================
 // Zero-Allocation Error Codes (RFC-045-04)
@@ -765,8 +805,9 @@ export function calculateSABSize(nodeCapacity: number): number {
   const symbolTableSize = nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const grooveSize = 1024 // Fixed groove template region
   const ringBufferSize = COMMAND.DEFAULT_RING_SIZE_BYTES // 64KB command ring (RFC-044)
-  const synapseTableSize = SYNAPSE_TABLE.SIZE_BYTES // 1MB synapse table (RFC-045)
-  return headerSize + heapSize + identityTableSize + symbolTableSize + grooveSize + ringBufferSize + synapseTableSize
+  const synapseTableSize = SYNAPSE_TABLE.SIZE_BYTES // ~1.25MB synapse table (RFC-045)
+  const reverseIndexSize = REVERSE_INDEX.BUCKET_COUNT * 4 // 1KB reverse index (ISSUE-016)
+  return headerSize + heapSize + identityTableSize + symbolTableSize + grooveSize + ringBufferSize + synapseTableSize + reverseIndexSize
 }
 
 /**

@@ -46,7 +46,12 @@ export {
   CMD,
   DEFAULT_RING_CAPACITY,
   getZoneSplitIndex,
-  getRingBufferOffset
+  getRingBufferOffset,
+  // RFC-045: Synapse Table & Reverse Index (ISSUE-016)
+  SYNAPSE_TABLE,
+  SYNAPSE,
+  REVERSE_INDEX,
+  getReverseIndexOffset
 } from './constants'
 
 // Types from constants

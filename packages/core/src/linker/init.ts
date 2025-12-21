@@ -24,7 +24,9 @@ import {
   getRingBufferOffset,
   DEFAULT_RING_CAPACITY,
   ID_TABLE,
-  SYM_TABLE
+  SYM_TABLE,
+  REVERSE_INDEX,
+  getReverseIndexOffset
 } from './constants'
 import { FreeList } from './free-list'
 import type { LinkerConfig } from './types'
@@ -84,6 +86,9 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
 
   // Initialize Ring Buffer header (RFC-044)
   initializeRingBufferHeader(sab, cfg.nodeCapacity)
+
+  // Initialize Reverse Index table (ISSUE-016)
+  initializeReverseIndex(sab, cfg.nodeCapacity)
 
   return buffer
 }
@@ -228,6 +233,27 @@ function initializeRingBufferHeader(sab: Int32Array, nodeCapacity: number): void
 }
 
 /**
+ * Initialize the Reverse Index table (ISSUE-016).
+ *
+ * The Reverse Index maps TARGET_PTR → linked list of synapses for O(k) disconnect.
+ * All buckets are initialized to EMPTY (-1) to indicate no synapses in that bucket.
+ *
+ * @param sab - Int32Array view of the SharedArrayBuffer
+ * @param nodeCapacity - Number of nodes in the SAB (used to calculate offset)
+ */
+function initializeReverseIndex(sab: Int32Array, nodeCapacity: number): void {
+  const reverseIndexOffset = getReverseIndexOffset(nodeCapacity)
+  const reverseIndexI32 = reverseIndexOffset / 4
+
+  // Initialize all buckets to EMPTY (-1)
+  let bucket = 0
+  while (bucket < REVERSE_INDEX.BUCKET_COUNT) {
+    sab[reverseIndexI32 + bucket] = REVERSE_INDEX.EMPTY
+    bucket = bucket + 1
+  }
+}
+
+/**
  * Validate that a SharedArrayBuffer has the correct Silicon Linker format.
  *
  * @param buffer - Buffer to validate
@@ -314,6 +340,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 
   // Re-initialize Ring Buffer header (RFC-044)
   initializeRingBufferHeader(sab, nodeCapacity)
+
+  // Re-initialize Reverse Index table (ISSUE-016)
+  initializeReverseIndex(sab, nodeCapacity)
 }
 
 /**

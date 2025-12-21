@@ -25,7 +25,10 @@ import {
   SYNAPSE_TABLE,
   BRIDGE_ERR,
   SOURCE_ID,
-  getSynapseTableOffset
+  getSynapseTableOffset,
+  REVERSE_INDEX,
+  KNUTH_HASH_CONST,
+  getReverseIndexOffset
 } from './constants'
 import type { NodePtr, SynapsePtr, BrainSnapshot, BrainSnapshotArrays } from './types'
 import { LocalAllocator } from './local-allocator'
@@ -128,6 +131,7 @@ export class SiliconBridge {
   // RFC-045: Synapse Graph (Neural Audio Processor)
   private synapseAllocator: SynapseAllocator
   private synapseTableOffsetI32: number
+  private reverseIndexI32: number
 
   /** Learning rate for plasticity (default: 10 = +1% per reward) */
   private learningRate: number
@@ -290,6 +294,7 @@ export class SiliconBridge {
     this.synapseAllocator = new SynapseAllocator(sab)
     this.learningRate = options.learningRate ?? 10
     this.synapseTableOffsetI32 = getSynapseTableOffset(nodeCapacity) / 4
+    this.reverseIndexI32 = getReverseIndexOffset(nodeCapacity) / 4
 
     // Pre-allocate ring buffers (init-time allocation is acceptable)
     this.firedRing = new Int32Array(SiliconBridge.FIRED_RING_CAPACITY)
@@ -1360,27 +1365,39 @@ export class SiliconBridge {
   }
 
   /**
-   * Disconnect all synapses TO a target pointer. COLD PATH.
-   * O(n) table scan. Zero allocations.
+   * Disconnect all synapses TO a target pointer using Reverse Index (ISSUE-016).
+   *
+   * **Performance:** O(k) where k = number of synapses pointing to this target.
+   * Uses the Reverse Index hash table instead of O(65536) full table scan.
+   *
+   * @internal COLD PATH - Zero allocations.
+   * @param targetPtr - The target node pointer to disconnect from
+   * @returns Number of synapses tombstoned
    */
   private disconnectAllToTarget(targetPtr: number): number {
     let count = 0
-    let slot = 0
 
-    while (slot < SYNAPSE_TABLE.MAX_CAPACITY) {
+    // Hash to find bucket in Reverse Index
+    const bucketIdx = ((targetPtr * KNUTH_HASH_CONST) >>> 0) & REVERSE_INDEX.BUCKET_MASK
+    const bucketOffset = this.reverseIndexI32 + bucketIdx
+
+    // Walk linked list of synapses in this bucket
+    let slot = Atomics.load(this.sab, bucketOffset)
+
+    while (slot !== REVERSE_INDEX.EMPTY) {
       const offset = this.synapseTableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
-
       const target = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
+      const nextSlot = Atomics.load(this.sab, offset + SYNAPSE.NEXT_SAME_TARGET)
+
+      // Check if this synapse actually points to our target
+      // (may have different target due to hash collision)
       if (target === targetPtr) {
-        const source = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
-        if (source !== NULL_PTR) {
-          // Tombstone
-          Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
-          count = count + 1
-        }
+        // Tombstone: set TARGET_PTR to NULL_PTR
+        Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
+        count = count + 1
       }
 
-      slot = slot + 1
+      slot = nextSlot
     }
 
     return count

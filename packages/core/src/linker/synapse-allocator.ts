@@ -10,7 +10,9 @@ import {
   NULL_PTR,
   getSynapseTableOffset,
   SYNAPSE_ERR,
-  KNUTH_HASH_CONST
+  KNUTH_HASH_CONST,
+  REVERSE_INDEX,
+  getReverseIndexOffset
 } from './constants'
 import type { SynapsePtr } from './types'
 
@@ -34,6 +36,7 @@ import type { SynapsePtr } from './types'
 export class SynapseAllocator {
   private readonly sab: Int32Array
   private readonly tableOffsetI32: number
+  private readonly reverseIndexI32: number
   private readonly capacity: number
 
   /** Tracks number of used slots for load factor monitoring (RFC-045-02 directive) */
@@ -46,6 +49,10 @@ export class SynapseAllocator {
     const nodeCapacity = this.sab[HDR.NODE_CAPACITY]
     const byteOffset = getSynapseTableOffset(nodeCapacity)
     this.tableOffsetI32 = byteOffset / 4
+
+    // Calculate reverse index offset (ISSUE-016)
+    const reverseByteOffset = getReverseIndexOffset(nodeCapacity)
+    this.reverseIndexI32 = reverseByteOffset / 4
 
     // Capacity is fixed by RFC-045 at 65536
     this.capacity = SYNAPSE_TABLE.MAX_CAPACITY
@@ -160,6 +167,18 @@ export class SynapseAllocator {
     Atomics.store(this.sab, entryOffset + SYNAPSE.WEIGHT_DATA, weightData)
     Atomics.store(this.sab, entryOffset + SYNAPSE.META_NEXT, 0)
     Atomics.store(this.sab, entryOffset + SYNAPSE.SOURCE_PTR, sourcePtr)
+
+    // 3b. Insert into Reverse Index linked list (ISSUE-016)
+    // Hash targetPtr to find bucket, prepend to linked list
+    const bucketIdx = ((targetPtr * KNUTH_HASH_CONST) >>> 0) & REVERSE_INDEX.BUCKET_MASK
+    const bucketOffset = this.reverseIndexI32 + bucketIdx
+
+    // Read current head, store as our next
+    const currentHead = Atomics.load(this.sab, bucketOffset)
+    Atomics.store(this.sab, entryOffset + SYNAPSE.NEXT_SAME_TARGET, currentHead)
+
+    // Update bucket head to point to us (slot index, not byte ptr)
+    Atomics.store(this.sab, bucketOffset, entrySlot)
 
     // 4. NOW link the entry (AFTER data is fully written)
     if (tailSlot !== -1) {
