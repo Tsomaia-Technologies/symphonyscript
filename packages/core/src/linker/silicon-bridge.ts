@@ -5,10 +5,11 @@
 // Provides SOURCE_ID ↔ NodePtr bidirectional mapping and 10ms debounce.
 
 import { SiliconSynapse } from './silicon-synapse'
-import { OPCODE, NULL_PTR, HDR, CMD, FLAG, NODE, PACKED } from './constants'
-import type { NodePtr } from './types'
+import { OPCODE, NULL_PTR, HDR, CMD, FLAG, NODE, PACKED, SYNAPSE, SYN_PACK, SYNAPSE_TABLE } from './constants'
+import type { NodePtr, SynapsePtr } from './types'
 import { LocalAllocator } from './local-allocator'
 import { RingBuffer } from './ring-buffer'
+import { SynapseAllocator } from './synapse-allocator'
 
 // =============================================================================
 // Types
@@ -78,6 +79,37 @@ export interface SiliconBridgeOptions {
   onStructuralApplied?: (type: 'insert' | 'delete', sourceId: number) => void
   /** Callback when an error occurs */
   onError?: (error: Error) => void
+  /** Learning rate for plasticity weight hardening (default: 10 = +1% per reward) */
+  learningRate?: number
+}
+
+/**
+ * Options for creating a synaptic connection.
+ */
+export interface SynapseOptions {
+  /** Probability/Intensity (0-1000, where 1000 = 100%) */
+  weight?: number
+  /** Micro-timing deviation in ticks (0-65535) */
+  jitter?: number
+}
+
+/**
+ * Synapse connection data for persistence.
+ */
+export interface SynapseSnapshot {
+  sourceId: number
+  targetId: number
+  weight: number
+  jitter: number
+}
+
+/**
+ * Full brain state snapshot for persistence.
+ */
+export interface BrainSnapshot {
+  version: number
+  timestamp: number
+  synapses: SynapseSnapshot[]
 }
 
 // =============================================================================
@@ -100,6 +132,26 @@ export class SiliconBridge {
   private localAllocator: LocalAllocator
   private ringBuffer: RingBuffer
   private sab: Int32Array
+
+  // RFC-045: Synapse Graph (Neural Audio Processor)
+  private synapseAllocator: SynapseAllocator
+  /**
+   * ReverseMap: targetSourceId → Set<sourceSourceId>
+   * Tracks which nodes have incoming synapse connections.
+   * Used by deleteNoteImmediate to auto-disconnect synapses (RFC-045 §6.1).
+   */
+  private reverseMap: Map<number, Set<number>> = new Map()
+  /**
+   * ForwardMap: sourceSourceId → Map<targetSourceId, SynapsePtr>
+   * Tracks outgoing synapse connections for fast disconnect lookup.
+   */
+  private forwardMap: Map<number, Map<number, SynapsePtr>> = new Map()
+  /** Learning rate for plasticity (default: 10 = +1% per reward) */
+  private learningRate: number
+  /** Recently fired synapses for reward distribution (ring buffer) */
+  private recentlyFiredSynapses: SynapsePtr[] = []
+  private recentlyFiredIndex: number = 0
+  private static readonly RECENTLY_FIRED_CAPACITY = 16
 
   // Debounce state
   private pendingPatches: Map<string, PendingPatch> = new Map() // key: `${sourceId}:${type}`
@@ -158,6 +210,15 @@ export class SiliconBridge {
     const nodeCapacity = this.sab[HDR.NODE_CAPACITY]
     this.localAllocator = new LocalAllocator(this.sab, nodeCapacity)
     this.ringBuffer = new RingBuffer(this.sab)
+
+    // RFC-045: Initialize Synapse Graph infrastructure
+    this.synapseAllocator = new SynapseAllocator(sab)
+    this.learningRate = options.learningRate ?? 10 // +1% per reward by default
+
+    // Pre-allocate recently fired ring buffer
+    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
+      this.recentlyFiredSynapses.push(NULL_PTR)
+    }
   }
 
   // ===========================================================================
@@ -513,12 +574,19 @@ export class SiliconBridge {
 
   /**
    * Delete a note immediately (bypasses debounce).
+   *
+   * **RFC-045 Disconnect Protocol**: Automatically disconnects all incoming
+   * and outgoing synapses before deleting the node to prevent dangling pointers.
    */
   deleteNoteImmediate(sourceId: number): void {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
       throw new Error(`Unknown sourceId: ${sourceId}`)
     }
+
+    // RFC-045 §6.1: Auto-disconnect synapses before deleting node
+    this.disconnectIncoming(sourceId) // Disconnect all incoming synapses
+    this.disconnect(sourceId) // Disconnect all outgoing synapses
 
     this.linker.deleteNode(ptr)
     this.unregisterMapping(sourceId, ptr)
@@ -785,6 +853,14 @@ export class SiliconBridge {
 
     // Clear Symbol Table (memset-style)
     this.linker.symTableClear()
+
+    // RFC-045: Clear synapse state (maps only - SAB cleared separately if needed)
+    this.forwardMap.clear()
+    this.reverseMap.clear()
+    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
+      this.recentlyFiredSynapses[i] = NULL_PTR
+    }
+    this.recentlyFiredIndex = 0
 
     // Clear pending operations
     this.pendingPatches.clear()
@@ -1056,8 +1132,18 @@ export class SiliconBridge {
       this.structuralDebounceTimer = null
     }
 
+    // 5. RFC-045: Clear synapse state
+    this.forwardMap.clear()
+    this.reverseMap.clear()
+    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
+      this.recentlyFiredSynapses[i] = NULL_PTR
+    }
+    this.recentlyFiredIndex = 0
+
     // Note: RingBuffer is stateless (reads from SAB headers), so it auto-resets
     // when linker.reset() clears the SAB headers.
+    // Note: SynapseAllocator reads from SAB, so it auto-resets when linker.reset()
+    // clears the Synapse Table region.
   }
 
   /**
@@ -1096,6 +1182,336 @@ export class SiliconBridge {
    */
   getLinker(): SiliconSynapse {
     return this.linker
+  }
+
+  // ===========================================================================
+  // RFC-045: Synapse Graph API (Neural Audio Processor)
+  // ===========================================================================
+
+  /**
+   * Create a synaptic connection between two clips (RFC-045 §6.2).
+   *
+   * **Safe API**: Validates SOURCE_IDs and maintains ReverseMap for automatic
+   * disconnection when nodes are deleted.
+   *
+   * @param sourceId - SOURCE_ID of the trigger node (end of clip)
+   * @param targetId - SOURCE_ID of the destination node (start of next clip)
+   * @param options - Optional weight (0-1000) and jitter (0-65535)
+   * @returns The SynapsePtr (byte offset) of the new synapse
+   * @throws Error if sourceId or targetId is not found
+   */
+  connect(sourceId: number, targetId: number, options: SynapseOptions = {}): SynapsePtr {
+    // 1. Resolve SOURCE_IDs to NodePtrs
+    const sourcePtr = this.getNodePtr(sourceId)
+    if (sourcePtr === undefined) {
+      throw new Error(`SiliconBridge.connect: Unknown sourceId ${sourceId}`)
+    }
+
+    const targetPtr = this.getNodePtr(targetId)
+    if (targetPtr === undefined) {
+      throw new Error(`SiliconBridge.connect: Unknown targetId ${targetId}`)
+    }
+
+    // 2. Apply defaults
+    const weight = options.weight ?? 500 // 50% probability by default
+    const jitter = options.jitter ?? 0
+
+    // 3. Create synapse in the Synapse Table
+    const synapsePtr = this.synapseAllocator.connect(sourcePtr, targetPtr, weight, jitter)
+
+    // 4. Update ForwardMap (sourceId → Map<targetId, synapsePtr>)
+    let outgoing = this.forwardMap.get(sourceId)
+    if (!outgoing) {
+      outgoing = new Map()
+      this.forwardMap.set(sourceId, outgoing)
+    }
+    outgoing.set(targetId, synapsePtr)
+
+    // 5. Update ReverseMap (targetId → Set<sourceId>)
+    let incoming = this.reverseMap.get(targetId)
+    if (!incoming) {
+      incoming = new Set()
+      this.reverseMap.set(targetId, incoming)
+    }
+    incoming.add(sourceId)
+
+    return synapsePtr
+  }
+
+  /**
+   * Remove a synaptic connection (RFC-045 §6.1).
+   *
+   * Sets TARGET_PTR to NULL_PTR (tombstone), making the synapse inactive.
+   * The Audio Thread will skip tombstoned synapses during resolution.
+   *
+   * @param sourceId - SOURCE_ID of the trigger node
+   * @param targetId - SOURCE_ID of the destination node (optional: disconnect all from source)
+   * @returns true if synapse was found and disconnected
+   */
+  disconnect(sourceId: number, targetId?: number): boolean {
+    const outgoing = this.forwardMap.get(sourceId)
+    if (!outgoing) {
+      return false
+    }
+
+    if (targetId !== undefined) {
+      // Disconnect specific connection
+      const synapsePtr = outgoing.get(targetId)
+      if (synapsePtr === undefined) {
+        return false
+      }
+
+      // Tombstone the synapse (set TARGET_PTR to NULL_PTR)
+      this.synapseAllocator.disconnect(synapsePtr)
+
+      // Update maps
+      outgoing.delete(targetId)
+      if (outgoing.size === 0) {
+        this.forwardMap.delete(sourceId)
+      }
+
+      const incoming = this.reverseMap.get(targetId)
+      if (incoming) {
+        incoming.delete(sourceId)
+        if (incoming.size === 0) {
+          this.reverseMap.delete(targetId)
+        }
+      }
+
+      return true
+    } else {
+      // Disconnect all outgoing connections from this source
+      let disconnected = false
+      const entries = Array.from(outgoing.entries())
+      for (let i = 0; i < entries.length; i++) {
+        const [tgtId, synapsePtr] = entries[i]
+        this.synapseAllocator.disconnect(synapsePtr)
+
+        const incoming = this.reverseMap.get(tgtId)
+        if (incoming) {
+          incoming.delete(sourceId)
+          if (incoming.size === 0) {
+            this.reverseMap.delete(tgtId)
+          }
+        }
+
+        disconnected = true
+      }
+
+      this.forwardMap.delete(sourceId)
+      return disconnected
+    }
+  }
+
+  /**
+   * Disconnect all incoming synapses to a node (RFC-045 §6.1 Disconnect Protocol).
+   *
+   * Called automatically by deleteNoteImmediate to ensure no dangling pointers.
+   *
+   * @param targetId - SOURCE_ID of the node being deleted
+   * @returns Number of synapses disconnected
+   */
+  private disconnectIncoming(targetId: number): number {
+    const incoming = this.reverseMap.get(targetId)
+    if (!incoming) {
+      return 0
+    }
+
+    let count = 0
+    const srcIds = Array.from(incoming)
+    for (let i = 0; i < srcIds.length; i++) {
+      const srcId = srcIds[i]
+      const outgoing = this.forwardMap.get(srcId)
+      if (outgoing) {
+        const synapsePtr = outgoing.get(targetId)
+        if (synapsePtr !== undefined) {
+          this.synapseAllocator.disconnect(synapsePtr)
+          outgoing.delete(targetId)
+          if (outgoing.size === 0) {
+            this.forwardMap.delete(srcId)
+          }
+          count++
+        }
+      }
+    }
+
+    this.reverseMap.delete(targetId)
+    return count
+  }
+
+  /**
+   * Record a fired synapse for plasticity reward distribution.
+   *
+   * Called by the playback engine (SynapticCursor) when a synapse fires.
+   * The synapse is added to a ring buffer of recently fired synapses.
+   *
+   * @param synapsePtr - The synapse that fired
+   */
+  recordFiredSynapse(synapsePtr: SynapsePtr): void {
+    this.recentlyFiredSynapses[this.recentlyFiredIndex] = synapsePtr
+    this.recentlyFiredIndex = (this.recentlyFiredIndex + 1) % SiliconBridge.RECENTLY_FIRED_CAPACITY
+  }
+
+  /**
+   * Apply reward to recently fired synapses (RFC-045 §5.1 Weight-Hardening).
+   *
+   * **Potentiation**: Increases the weight of recently fired synapses by
+   * LEARNING_RATE. This makes successful musical transitions more probable
+   * over time.
+   *
+   * @param multiplier - Optional multiplier for the learning rate (default: 1.0)
+   */
+  reward(multiplier: number = 1.0): void {
+    const delta = Math.round(this.learningRate * multiplier)
+    if (delta === 0) return
+
+    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
+      const synapsePtr = this.recentlyFiredSynapses[i]
+      if (synapsePtr === NULL_PTR) continue
+
+      // Read current weight
+      const offset = synapsePtr / 4
+      const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
+      const currentWeight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
+      const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
+
+      // Apply delta with clamping (0-1000)
+      const newWeight = Math.max(0, Math.min(1000, currentWeight + delta))
+
+      // Pack and write back
+      const newWeightData =
+        ((newWeight & SYN_PACK.WEIGHT_MASK) << SYN_PACK.WEIGHT_SHIFT) |
+        ((jitter & SYN_PACK.JITTER_MASK) << SYN_PACK.JITTER_SHIFT)
+
+      Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, newWeightData)
+    }
+  }
+
+  /**
+   * Apply penalty to recently fired synapses (inverse of reward).
+   *
+   * **Depression**: Decreases the weight of recently fired synapses.
+   * Useful for "unlearning" unsuccessful transitions.
+   *
+   * @param multiplier - Optional multiplier for the learning rate (default: 1.0)
+   */
+  penalize(multiplier: number = 1.0): void {
+    this.reward(-multiplier)
+  }
+
+  /**
+   * Set the learning rate for plasticity (RFC-045 §5.1).
+   *
+   * @param rate - Learning rate (10 = +1% per reward, 100 = +10% per reward)
+   */
+  setLearningRate(rate: number): void {
+    this.learningRate = rate
+  }
+
+  /**
+   * Get the current learning rate.
+   */
+  getLearningRate(): number {
+    return this.learningRate
+  }
+
+  /**
+   * Get synapse table statistics (RFC-045 Telemetry).
+   *
+   * @returns Usage statistics for the Synapse Table
+   */
+  getSynapseStats(): { loadFactor: number; usedSlots: number; capacity: number } {
+    return {
+      loadFactor: this.synapseAllocator.getLoadFactor(),
+      usedSlots: this.synapseAllocator.getUsedSlots(),
+      capacity: SYNAPSE_TABLE.MAX_CAPACITY
+    }
+  }
+
+  // ===========================================================================
+  // RFC-045: Persistence (Long-Term Memory)
+  // ===========================================================================
+
+  /**
+   * Create a snapshot of the brain state for persistence (RFC-045 §5.2).
+   *
+   * Exports all synapses with their current weights for storage in IndexedDB.
+   * Use restore() to re-hydrate the brain state on session load.
+   *
+   * @returns BrainSnapshot containing all synapse data
+   */
+  snapshot(): BrainSnapshot {
+    const synapses: SynapseSnapshot[] = []
+
+    // Iterate through ForwardMap to collect all synapses
+    const forwardEntries = Array.from(this.forwardMap.entries())
+    for (let i = 0; i < forwardEntries.length; i++) {
+      const [sourceId, outgoing] = forwardEntries[i]
+      const outgoingEntries = Array.from(outgoing.entries())
+      for (let j = 0; j < outgoingEntries.length; j++) {
+        const [targetId, synapsePtr] = outgoingEntries[j]
+        // Read weight and jitter from SAB
+        const offset = synapsePtr / 4
+        const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
+        const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
+        const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
+
+        synapses.push({ sourceId, targetId, weight, jitter })
+      }
+    }
+
+    return {
+      version: 1,
+      timestamp: Date.now(),
+      synapses
+    }
+  }
+
+  /**
+   * Restore brain state from a snapshot (RFC-045 §5.2 Re-Hydration).
+   *
+   * Re-creates all synapses with their persisted weights. This restores the
+   * "learned personality" of the brain after a session reload.
+   *
+   * **Prerequisites**: All source and target nodes must already exist in the
+   * chain (restored via loadClip or similar). Synapses referencing unknown
+   * SOURCE_IDs will be skipped with a warning.
+   *
+   * @param snapshot - BrainSnapshot to restore
+   * @returns Number of synapses successfully restored
+   */
+  restore(snapshot: BrainSnapshot): number {
+    let restored = 0
+
+    for (const syn of snapshot.synapses) {
+      try {
+        // Only restore if both nodes exist
+        const sourcePtr = this.getNodePtr(syn.sourceId)
+        const targetPtr = this.getNodePtr(syn.targetId)
+
+        if (sourcePtr === undefined || targetPtr === undefined) {
+          // Node not found - skip this synapse
+          continue
+        }
+
+        this.connect(syn.sourceId, syn.targetId, {
+          weight: syn.weight,
+          jitter: syn.jitter
+        })
+        restored++
+      } catch {
+        // Connection failed (e.g., table full) - continue with others
+      }
+    }
+
+    return restored
+  }
+
+  /**
+   * Get the underlying Synapse Allocator.
+   */
+  getSynapseAllocator(): SynapseAllocator {
+    return this.synapseAllocator
   }
 }
 

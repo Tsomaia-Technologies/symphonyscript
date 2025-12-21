@@ -53,6 +53,7 @@ export type { Opcode, CommitState, ErrorCode, NodeFlag } from './constants'
 // Types from types module
 export type {
   NodePtr,
+  SynapsePtr,
   LinkerConfig,
   EditResult,
   ISiliconLinker
@@ -64,7 +65,8 @@ export {
   SafeZoneViolationError,
   InvalidPointerError,
   KernelPanicError,
-  CommandQueueOverflowError
+  CommandQueueOverflowError,
+  SynapseTableFullError
 } from './types'
 
 // Initialization
@@ -85,6 +87,9 @@ export { AttributePatcher } from './patch'
 export { LocalAllocator } from './local-allocator'
 export { RingBuffer } from './ring-buffer'
 
+// RFC-045: Synapse Graph (Neural Audio Processor)
+export { SynapseAllocator } from './synapse-allocator'
+
 // Testing utilities
 export { MockConsumer } from './mock-consumer'
 export type { ConsumerNoteEvent } from './mock-consumer'
@@ -95,7 +100,11 @@ export type {
   SourceLocation,
   EditorNoteData,
   PatchType,
-  SiliconBridgeOptions
+  SiliconBridgeOptions,
+  // RFC-045: Synapse Graph types
+  SynapseOptions,
+  SynapseSnapshot,
+  BrainSnapshot
 } from './silicon-bridge'
 
 // Live Mirror pattern (RFC-043 Phase 4)
@@ -119,3 +128,6 @@ export {
   type LiveChordData,
   type LiveDrumHitData
 } from './cursors'
+
+// RFC-045: Neural Playback Cursors
+export { SynapticCursor, type SynapseResolutionResult } from './cursors'
