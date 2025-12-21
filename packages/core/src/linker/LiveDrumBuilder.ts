@@ -80,10 +80,13 @@ export class LiveDrumBuilder extends LiveClipBuilder {
   withMapping<T extends { readonly [k: string]: NoteName }>(mapping: T): this {
     // Convert NoteName to MIDI numbers
     const { noteToMidi } = require('../util/midi')
-    for (const [key, value] of Object.entries(mapping)) {
-      const midi = noteToMidi(value)
-      if (midi !== null) {
-        this._drumMap[key.toLowerCase()] = midi
+    for (const key in mapping) {
+      if (Object.prototype.hasOwnProperty.call(mapping, key)) {
+        const value = (mapping as Record<string, NoteName>)[key]
+        const midi = noteToMidi(value)
+        if (midi !== null) {
+          this._drumMap[key.toLowerCase()] = midi
+        }
       }
     }
     return this
@@ -201,14 +204,19 @@ export class LiveDrumBuilder extends LiveClipBuilder {
     const dur = this.resolveDuration(stepDuration)
     const vel = velocity <= 1 ? Math.round(velocity * 127) : Math.round(velocity)
 
-    for (let r = 0; r < repeat; r++) {
-      for (const isHit of pattern) {
+    let r = 0
+    while (r < repeat) {
+      let p = 0
+      while (p < pattern.length) {
+        const isHit = pattern[p]
         if (isHit) {
           const sourceId = this.getSourceIdFromCallSite(this.currentTick) // Use tick as offset for unique ID
           this.synchronizeNote(sourceId, pitch, vel, dur, this.currentTick)
         }
         this.currentTick += dur
+        p = p + 1
       }
+      r = r + 1
     }
 
     return this

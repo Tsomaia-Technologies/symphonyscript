@@ -280,7 +280,8 @@ export class FreeList {
     // Link Zone A nodes into free list: node[i].PACKED_A = ptr to node[i+1]
     // Last node points to NULL_PTR
     // Zone B nodes (from zoneASize to totalCapacity - 1) are left uninitialized
-    for (let i = 0; i < zoneASize; i++) {
+    let i = 0
+    while (i < zoneASize) {
       const offset = heapStartI32 + i * NODE_SIZE_I32
       const ptr = offset * 4 // Convert i32 index to byte pointer
 
@@ -304,6 +305,7 @@ export class FreeList {
       sab[offset + NODE.PREV_PTR] = NULL_PTR
       sab[offset + NODE.SOURCE_ID] = 0
       sab[offset + NODE.LAST_PASS_ID] = 0
+      i = i + 1
     }
 
     // Set header pointers

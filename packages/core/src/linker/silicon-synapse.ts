@@ -1089,7 +1089,8 @@ export class SiliconSynapse implements ISiliconLinker {
     const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const offset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, offset)
 
@@ -1115,6 +1116,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Linear probe to next slot (bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Table full
@@ -1136,7 +1138,8 @@ export class SiliconSynapse implements ISiliconLinker {
     const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const offset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, offset)
 
@@ -1152,6 +1155,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Linear probe (skip tombstones, bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Not found after full scan
@@ -1176,7 +1180,8 @@ export class SiliconSynapse implements ISiliconLinker {
     const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     let slot = this.idTableHash(sourceId)
 
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const offset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, offset)
 
@@ -1194,6 +1199,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Linear probe (bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Not found
@@ -1214,8 +1220,10 @@ export class SiliconSynapse implements ISiliconLinker {
     const totalI32 = capacity * ID_TABLE.ENTRY_SIZE_I32
 
     // Zero out entire table using Atomics
-    for (let i = 0; i < totalI32; i++) {
+    let i = 0
+    while (i < totalI32) {
       Atomics.store(this.sab, tableOffsetI32 + i, 0)
+      i = i + 1
     }
 
     // Reset used count and clear load factor warning
@@ -1264,7 +1272,8 @@ export class SiliconSynapse implements ISiliconLinker {
 
     // Probe to find the slot where sourceId will be/is stored
     // Uses same logic as idTableInsert for consistency
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const idOffset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, idOffset)
 
@@ -1281,6 +1290,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Collision - linear probe to next slot (bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Table full
@@ -1305,7 +1315,8 @@ export class SiliconSynapse implements ISiliconLinker {
     let slot = this.idTableHash(sourceId)
 
     // Probe to find the slot where sourceId is stored in Identity Table
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const idOffset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, idOffset)
 
@@ -1334,6 +1345,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Linear probe (continue past tombstones, bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Not found after full scan
@@ -1354,7 +1366,8 @@ export class SiliconSynapse implements ISiliconLinker {
     let slot = this.idTableHash(sourceId)
 
     // Probe to find the slot where sourceId is stored in Identity Table
-    for (let i = 0; i < capacity; i++) {
+    let i = 0
+    while (i < capacity) {
       const idOffset = this.idTableSlotOffset(slot)
       const tid = Atomics.load(this.sab, idOffset)
 
@@ -1373,6 +1386,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // Linear probe (bitwise for power-of-2 capacity)
       slot = (slot + 1) & (capacity - 1)
+      i = i + 1
     }
 
     // Not found
@@ -1392,8 +1406,10 @@ export class SiliconSynapse implements ISiliconLinker {
     const totalI32 = capacity * SYM_TABLE.ENTRY_SIZE_I32
 
     // Zero out entire table using Atomics
-    for (let i = 0; i < totalI32; i++) {
+    let i = 0
+    while (i < totalI32) {
       Atomics.store(this.sab, tableOffsetI32 + i, 0)
+      i = i + 1
     }
   }
 

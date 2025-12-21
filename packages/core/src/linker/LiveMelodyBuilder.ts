@@ -135,7 +135,8 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
     const noteDataList: LiveMelodyNoteData[] = []
     const noteSourceIds: number[] = []
 
-    for (let i = 0; i < notes.length; i++) {
+    let i = 0
+    while (i < notes.length) {
       const midiPitch = this.resolvePitch(notes[i])
       const transposedPitch = midiPitch + this._transposition
       const sourceId = this.getSourceIdFromCallSite(i)
@@ -150,6 +151,7 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
         glide: undefined,
         tie: undefined
       })
+      i = i + 1
     }
 
     this.currentTick += dur
@@ -257,7 +259,12 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
       throw new Error('degreeChord() requires scale() to be called first')
     }
 
-    const notes = degrees.map(deg => degreeToNote(deg, this._scaleContext!) as NoteName)
+    const notes: NoteName[] = []
+    let i = 0
+    while (i < degrees.length) {
+      notes.push(degreeToNote(degrees[i], this._scaleContext!) as NoteName)
+      i = i + 1
+    }
     return this.chord(notes, duration)
   }
 
@@ -299,9 +306,11 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
 
     if (inversion > 0 && this._scaleContext) {
       const scaleLen = SCALE_INTERVALS[this._scaleContext.mode].length
-      for (let i = 0; i < inversion; i++) {
+      let inv = 0
+      while (inv < inversion) {
         const shift = degrees.shift()!
         degrees.push(shift + scaleLen)
+        inv = inv + 1
       }
     }
 
@@ -328,7 +337,14 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
         options = rest[0] as { duration?: NoteDuration; octave?: number }
       }
     } else {
-      numerals = [arg1, ...rest.filter(r => typeof r === 'string')] as string[]
+      numerals = [arg1 as string]
+      let ri = 0
+      while (ri < rest.length) {
+        if (typeof rest[ri] === 'string') {
+          numerals[numerals.length] = rest[ri] as string
+        }
+        ri = ri + 1
+      }
     }
 
     const duration = options.duration ?? '1n'
@@ -336,9 +352,11 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
 
     const { romanToChord } = require('../theory/progressions')
 
-    for (const numeral of numerals) {
-      const chordCode = romanToChord(numeral, this._keyContext)
+    let ni = 0
+    while (ni < numerals.length) {
+      const chordCode = romanToChord(numerals[ni], this._keyContext)
       this.chord(chordCode as ChordCode, octave, duration).commit()
+      ni = ni + 1
     }
 
     return this
@@ -368,12 +386,26 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
     const { romanToChord } = require('../theory/progressions')
     const { voiceLeadChords } = require('../theory/voiceleading')
 
-    const chordCodes = numerals.map(num => romanToChord(num, this._keyContext))
-    const rawChords = chordCodes.map((code: string) => chordToNotes(code, octave))
+    const chordCodes: string[] = []
+    let ci = 0
+    while (ci < numerals.length) {
+      chordCodes.push(romanToChord(numerals[ci], this._keyContext))
+      ci = ci + 1
+    }
+
+    const rawChords: NoteName[][] = []
+    let ri = 0
+    while (ri < chordCodes.length) {
+      rawChords.push(chordToNotes(chordCodes[ri], octave))
+      ri = ri + 1
+    }
+
     const voiceledChords = voiceLeadChords(rawChords, { voices, style })
 
-    for (const chord of voiceledChords) {
-      this.chord(chord, duration).commit()
+    let vi = 0
+    while (vi < voiceledChords.length) {
+      this.chord(voiceledChords[vi], duration).commit()
+      vi = vi + 1
     }
 
     return this
@@ -403,10 +435,24 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
     const gate = options?.gate ?? 1.0
 
     let pool: number[] = []
-    const baseMidis = pitches.map(p => noteToMidi(p)).filter((m): m is number => m !== null)
+    const baseMidis: number[] = []
+    let pi = 0
+    while (pi < pitches.length) {
+      const m = noteToMidi(pitches[pi])
+      if (m !== null) {
+        baseMidis.push(m)
+      }
+      pi = pi + 1
+    }
 
-    for (let oct = 0; oct < octaveCount; oct++) {
-      baseMidis.forEach(m => pool.push(m + (oct * 12)))
+    let oct = 0
+    while (oct < octaveCount) {
+      let mi = 0
+      while (mi < baseMidis.length) {
+        pool.push(baseMidis[mi] + (oct * 12))
+        mi = mi + 1
+      }
+      oct = oct + 1
     }
 
     pool.sort((a, b) => a - b)
@@ -443,9 +489,11 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
         break
       case 'diverge':
         const mid = Math.floor(pool.length / 2)
-        for (let i = 0; i < pool.length; i++) {
-          const idx = i % 2 === 0 ? mid + Math.floor(i / 2) : mid - Math.ceil(i / 2)
+        let di = 0
+        while (di < pool.length) {
+          const idx = di % 2 === 0 ? mid + Math.floor(di / 2) : mid - Math.ceil(di / 2)
           if (idx >= 0 && idx < pool.length) sequence.push(pool[idx])
+          di = di + 1
         }
         break
     }
@@ -453,12 +501,14 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
     const dur = this.resolveDuration(rate)
     const noteDur = gate >= 1.0 ? dur : Math.round(dur * gate)
 
-    for (const midi of sequence) {
-      const noteName = midiToNote(midi) as NoteName
+    let si = 0
+    while (si < sequence.length) {
+      const noteName = midiToNote(sequence[si]) as NoteName
       this.note(noteName, rate).velocity(velocity).commit()
       if (gate < 1.0) {
         this.rest(dur - noteDur)
       }
+      si = si + 1
     }
 
     return this
@@ -492,15 +542,19 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
 
     let noteIndex = 0
 
-    for (let r = 0; r < repeat; r++) {
-      for (const isHit of pattern) {
-        if (isHit) {
+    let r = 0
+    while (r < repeat) {
+      let p = 0
+      while (p < pattern.length) {
+        if (pattern[p]) {
           this.note(notes[noteIndex % notes.length], stepDuration).velocity(velocity).commit()
-          noteIndex++
+          noteIndex = noteIndex + 1
         } else {
           this.rest(stepDuration)
         }
+        p = p + 1
       }
+      r = r + 1
     }
 
     return this

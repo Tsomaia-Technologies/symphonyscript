@@ -273,9 +273,11 @@ export class MockConsumer {
   runQuanta(quanta: number): ConsumerNoteEvent[] {
     const allEvents: ConsumerNoteEvent[] = []
 
-    for (let i = 0; i < quanta; i++) {
+    let i = 0
+    while (i < quanta) {
       const events = this.process()
       allEvents.push(...events)
+      i = i + 1
     }
 
     return allEvents

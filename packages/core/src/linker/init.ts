@@ -167,8 +167,10 @@ function initializeIdentityTable(sab: Int32Array, nodeCapacity: number): void {
   // Each entry is 2 × i32: [TID, NodePtr]
   // Total slots = nodeCapacity
   const totalI32 = nodeCapacity * ID_TABLE.ENTRY_SIZE_I32
-  for (let i = 0; i < totalI32; i++) {
+  let i = 0
+  while (i < totalI32) {
     sab[tableOffsetI32 + i] = 0
+    i = i + 1
   }
 }
 
@@ -189,8 +191,10 @@ function initializeSymbolTable(sab: Int32Array, nodeCapacity: number): void {
   // Each entry is 2 × i32: [fileHash, lineCol]
   // Total slots = nodeCapacity
   const totalI32 = nodeCapacity * SYM_TABLE.ENTRY_SIZE_I32
-  for (let i = 0; i < totalI32; i++) {
+  let i = 0
+  while (i < totalI32) {
     sab[tableOffsetI32 + i] = 0
+    i = i + 1
   }
 }
 

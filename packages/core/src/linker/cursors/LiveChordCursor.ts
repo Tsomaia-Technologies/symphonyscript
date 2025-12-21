@@ -95,12 +95,15 @@ export class LiveChordCursor<B extends {
 
     // Apply global octave shift first
     if (octaveShift !== 0) {
-      for (const noteData of this.noteDataList) {
+      let oi = 0
+      while (oi < this.noteDataList.length) {
+        const noteData = this.noteDataList[oi]
         const newMidi = noteData.pitch + (octaveShift * 12)
         if (newMidi >= 0 && newMidi <= 127) {
           noteData.pitch = newMidi
           this.bridge.patchImmediate(noteData.sourceId, 'pitch', newMidi)
         }
+        oi = oi + 1
       }
     }
 
@@ -108,13 +111,15 @@ export class LiveChordCursor<B extends {
     const sorted = [...this.noteDataList].sort((a, b) => a.pitch - b.pitch)
 
     // Apply remaining rotations (move lowest note up an octave)
-    for (let i = 0; i < remainingSteps; i++) {
-      const lowest = sorted[i]
+    let ri = 0
+    while (ri < remainingSteps) {
+      const lowest = sorted[ri]
       const newMidi = lowest.pitch + 12
       if (newMidi <= 127) {
         lowest.pitch = newMidi
         this.bridge.patchImmediate(lowest.sourceId, 'pitch', newMidi)
       }
+      ri = ri + 1
     }
 
     return this
@@ -131,9 +136,12 @@ export class LiveChordCursor<B extends {
     const normalizedVelocity = v <= 1 ? Math.round(v * 127) : Math.round(v)
     const clamped = Math.max(0, Math.min(127, normalizedVelocity))
 
-    for (const noteData of this.noteDataList) {
+    let vi = 0
+    while (vi < this.noteDataList.length) {
+      const noteData = this.noteDataList[vi]
       noteData.velocity = clamped
       this.bridge.patchImmediate(noteData.sourceId, 'velocity', clamped)
+      vi = vi + 1
     }
     this.chordData.velocity = clamped
 
@@ -144,10 +152,13 @@ export class LiveChordCursor<B extends {
    * Apply staccato to all notes (50% duration).
    */
   staccato(): this {
-    for (const noteData of this.noteDataList) {
+    let si = 0
+    while (si < this.noteDataList.length) {
+      const noteData = this.noteDataList[si]
       const newDuration = Math.round(noteData.duration * 0.5)
       noteData.duration = newDuration
       this.bridge.patchImmediate(noteData.sourceId, 'duration', newDuration)
+      si = si + 1
     }
     this.chordData.duration = Math.round(this.chordData.duration * 0.5)
     return this
@@ -157,10 +168,13 @@ export class LiveChordCursor<B extends {
    * Apply legato to all notes (105% duration).
    */
   legato(): this {
-    for (const noteData of this.noteDataList) {
+    let li = 0
+    while (li < this.noteDataList.length) {
+      const noteData = this.noteDataList[li]
       const newDuration = Math.round(noteData.duration * 1.05)
       noteData.duration = newDuration
       this.bridge.patchImmediate(noteData.sourceId, 'duration', newDuration)
+      li = li + 1
     }
     this.chordData.duration = Math.round(this.chordData.duration * 1.05)
     return this
@@ -170,10 +184,13 @@ export class LiveChordCursor<B extends {
    * Apply accent to all notes.
    */
   accent(): this {
-    for (const noteData of this.noteDataList) {
+    let ai = 0
+    while (ai < this.noteDataList.length) {
+      const noteData = this.noteDataList[ai]
       const boosted = Math.min(127, Math.round(noteData.velocity * 1.2))
       noteData.velocity = boosted
       this.bridge.patchImmediate(noteData.sourceId, 'velocity', boosted)
+      ai = ai + 1
     }
     return this
   }
@@ -189,10 +206,13 @@ export class LiveChordCursor<B extends {
    * Apply marcato to all notes.
    */
   marcato(): this {
-    for (const noteData of this.noteDataList) {
+    let mi = 0
+    while (mi < this.noteDataList.length) {
+      const noteData = this.noteDataList[mi]
       const boosted = Math.min(127, Math.round(noteData.velocity * 1.3))
       noteData.velocity = boosted
       this.bridge.patchImmediate(noteData.sourceId, 'velocity', boosted)
+      mi = mi + 1
     }
     return this
   }
@@ -201,8 +221,10 @@ export class LiveChordCursor<B extends {
    * Apply humanization to all notes.
    */
   humanize(options?: { timing?: number; velocity?: number }): this {
-    for (const noteData of this.noteDataList) {
-      noteData.humanize = options ?? { timing: 15, velocity: 0.05 }
+    let hi = 0
+    while (hi < this.noteDataList.length) {
+      this.noteDataList[hi].humanize = options ?? { timing: 15, velocity: 0.05 }
+      hi = hi + 1
     }
     return this
   }
@@ -211,9 +233,11 @@ export class LiveChordCursor<B extends {
    * Disable humanization for all notes.
    */
   precise(): this {
-    for (const noteData of this.noteDataList) {
-      noteData.humanize = null
-      noteData.quantize = null
+    let pi = 0
+    while (pi < this.noteDataList.length) {
+      this.noteDataList[pi].humanize = null
+      this.noteDataList[pi].quantize = null
+      pi = pi + 1
     }
     return this
   }
@@ -227,8 +251,10 @@ export class LiveChordCursor<B extends {
    */
   detune(cents: number): this {
     const clamped = Math.max(-1200, Math.min(1200, cents))
-    for (const noteData of this.noteDataList) {
-      noteData.detune = clamped
+    let di = 0
+    while (di < this.noteDataList.length) {
+      this.noteDataList[di].detune = clamped
+      di = di + 1
     }
     return this
   }
@@ -238,8 +264,10 @@ export class LiveChordCursor<B extends {
    */
   timbre(value: number): this {
     const clamped = Math.max(0, Math.min(1, value))
-    for (const noteData of this.noteDataList) {
-      noteData.timbre = clamped
+    let ti = 0
+    while (ti < this.noteDataList.length) {
+      this.noteDataList[ti].timbre = clamped
+      ti = ti + 1
     }
     return this
   }
@@ -249,8 +277,10 @@ export class LiveChordCursor<B extends {
    */
   pressure(value: number): this {
     const clamped = Math.max(0, Math.min(1, value))
-    for (const noteData of this.noteDataList) {
-      noteData.pressure = clamped
+    let pri = 0
+    while (pri < this.noteDataList.length) {
+      this.noteDataList[pri].pressure = clamped
+      pri = pri + 1
     }
     return this
   }
@@ -269,8 +299,10 @@ export class LiveChordCursor<B extends {
    * Apply glide to all notes.
    */
   glide(time: any): this {
-    for (const noteData of this.noteDataList) {
-      noteData.glide = { time }
+    let gi = 0
+    while (gi < this.noteDataList.length) {
+      this.noteDataList[gi].glide = { time }
+      gi = gi + 1
     }
     return this
   }
@@ -279,8 +311,10 @@ export class LiveChordCursor<B extends {
    * Mark all notes as part of a tie.
    */
   tie(type: 'start' | 'continue' | 'end'): this {
-    for (const noteData of this.noteDataList) {
-      noteData.tie = type
+    let tii = 0
+    while (tii < this.noteDataList.length) {
+      this.noteDataList[tii].tie = type
+      tii = tii + 1
     }
     return this
   }
@@ -431,6 +465,12 @@ export class LiveChordCursor<B extends {
   }
 
   getNoteDataList(): LiveMelodyNoteData[] {
-    return this.noteDataList.map(n => ({ ...n }))
+    const result: LiveMelodyNoteData[] = []
+    let ni = 0
+    while (ni < this.noteDataList.length) {
+      result.push({ ...this.noteDataList[ni] })
+      ni = ni + 1
+    }
+    return result
   }
 }
