@@ -349,7 +349,7 @@ describe('LiveClipBuilder - Tombstone Pattern', () => {
   })
 
   test('reorder lines → proper tombstone behavior', () => {
-    const { bridge, consumer } = createTestEnvironment()
+    const { bridge, consumer, linker } = createTestEnvironment()
     LiveSession.init(bridge)
 
     // First execution: notes in order 60, 64, 67
@@ -358,6 +358,10 @@ describe('LiveClipBuilder - Tombstone Pattern', () => {
     builder1.note(64, 100, '4n')
     builder1.note(67, 100, '4n')
     builder1.finalize()
+
+    // RFC-045-FINAL: Process commands after first finalize
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands()
 
     expect(bridge.getMappingCount()).toBe(3)
 
@@ -369,10 +373,18 @@ describe('LiveClipBuilder - Tombstone Pattern', () => {
     builder2.note(64, 100, '4n')
     builder2.finalize()
 
+    // RFC-045-FINAL: Process commands after second finalize
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands()
+
     // builder2 creates 3 new nodes (its own). builder1's nodes remain.
     // To clean up builder1's orphaned nodes, call finalize() on builder1 again.
     // Since builder1's touchedSourceIds is now empty, all its owned nodes are pruned.
     builder1.finalize()
+
+    // RFC-045-FINAL: Tick-to-Verify - process commands from finalize() deletes
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands()
 
     // Now only builder2's 3 nodes remain
     expect(bridge.getMappingCount()).toBe(3)
@@ -503,7 +515,7 @@ describe('LiveClipBuilder - Full User Flow', () => {
   })
 
   test('multiple clips in session', () => {
-    const { bridge, consumer } = createTestEnvironment()
+    const { bridge, consumer, linker } = createTestEnvironment()
     LiveSession.init(bridge)
 
     // Create multiple clips with cursor pattern
@@ -516,6 +528,10 @@ describe('LiveClipBuilder - Full User Flow', () => {
       .note('C2' as any, '4n').commit()
       .note('E2' as any, '4n').commit()
       .finalize()
+
+    // RFC-045-FINAL: Tick-to-Verify - process commands from finalize()
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands()
 
     // All notes should be in SAB
     expect(bridge.getMappingCount()).toBe(4)

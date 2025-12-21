@@ -224,7 +224,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     expect(events[0].pitch).toBe(60)
   })
 
-  test('rapid pitch edits are coalesced via debounce', async () => {
+  test('rapid pitch edits are coalesced via debounce', () => {
     const { bridge, consumer, linker } = createLiveEnvironment()
 
     const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
@@ -234,8 +234,9 @@ describe('E2E Live Coding - Real-Time Edits', () => {
       bridge.patchDebounced(sourceId, 'pitch', 60 + i)
     }
 
-    // Wait for debounce
-    await wait(10)
+    // RFC-045-FINAL: Tick-to-Verify - manually advance ticks past debounce threshold
+    // attributeDebounceTicks defaults to 10
+    for (let i = 0; i < 15; i++) bridge.tick()
 
     // Consumer sees final value
     consumer.advance(960)
@@ -245,7 +246,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     expect(events[0].pitch).toBe(60 + 49) // Last value: 109
   })
 
-  test('structural edits respect COMMIT_FLAG protocol', async () => {
+  test('structural edits respect COMMIT_FLAG protocol', () => {
     const { bridge, consumer, linker } = createLiveEnvironment()
     const sab = new Int32Array(linker.getSAB())
 
@@ -256,17 +257,19 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     expect(bridge.getPendingStructuralCount()).toBe(1)
     expect(bridge.getMappingCount()).toBe(0) // Not applied yet
 
-    // Wait for structural flush (flushStructural awaits ACK internally)
-    await wait(20)
+    // RFC-045-FINAL: Tick-to-Verify - manually advance and process commands
+    // Advance ticks past debounce threshold (structuralDebounceTicks defaults to 10)
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands() // Process commands from ring buffer
 
-    // After flush completes (including internal syncAck), structural pending should be empty
+    // After flush completes, structural pending should be empty
     expect(bridge.getPendingStructuralCount()).toBe(0)
 
     // The note should be in the linker now
     expect(bridge.getMappingCount()).toBe(1)
 
-    // COMMIT_FLAG should be back to IDLE after syncAck reset it
-    expect(Atomics.load(sab, HDR.COMMIT_FLAG)).toBe(COMMIT.IDLE)
+    // COMMIT_FLAG should be PENDING (syncAck no longer exists to reset it)
+    expect(Atomics.load(sab, HDR.COMMIT_FLAG)).toBe(COMMIT.PENDING)
 
     // Consumer can read the newly inserted note
     consumer.advance(960)
@@ -497,8 +500,8 @@ describe('E2E Live Coding - Performance', () => {
     expect(events.length).toBe(64)
   })
 
-  test('multiple rapid structural edits are batched', async () => {
-    const { bridge, consumer } = createLiveEnvironment()
+  test('multiple rapid structural edits are batched', () => {
+    const { bridge, consumer, linker } = createLiveEnvironment()
 
     const insertStart = performance.now()
 
@@ -510,8 +513,9 @@ describe('E2E Live Coding - Performance', () => {
     // All are pending
     expect(bridge.getPendingStructuralCount()).toBe(100)
 
-    // Wait for debounce to flush
-    await wait(20)
+    // RFC-045-FINAL: Tick-to-Verify - manually advance and process commands
+    for (let i = 0; i < 20; i++) bridge.tick()
+    linker.processCommands()
 
     const elapsed = performance.now() - insertStart
 

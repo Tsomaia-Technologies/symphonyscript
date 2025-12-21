@@ -444,6 +444,19 @@ export class SiliconBridge {
     sourceId: number,
     afterSourceId?: number
   ): number {
+    // Validate afterSourceId BEFORE allocating (Zone B can't free individual nodes)
+    let prevPtr = NULL_PTR
+    if (afterSourceId !== undefined) {
+      const afterPtr = this.getNodePtr(afterSourceId)
+      if (afterPtr !== undefined) {
+        prevPtr = afterPtr
+      } else {
+        // Invalid afterSourceId - return error without allocating
+        return BRIDGE_ERR.NOT_FOUND
+      }
+    }
+
+    // Allocate from Zone B
     const ptr = this.localAllocator.alloc()
     if (ptr < 0) {
       return ptr // Error code from allocator
@@ -463,14 +476,6 @@ export class SiliconBridge {
     Atomics.store(this.sab, offset + NODE.SOURCE_ID, sourceId)
     Atomics.store(this.sab, offset + NODE.SEQ_FLAGS, 0)
     Atomics.store(this.sab, offset + NODE.LAST_PASS_ID, 0)
-
-    let prevPtr = NULL_PTR
-    if (afterSourceId !== undefined) {
-      const afterPtr = this.getNodePtr(afterSourceId)
-      if (afterPtr !== undefined) {
-        prevPtr = afterPtr
-      }
-    }
 
     this.ringBuffer.write(CMD.INSERT, ptr, prevPtr)
     Atomics.notify(this.sab, HDR.YIELD_SLOT, 1)

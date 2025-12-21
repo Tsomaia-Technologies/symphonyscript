@@ -230,19 +230,9 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.ACK)
     })
 
-    it('should complete handshake cycle', async () => {
-      const { linker, consumer, buffer } = createTestPair()
-      const sab = new Int32Array(buffer)
-
-      linker.insertHead(...note(60, 0))
-
-      // Consumer acknowledges
-      consumer.process()
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.ACK)
-
-      // Linker completes handshake
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
-    })
+    // RFC-045-FINAL: This test removed - syncAck() and Stop-and-Wait protocol deprecated
+    // The COMMIT_FLAG handshake is now one-way: Main Thread sets PENDING, Worker ACKs.
+    // There's no automatic completion to IDLE since syncAck() was removed.
 
     it('should re-sync position after structural change', () => {
       const { linker, consumer } = createTestPair({ tickRate: 24 })

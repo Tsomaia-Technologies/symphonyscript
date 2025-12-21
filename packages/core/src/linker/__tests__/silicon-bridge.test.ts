@@ -456,6 +456,9 @@ describe('SiliconBridge - Structural Debounce', () => {
     // RFC-045-06: Advance ticks past debounce threshold
     advanceTicks(bridge, 11)
 
+    // RFC-045-FINAL: Tick-to-Verify - manually process commands from ring buffer
+    bridge.getLinker().processCommands()
+
     expect(bridge.getPendingStructuralCount()).toBe(0)
     expect(bridge.getMappingCount()).toBe(2)
   })
