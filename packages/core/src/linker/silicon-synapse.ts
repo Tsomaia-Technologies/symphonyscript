@@ -125,7 +125,17 @@ export class SiliconSynapse implements ISiliconLinker {
   }
 
   /**
-   * Get current execution context.
+   * Get current execution context flag.
+   *
+   * @returns true if currently in audio context, false otherwise
+   *
+   * @remarks
+   * This flag controls mutex behavior:
+   * - `true`: Audio-safe mode (max 3 spins, no yield, no panic)
+   * - `false`: Main thread mode (full spin-wait with yield)
+   *
+   * @see setAudioContext - Set the context flag
+   * @see poll - Automatically manages context for audio thread
    */
   getAudioContext(): boolean {
     return this.isAudioContext
@@ -933,20 +943,39 @@ export class SiliconSynapse implements ISiliconLinker {
 
   /**
    * Set BPM (can be updated live).
+   *
+   * BPM affects timing calculations for the audio thread.
+   * Changes take effect immediately via atomic store.
+   *
+   * @param bpm - Beats per minute (positive integer)
    */
   setBpm(bpm: number): void {
     Atomics.store(this.sab, HDR.BPM, bpm | 0)
   }
 
   /**
-   * Get current BPM.
+   * Get current BPM (beats per minute).
+   *
+   * @returns Current BPM value (default: 120)
+   *
+   * @remarks
+   * Thread-safe read via `Atomics.load`.
    */
   getBpm(): number {
     return Atomics.load(this.sab, HDR.BPM)
   }
 
   /**
-   * Get PPQ.
+   * Get PPQ (Pulses Per Quarter note / ticks per beat).
+   *
+   * PPQ determines the resolution of timing in the system.
+   * Higher values allow finer timing precision.
+   *
+   * @returns PPQ value (default: 480)
+   *
+   * @remarks
+   * PPQ is set at SAB creation and is immutable.
+   * Non-atomic read is safe since PPQ never changes.
    */
   getPpq(): number {
     return this.sab[HDR.PPQ]
@@ -957,42 +986,100 @@ export class SiliconSynapse implements ISiliconLinker {
   // ===========================================================================
 
   /**
-   * Get current error flag.
+   * Get current error flag value from the SAB.
+   *
+   * Error codes are defined in `constants.ts` under the `ERROR` constant.
+   * Common values:
+   * - `ERROR.OK` (0): No error
+   * - `ERROR.HEAP_EXHAUSTED` (1): Free list depleted
+   * - `ERROR.SAFE_ZONE` (2): Edit within safe zone rejected
+   * - `ERROR.INVALID_PTR` (3): Invalid pointer operation
+   * - `ERROR.KERNEL_PANIC` (4): Deadlock or severe contention
+   * - `ERROR.LOAD_FACTOR_WARNING` (5): Identity Table >75% full
+   * - `ERROR.FREE_LIST_CORRUPT` (6): Free list corruption detected
+   * - `ERROR.UNKNOWN_OPCODE` (7): Unknown command opcode
+   *
+   * @returns The current error code (0 = no error)
+   *
+   * @remarks
+   * Error flags are set atomically by operations that encounter errors.
+   * Check this value after operations that can fail to determine the cause.
+   * Call `clearError()` after handling to reset the flag.
    */
   getError(): number {
     return Atomics.load(this.sab, HDR.ERROR_FLAG)
   }
 
   /**
-   * Clear error flag.
+   * Clear the error flag (reset to ERROR.OK).
+   *
+   * Call this after handling an error condition to reset the flag.
+   * Failure to clear can mask subsequent errors.
+   *
+   * @remarks
+   * Uses `Atomics.store` for thread-safe clearing.
    */
   clearError(): void {
     Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.OK)
   }
 
   /**
-   * Get allocated node count.
+   * Get the number of nodes currently linked in the chain.
+   *
+   * This count represents active nodes in the linked list, not total
+   * allocations. Nodes are counted when linked (INSERT) and uncounted
+   * when unlinked (DELETE).
+   *
+   * @returns Number of nodes in the chain (0 to nodeCapacity)
+   *
+   * @remarks
+   * Thread-safe read via `Atomics.load`.
    */
   getNodeCount(): number {
     return Atomics.load(this.sab, HDR.NODE_COUNT)
   }
 
   /**
-   * Get free node count.
+   * Get the number of nodes available in the Zone A free list.
+   *
+   * This represents nodes that can be allocated via `allocNode()`.
+   * When this reaches 0, `allocNode()` returns NULL_PTR.
+   *
+   * @returns Number of free nodes available
+   *
+   * @remarks
+   * Thread-safe read via `Atomics.load`.
+   * Note: Zone B (local allocator) has a separate free pool.
    */
   getFreeCount(): number {
     return Atomics.load(this.sab, HDR.FREE_COUNT)
   }
 
   /**
-   * Get total node capacity.
+   * Get the total node capacity configured for this linker.
+   *
+   * This is the maximum number of nodes that can exist simultaneously.
+   * Configured at SAB creation time via `LinkerConfig.nodeCapacity`.
+   *
+   * @returns Maximum node capacity (default: 4096)
    */
   getNodeCapacity(): number {
     return this.nodeCapacity
   }
 
   /**
-   * Get underlying SharedArrayBuffer.
+   * Get the underlying SharedArrayBuffer for direct access.
+   *
+   * @returns The SharedArrayBuffer backing this linker
+   *
+   * @remarks
+   * Use this for:
+   * - Passing the SAB to an AudioWorklet
+   * - Creating additional views (Float32Array, BigInt64Array)
+   * - Debug inspection of raw memory
+   *
+   * **Warning:** Direct manipulation can corrupt linker state.
+   * Prefer using linker methods for all operations.
    */
   getSAB(): SharedArrayBuffer {
     return this.buffer
@@ -1030,7 +1117,16 @@ export class SiliconSynapse implements ISiliconLinker {
   }
 
   /**
-   * Get current playhead tick (set by AudioWorklet).
+   * Get current playhead tick position (set by AudioWorklet).
+   *
+   * The playhead represents the current position in the audio timeline.
+   * It is updated atomically by the AudioWorklet during playback.
+   *
+   * @returns Current playhead position in ticks
+   *
+   * @remarks
+   * Thread-safe read via `Atomics.load`.
+   * Used for safe zone calculations to prevent edits near playhead.
    */
   getPlayheadTick(): number {
     return Atomics.load(this.sab, HDR.PLAYHEAD_TICK)
@@ -1038,6 +1134,16 @@ export class SiliconSynapse implements ISiliconLinker {
 
   /**
    * Get safe zone size in ticks.
+   *
+   * The safe zone is a protected region around the playhead where
+   * structural edits (INSERT/DELETE) are rejected to prevent audio
+   * glitches. Edits within `playhead + safeZoneTicks` are blocked.
+   *
+   * @returns Safe zone size in ticks (default: 960 = 2 beats at 480 PPQ)
+   *
+   * @remarks
+   * Safe zone is set at SAB creation and is immutable.
+   * Non-atomic read is safe since value never changes.
    */
   getSafeZoneTicks(): number {
     return this.sab[HDR.SAFE_ZONE_TICKS]
@@ -1644,18 +1750,35 @@ export class SiliconSynapse implements ISiliconLinker {
   /**
    * Poll for pending commands (passive trigger for AudioWorklet).
    *
-   * This method should be called at the start of the AudioWorklet's
-   * process() method to consume any pending commands from the Ring Buffer.
+   * This is the primary entry point for consuming Ring Buffer commands
+   * from the audio thread. It automatically enables audio-safe mutex
+   * behavior (RFC-045-04 ISSUE-001) to prevent blocking.
    *
-   * **Usage:**
+   * **Audio Thread Safety:**
+   * - Sets `isAudioContext = true` before processing
+   * - Mutex uses maximum 3 CAS spins (~300ns), no yield
+   * - Immediate return on contention (no blocking)
+   * - Restores `isAudioContext = false` after processing
+   *
+   * **Performance:**
+   * - Processes max 256 commands per call to prevent audio starvation
+   * - Each command: ~1-2us (linking only, allocation done by Main Thread)
+   * - Zero allocations
+   *
+   * @returns Number of commands processed (0-256)
+   *
+   * @example
    * ```typescript
+   * // In AudioWorklet.process()
    * process(inputs, outputs, parameters) {
-   *   this.linker.poll() // Process pending structural edits
-   *   // ... then render audio
+   *   const processed = this.linker.poll()
+   *   // Now process audio using the updated chain
+   *   return true
    * }
    * ```
    *
-   * @returns Number of commands processed
+   * @see processCommands - Lower-level API without audio context handling
+   * @see setAudioContext - Manual context control for advanced use cases
    */
   poll(): number {
     // RFC-045-04 ISSUE-001: Set audio context for safe mutex behavior

@@ -1302,7 +1302,14 @@ export class SiliconBridge {
   }
 
   /**
-   * Get the underlying Silicon Linker.
+   * Get the underlying Silicon Linker (MMU).
+   *
+   * @returns The SiliconSynapse instance managing the SAB
+   *
+   * @remarks
+   * Use this to access low-level linker operations. For most use cases,
+   * prefer the Bridge's high-level API which handles Identity Table
+   * registration and error handling.
    */
   getLinker(): SiliconSynapse {
     return this.linker
@@ -1699,7 +1706,28 @@ export class SiliconBridge {
   }
 
   /**
-   * Get the underlying Synapse Allocator.
+   * Get the underlying Synapse Allocator (RFC-045 Neural Graph).
+   *
+   * @returns The SynapseAllocator instance managing synaptic connections
+   *
+   * @remarks
+   * Use this to access low-level synapse operations including:
+   * - Direct connect/disconnect without SOURCE_ID resolution
+   * - Compaction control via `compactTable()` and `maybeCompact()`
+   * - Load factor and tombstone ratio monitoring
+   *
+   * For most use cases, prefer the Bridge's high-level API (`connect()`,
+   * `disconnect()`, `compactSynapses()`) which handles Identity Table
+   * lookups and error handling.
+   *
+   * @example
+   * ```typescript
+   * const allocator = bridge.getSynapseAllocator()
+   * const loadFactor = allocator.getLoadFactor()
+   * if (loadFactor > 0.7) {
+   *   allocator.maybeCompact()
+   * }
+   * ```
    */
   getSynapseAllocator(): SynapseAllocator {
     return this.synapseAllocator
