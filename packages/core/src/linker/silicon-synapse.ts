@@ -1563,7 +1563,11 @@ export class SiliconSynapse implements ISiliconLinker {
 
     // Update Identity Table (sourceId → ptr mapping)
     if (sourceId > 0) {
-      this.idTableInsert(sourceId, ptr)
+      const inserted = this.idTableInsert(sourceId, ptr)
+      if (!inserted) {
+        // Table full - set error flag (node is linked but unmapped - degraded state)
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.LOAD_FACTOR_WARNING)
+      }
     }
 
     // Increment NODE_COUNT (node is now linked)
