@@ -1543,4 +1543,93 @@ export class SiliconSynapse implements ISiliconLinker {
   poll(): number {
     return this.processCommands()
   }
+
+  // ===========================================================================
+  // Test Helper Methods (RFC-045-FINAL)
+  // ===========================================================================
+
+  /**
+   * Insert a node at head (test helper - routes through command ring).
+   *
+   * @internal This method is for test compatibility only. Production code
+   * should use the Bridge's insertAsync() method.
+   */
+  insertHead(
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr {
+    // Allocate node first
+    const newPtr = this.allocNode()
+    if (newPtr === NULL_PTR) {
+      return NULL_PTR
+    }
+
+    // Write node data directly (Zone A allocation)
+    const offset = this.nodeOffset(newPtr)
+    this.writeNodeData(offset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
+
+    // Queue INSERT command
+    this.ringBuffer.write(CMD.INSERT, newPtr, NULL_PTR) // NULL_PTR = head insert
+
+    // Process immediately
+    this.processCommands()
+
+    return newPtr
+  }
+
+  /**
+   * Insert a node after another (test helper - routes through command ring).
+   *
+   * @internal This method is for test compatibility only.
+   */
+  insertNode(
+    afterPtr: NodePtr,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    sourceId: number,
+    flags: number
+  ): NodePtr {
+    // Allocate node first
+    const newPtr = this.allocNode()
+    if (newPtr === NULL_PTR) {
+      return NULL_PTR
+    }
+
+    // Write node data directly (Zone A allocation)
+    const offset = this.nodeOffset(newPtr)
+    this.writeNodeData(offset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
+
+    // Queue INSERT command
+    this.ringBuffer.write(CMD.INSERT, newPtr, afterPtr)
+
+    // Process immediately
+    this.processCommands()
+
+    return newPtr
+  }
+
+  /**
+   * Delete a node (test helper - routes through command ring).
+   *
+   * @internal This method is for test compatibility only.
+   */
+  deleteNode(ptr: NodePtr): boolean {
+    if (ptr === NULL_PTR) return true
+
+    // Queue DELETE command
+    this.ringBuffer.write(CMD.DELETE, ptr, 0)
+
+    // Process immediately
+    this.processCommands()
+
+    return true
+  }
 }

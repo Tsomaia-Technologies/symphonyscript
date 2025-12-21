@@ -395,7 +395,9 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Insert a MIDI event immediately (bypasses debounce).
+   * Insert a MIDI event immediately (synchronous via command ring).
+   *
+   * RFC-045-FINAL: Routes through command ring + processCommands for immediate effect.
    *
    * @returns The SOURCE_ID assigned to the new node, or BRIDGE_ERR.NOT_FOUND if afterSourceId not found
    */
@@ -411,20 +413,18 @@ export class SiliconBridge {
     explicitSourceId?: number
   ): number {
     const sourceId = explicitSourceId ?? this.generateSourceId(source)
-    const flags = muted ? 0x02 : 0
 
-    let ptr: NodePtr
+    // Use async path to allocate and queue command
+    const ptr = this.insertAsync(opcode, pitch, velocity, duration, baseTick, muted, sourceId, afterSourceId)
 
-    if (afterSourceId !== undefined) {
-      const afterPtr = this.getNodePtr(afterSourceId)
-      if (afterPtr === undefined) {
-        return BRIDGE_ERR.NOT_FOUND
-      }
-      ptr = this.linker.insertNode(afterPtr, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
-    } else {
-      ptr = this.linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
+    if (ptr < 0) {
+      return ptr // Error code
     }
 
+    // Process commands immediately to make it synchronous
+    this.linker.processCommands()
+
+    // Register mapping (ptr is now linked in chain)
     this.registerMapping(sourceId, ptr, source)
     return sourceId
   }
@@ -498,8 +498,9 @@ export class SiliconBridge {
   }
 
   /**
-   * Delete a note immediately (bypasses debounce).
+   * Delete a note immediately (synchronous via command ring).
    *
+   * RFC-045-FINAL: Routes through command ring + processCommands for immediate effect.
    * RFC-045 Disconnect Protocol: Automatically disconnects all incoming
    * and outgoing synapses before deleting the node.
    *
@@ -515,7 +516,13 @@ export class SiliconBridge {
     this.disconnectAllFromSource(ptr)
     this.disconnectAllToTarget(ptr)
 
-    this.linker.deleteNode(ptr)
+    // Queue delete command
+    this.ringBuffer.write(CMD.DELETE, ptr, 0)
+
+    // Process commands immediately to make it synchronous
+    this.linker.processCommands()
+
+    // Unregister mapping
     this.unregisterMapping(sourceId)
     return BRIDGE_ERR.OK
   }
@@ -765,6 +772,8 @@ export class SiliconBridge {
   /**
    * Load notes from parallel TypedArrays. COLD PATH.
    *
+   * RFC-045-FINAL: Uses command ring + processCommands for synchronous loading.
+   *
    * @param pitches - Pitch values
    * @param velocities - Velocity values
    * @param durations - Duration values
@@ -790,21 +799,29 @@ export class SiliconBridge {
       const sourceId = this.nextSourceId
       this.nextSourceId = this.nextSourceId + 1
 
-      const ptr = this.linker.insertHead(
+      const muted = (flags[i] & 0x02) !== 0
+
+      // Use insertAsync to allocate and queue
+      const ptr = this.insertAsync(
         OPCODE.NOTE,
         pitches[i],
         velocities[i],
         durations[i],
         baseTicks[i],
+        muted,
         sourceId,
-        flags[i]
+        undefined // always head insert
       )
 
-      this.linker.idTableInsert(sourceId, ptr)
-      outSourceIds[count - 1 - i] = sourceId
-      loaded = loaded + 1
+      if (ptr >= 0) {
+        outSourceIds[count - 1 - i] = sourceId
+        loaded = loaded + 1
+      }
       i = i - 1
     }
+
+    // Process all commands at once
+    this.linker.processCommands()
 
     return loaded
   }
@@ -812,6 +829,7 @@ export class SiliconBridge {
   /**
    * Load notes from EditorNoteData array. COLD PATH - TEST COMPATIBILITY.
    *
+   * RFC-045-FINAL: Uses command ring + processCommands for synchronous loading.
    * This method allocates and is NOT zero-allocation compliant.
    * Use loadNotesFromArrays for hot paths.
    *
@@ -827,19 +845,36 @@ export class SiliconBridge {
       const note = notes[i]
       const sourceId = this.generateSourceId(note.source)
 
-      const ptr = this.linker.insertHead(
+      // Use insertAsync to allocate and queue
+      const ptr = this.insertAsync(
         OPCODE.NOTE,
         note.pitch,
         note.velocity,
         note.duration,
         note.baseTick,
+        note.muted ?? false,
         sourceId,
-        note.muted ? 0x02 : 0
+        undefined // always head insert for sorted loading
       )
 
-      this.registerMapping(sourceId, ptr, note.source)
-      sourceIds[i] = sourceId
+      if (ptr >= 0) {
+        sourceIds[i] = sourceId
+      }
       i = i - 1
+    }
+
+    // Process all commands at once
+    this.linker.processCommands()
+
+    // Register all mappings after processing
+    let j = 0
+    while (j < notes.length) {
+      const note = notes[j]
+      const ptr = this.linker.idTableLookup(sourceIds[j])
+      if (ptr !== NULL_PTR) {
+        this.registerMapping(sourceIds[j], ptr, note.source)
+      }
+      j = j + 1
     }
 
     return sourceIds
@@ -848,20 +883,17 @@ export class SiliconBridge {
   /**
    * Clear all notes and mappings.
    *
-   * Zero-Alloc While-Head Deletion: Iteratively deletes the head node until
-   * the chain is empty.
+   * RFC-045-FINAL: Routes through command ring + processCommands for synchronous clear.
    */
   clear(): void {
-    // While-head deletion loop
-    let headPtr = this.linker.getHead()
-    while (headPtr !== NULL_PTR) {
-      this.linker.deleteNode(headPtr)
-      headPtr = this.linker.getHead()
-    }
+    // Queue CLEAR command
+    this.ringBuffer.write(CMD.CLEAR, 0, 0)
 
-    // Clear tables
-    this.linker.idTableClear()
-    this.linker.symTableClear()
+    // Process command immediately
+    this.linker.processCommands()
+
+    // Clear bridge state
+    // (linker.executeClear already cleared idTable and symTable)
 
     // Reset fired ring
     this.firedRingHead = 0
