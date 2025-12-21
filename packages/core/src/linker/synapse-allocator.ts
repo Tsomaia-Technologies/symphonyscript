@@ -9,7 +9,8 @@ import {
   SYNAPSE_TABLE,
   NULL_PTR,
   getSynapseTableOffset,
-  SYNAPSE_ERR
+  SYNAPSE_ERR,
+  KNUTH_HASH_CONST
 } from './constants'
 import type { SynapsePtr } from './types'
 
@@ -228,10 +229,10 @@ export class SynapseAllocator {
   // Helpers
   // ===========================================================================
 
-  /** Knuth's Multiplicative Hash (using SYNAPSE_TABLE.KNUTH_CONST per RFC-045) */
+  /** Knuth's Multiplicative Hash (using KNUTH_HASH_CONST per RFC-045) */
   private hash(key: number): number {
     // Unsigned right shift to ensure non-negative integer result
-    return (Math.imul(key, SYNAPSE_TABLE.KNUTH_CONST) >>> 0) % this.capacity
+    return (Math.imul(key, KNUTH_HASH_CONST) >>> 0) % this.capacity
   }
 
   /**

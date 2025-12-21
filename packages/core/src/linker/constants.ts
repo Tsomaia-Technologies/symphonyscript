@@ -33,6 +33,15 @@ export const DEFAULT_SAFE_ZONE_TICKS = 960
  */
 export const NULL_PTR = 0
 
+/**
+ * Knuth's multiplicative hash constant (golden ratio × 2^32).
+ * Used for all hash table operations (Identity Table, Synapse Table).
+ * Value: floor(2^32 / φ) where φ = (1 + √5) / 2 = 0x9E3779B1
+ *
+ * RFC-045-01: This is the canonical constant for all hash operations.
+ */
+export const KNUTH_HASH_CONST = 2654435761
+
 // =============================================================================
 // PHYSICAL MEMORY MAP (v2.0 - RFC-045)
 // =============================================================================
@@ -445,9 +454,7 @@ export const ID_TABLE = {
   /** Empty slot marker */
   EMPTY_TID: 0,
   /** Tombstone marker (deleted entry) */
-  TOMBSTONE_TID: -1,
-  /** Knuth's multiplicative hash constant (golden ratio × 2^32) */
-  KNUTH_HASH_MULTIPLIER: 2654435769
+  TOMBSTONE_TID: -1
 } as const
 
 // =============================================================================
@@ -551,9 +558,7 @@ export const SYNAPSE_TABLE = {
   /** Synapse stride in bytes (16 bytes for 4 × i32) */
   STRIDE_BYTES: 16,
   /** Synapse stride in i32 units (4 words) */
-  STRIDE_I32: 4,
-  /** Knuth's multiplicative hash constant (golden ratio × 2^32) per RFC-045 */
-  KNUTH_CONST: 2654435761
+  STRIDE_I32: 4
 } as const
 
 /**

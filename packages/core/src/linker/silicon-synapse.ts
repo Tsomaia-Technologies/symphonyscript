@@ -22,7 +22,8 @@ import {
   CMD,
   SYNAPSE_TABLE,
   SYNAPSE,
-  getSynapseTableOffset
+  getSynapseTableOffset,
+  KNUTH_HASH_CONST
 } from './constants'
 // Note: PACKED and SEQ are used directly in readNode for zero-alloc versioned reads
 import { FreeList } from './free-list'
@@ -1058,7 +1059,7 @@ export class SiliconSynapse implements ISiliconLinker {
   private idTableHash(sourceId: number): number {
     const capacity = Atomics.load(this.sab, HDR.ID_TABLE_CAPACITY)
     // Knuth's multiplicative hash with bitwise modulo (capacity must be power of 2)
-    const hash = Math.imul(sourceId >>> 0, ID_TABLE.KNUTH_HASH_MULTIPLIER) >>> 0
+    const hash = Math.imul(sourceId >>> 0, KNUTH_HASH_CONST) >>> 0
     return hash & (capacity - 1)
   }
 

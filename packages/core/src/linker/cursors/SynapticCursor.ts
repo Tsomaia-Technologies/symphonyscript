@@ -11,7 +11,8 @@ import {
   SYNAPSE_QUOTA,
   NULL_PTR,
   getSynapseTableOffset,
-  HDR
+  HDR,
+  KNUTH_HASH_CONST
 } from '../constants'
 
 // RFC-045-04: Error indicator for collectCandidates
@@ -247,10 +248,10 @@ export class SynapticCursor {
   // ===========================================================================
 
   /**
-   * Knuth's Multiplicative Hash (same as SynapseAllocator).
+   * Knuth's Multiplicative Hash (using KNUTH_HASH_CONST per RFC-045).
    */
   private hash(key: number): number {
-    return (Math.imul(key, SYNAPSE_TABLE.KNUTH_CONST) >>> 0) % this.capacity
+    return (Math.imul(key, KNUTH_HASH_CONST) >>> 0) % this.capacity
   }
 
   /**

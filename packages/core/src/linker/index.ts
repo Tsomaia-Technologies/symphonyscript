@@ -16,6 +16,8 @@ export {
   DEFAULT_BPM,
   DEFAULT_SAFE_ZONE_TICKS,
   NULL_PTR,
+  // Hash constant (RFC-045)
+  KNUTH_HASH_CONST,
   // Header offsets
   HDR,
   // Register offsets
