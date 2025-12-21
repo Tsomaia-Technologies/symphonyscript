@@ -8,9 +8,10 @@ import {
   SYN_PACK,
   SYNAPSE_TABLE,
   NULL_PTR,
-  getSynapseTableOffset
+  getSynapseTableOffset,
+  SYNAPSE_ERR
 } from './constants'
-import { KernelPanicError, SynapsePtr, SynapseTableFullError } from './types'
+import type { SynapsePtr } from './types'
 
 /**
  * Synapse Allocator - The "Dendrite" Manager for the Silicon Brain.
@@ -76,17 +77,17 @@ export class SynapseAllocator {
    * For append operations, data writes MUST complete before linking to prevent
    * the Audio Thread from following a valid link to uninitialized memory.
    *
+   * RFC-045-04: Zero-allocation error handling via return codes.
+   *
    * @param sourcePtr - The Trigger Node (End of Clip)
    * @param targetPtr - The Destination Node (Start of Next Clip)
    * @param weight - Probability/Intensity (0-1000)
    * @param jitter - Micro-timing deviation in ticks (0-65535)
-   * @returns The byte pointer to the new Synapse entry
-   * @throws SynapseTableFullError if no slots available
-   * @throws KernelPanicError if chain corruption detected
+   * @returns The byte pointer to the new Synapse entry on success, or negative error code
    */
-  connect(sourcePtr: number, targetPtr: number, weight: number, jitter: number): SynapsePtr {
+  connect(sourcePtr: number, targetPtr: number, weight: number, jitter: number): number {
     if (sourcePtr === NULL_PTR || targetPtr === NULL_PTR) {
-      throw new KernelPanicError('SynapseAllocator: Invalid pointers for connection')
+      return SYNAPSE_ERR.INVALID_PTR
     }
 
     // 1. Pack data values according to SYN_PACK
@@ -108,7 +109,7 @@ export class SynapseAllocator {
       entrySlot = this.findEmptySlot(idealSlot)
 
       if (entrySlot === -1) {
-        throw new SynapseTableFullError(this.usedSlots, this.capacity)
+        return SYNAPSE_ERR.TABLE_FULL
       }
     } else {
       // Existing chain found. We need to append to the end.
@@ -117,7 +118,7 @@ export class SynapseAllocator {
       entrySlot = this.findEmptySlot(headSlot + 1)
 
       if (entrySlot === -1) {
-        throw new SynapseTableFullError(this.usedSlots, this.capacity)
+        return SYNAPSE_ERR.TABLE_FULL
       }
 
       // Walk to the tail of the existing chain
@@ -130,7 +131,10 @@ export class SynapseAllocator {
         tailSlot = this.slotFromPtr(nextPtr)
         nextPtr = this.getNextPtr(tailSlot)
 
-        if (++ops > 1000) throw new KernelPanicError('SynapseAllocator: Infinite loop in fan-out chain')
+        ops = ops + 1
+        if (ops > 1000) {
+          return SYNAPSE_ERR.CHAIN_LOOP
+        }
       }
 
       tailOffset = this.offsetForSlot(tailSlot)
@@ -165,7 +169,7 @@ export class SynapseAllocator {
     // For new head case: Entry is already discoverable via SOURCE_PTR set above
 
     // 5. Track slot usage (CORRECTION-02)
-    this.usedSlots++
+    this.usedSlots = this.usedSlots + 1
 
     return this.ptrFromSlot(entrySlot)
   }

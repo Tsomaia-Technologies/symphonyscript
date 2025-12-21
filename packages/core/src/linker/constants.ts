@@ -621,6 +621,49 @@ export const SYNAPSE_QUOTA = {
   MAX_FIRES_PER_BLOCK: 64
 } as const
 
+// =============================================================================
+// Zero-Allocation Error Codes (RFC-045-04)
+// =============================================================================
+
+/**
+ * SiliconBridge error codes (zero-allocation error handling).
+ * Methods return these instead of throwing exceptions.
+ */
+export const BRIDGE_ERR = {
+  /** Operation succeeded */
+  OK: 0,
+  /** Source/target ID not found in Identity Table */
+  NOT_FOUND: -1,
+  /** Synapse Table full */
+  TABLE_FULL: -2,
+  /** Invalid pointer */
+  INVALID_PTR: -3
+} as const
+
+/**
+ * SynapseAllocator error codes (zero-allocation error handling).
+ * connect() returns these instead of throwing exceptions.
+ */
+export const SYNAPSE_ERR = {
+  /** Operation succeeded (positive value is SynapsePtr) */
+  OK: 0,
+  /** Invalid source or target pointer */
+  INVALID_PTR: -1,
+  /** Synapse Table full */
+  TABLE_FULL: -2,
+  /** Infinite loop detected in chain traversal */
+  CHAIN_LOOP: -3
+} as const
+
+/**
+ * LocalAllocator error codes (zero-allocation error handling).
+ * alloc() returns these instead of throwing exceptions.
+ */
+export const ALLOC_ERR = {
+  /** Zone B heap exhausted */
+  EXHAUSTED: -1
+} as const
+
 /**
  * Default number of commands that can be queued (64KB / 16 bytes).
  */

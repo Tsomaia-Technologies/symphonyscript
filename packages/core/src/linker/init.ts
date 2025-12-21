@@ -315,18 +315,22 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 /**
  * Write a groove template to the SAB.
  *
+ * RFC-045-04: Accepts ArrayLike<number> (both number[] and Int32Array).
+ *
  * Groove template format in SAB:
  * - [0] Length (number of steps)
  * - [1..N] Tick offsets for each step
  *
  * @param buffer - SharedArrayBuffer
  * @param templateIndex - Which template slot (0-based)
- * @param offsets - Array of tick offsets for each step
+ * @param offsets - ArrayLike of tick offsets for each step
+ * @param count - Number of offsets to write (if less than offsets.length)
  */
 export function writeGrooveTemplate(
   buffer: SharedArrayBuffer,
   templateIndex: number,
-  offsets: number[]
+  offsets: ArrayLike<number>,
+  count?: number
 ): void {
   const sab = new Int32Array(buffer)
   const nodeCapacity = sab[HDR.NODE_CAPACITY]
@@ -337,26 +341,35 @@ export function writeGrooveTemplate(
   const templateSize = 17
   const templateOffset = grooveStart + templateIndex * templateSize
 
-  // Write length
-  sab[templateOffset] = Math.min(offsets.length, 16)
+  const offsetCount = count ?? offsets.length
 
-  // Write offsets (max 16 steps)
-  for (let i = 0; i < 16; i++) {
-    sab[templateOffset + 1 + i] = i < offsets.length ? (offsets[i] | 0) : 0
+  // Write length
+  sab[templateOffset] = Math.min(offsetCount, 16)
+
+  // Write offsets (max 16 steps) - zero-alloc while loop
+  let i = 0
+  while (i < 16) {
+    sab[templateOffset + 1 + i] = i < offsetCount ? (offsets[i] | 0) : 0
+    i = i + 1
   }
 }
 
 /**
  * Read a groove template from the SAB.
  *
+ * RFC-045-04: Zero-allocation API - caller provides output array.
+ * For backward compatibility (tests), can be called without output array.
+ *
  * @param buffer - SharedArrayBuffer
  * @param templateIndex - Which template slot (0-based)
- * @returns Array of tick offsets
+ * @param outOffsets - Pre-allocated Int32Array to receive offsets (optional for tests)
+ * @returns Number of offsets read (if outOffsets provided), or array of offsets (if not)
  */
 export function readGrooveTemplate(
   buffer: SharedArrayBuffer,
-  templateIndex: number
-): number[] {
+  templateIndex: number,
+  outOffsets?: Int32Array
+): number | number[] {
   const sab = new Int32Array(buffer)
   const nodeCapacity = sab[HDR.NODE_CAPACITY]
   // Groove templates are after Identity Table
@@ -366,11 +379,23 @@ export function readGrooveTemplate(
   const templateOffset = grooveStart + templateIndex * templateSize
 
   const length = sab[templateOffset]
-  const offsets: number[] = []
 
-  for (let i = 0; i < length; i++) {
-    offsets.push(sab[templateOffset + 1 + i])
+  // Zero-allocation path: caller provides output array
+  if (outOffsets !== undefined) {
+    let i = 0
+    while (i < length && i < outOffsets.length) {
+      outOffsets[i] = sab[templateOffset + 1 + i]
+      i = i + 1
+    }
+    return length
   }
 
+  // Legacy path (for tests): allocate and return array
+  const offsets: number[] = []
+  let i = 0
+  while (i < length) {
+    offsets[i] = sab[templateOffset + 1 + i]
+    i = i + 1
+  }
   return offsets
 }

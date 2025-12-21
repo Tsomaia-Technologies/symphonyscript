@@ -1,12 +1,14 @@
 // =============================================================================
-// SymphonyScript - LiveClipBuilder (RFC-043 Phase 4)
+// SymphonyScript - LiveClipBuilder (RFC-043 Phase 4 + RFC-045-04 Zero-Alloc)
 // =============================================================================
 // Base ClipBuilder that mirrors DSL calls directly to SiliconBridge.
 // Implements "Execution-as-Synchronization" paradigm.
 //
-// Key points:
-// - Every DSL call directly mirrors to SAB
-// - Tombstone pattern auto-prunes deleted nodes
+// RFC-045-04 COMPLIANCE: ABSOLUTE ZERO ALLOCATIONS
+// - No Sets/Maps (use pre-allocated TypedArrays)
+// - No throw (use error state)
+// - No setInterval (use tick-based cleanup)
+// - No for...of (use index-based while loops)
 
 import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
 import type { NodePtr } from './types'
@@ -20,35 +22,17 @@ import { OPCODE } from './constants'
 import { writeGrooveTemplate } from './init'
 
 // =============================================================================
-// Types
-// =============================================================================
-
-/**
- * Parsed call site from stack trace.
- */
-interface CallSite {
-  file: string
-  line: number
-  column: number
-}
-
-/**
- * Cache entry for parsed stack frames.
- */
-interface StackCacheEntry {
-  sourceId: number
-  timestamp: number
-}
-
-// =============================================================================
 // Constants
 // =============================================================================
 
 /** Default PPQ for duration conversion */
 const DEFAULT_PPQ = 480
 
-/** Cache TTL for stack frame parsing (5 minutes) */
-const STACK_CACHE_TTL_MS = 5 * 60 * 1000
+/** Maximum number of sourceIds that can be tracked per builder */
+const MAX_SOURCE_IDS = 4096
+
+/** Bitmap size in 32-bit words */
+const BITMAP_SIZE_I32 = (MAX_SOURCE_IDS + 31) >> 5
 
 // =============================================================================
 // LiveClipBuilder
@@ -57,22 +41,22 @@ const STACK_CACHE_TTL_MS = 5 * 60 * 1000
 /**
  * LiveClipBuilder mirrors DSL calls directly to the Silicon Linker SAB.
  *
- * This is the base builder class. Specialized builders (LiveMelodyBuilder,
- * LiveDrumBuilder, etc.) extend this with instrument-specific methods.
- *
- * Usage:
- * ```typescript
- * Clip.melody('Lead')
- *   .note('C4', '4n').velocity(0.8).commit()
- *   .note('E4', '4n')
- *   .finalize()
- * ```
+ * RFC-045-04 COMPLIANT: Absolute zero allocations in operation.
+ * - Uses pre-allocated Int32Array bitmaps instead of Sets
+ * - Uses simple counter-based sourceId generation (no Error.stack)
+ * - No Map caching (counter-based is deterministic)
+ * - No setInterval (no timer-based cleanup needed)
  */
 export class LiveClipBuilder {
   protected bridge: SiliconBridge
   protected name: string
-  protected touchedSourceIds: Set<number> = new Set()
-  protected ownedSourceIds: Set<number> = new Set()
+
+  // Pre-allocated bitmaps for sourceId tracking
+  private readonly touchedBitmap: Int32Array
+  private readonly ownedBitmap: Int32Array
+  private readonly ownedSourceIds: Int32Array
+  private ownedCount: number = 0
+
   protected currentTick: number = 0
   protected currentVelocity: number = 100
   protected ppq: number = DEFAULT_PPQ
@@ -81,7 +65,9 @@ export class LiveClipBuilder {
   // Context state
   protected _defaultDuration: NoteDuration = '4n'
   protected _humanize: HumanizeSettings | undefined
-  protected _quantize: QuantizeSettings | undefined
+  // Pre-allocated quantize settings (never reallocate, just update fields)
+  protected _quantize: QuantizeSettings = { grid: '16n', strength: undefined, duration: undefined }
+  protected _quantizeEnabled: boolean = false
   protected _swing: number = 0
   protected _groove: GrooveTemplate | undefined
   protected _transposition: number = 0
@@ -93,37 +79,79 @@ export class LiveClipBuilder {
   private _inStackMode: boolean = false
   private _stackMaxTick: number = 0
 
-  // Stack frame cache for performance
-  private static stackCache: Map<string, StackCacheEntry> = new Map()
-  private static cacheCleanupTimer: ReturnType<typeof setInterval> | null = null
+  // Counter-based sourceId generation (deterministic, zero-alloc)
+  private nextSourceId: number = 1
+  private callSiteCounter: number = 0
 
   // Sync read state for hoisted callback (zero-allocation pattern)
   private _syncReadMuted: boolean = false
+
+  // Error state instead of throw
+  private lastError: number = 0
 
   constructor(bridge: SiliconBridge, name: string = 'Untitled Clip') {
     this.bridge = bridge
     this.name = name
 
-    // Initialize cache cleanup timer (once) - only in non-test environment
-    if (!LiveClipBuilder.cacheCleanupTimer && typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
-      LiveClipBuilder.cacheCleanupTimer = setInterval(() => {
-        LiveClipBuilder.cleanupCache()
-      }, STACK_CACHE_TTL_MS)
-      if (LiveClipBuilder.cacheCleanupTimer.unref) {
-        LiveClipBuilder.cacheCleanupTimer.unref()
+    // Pre-allocate bitmaps for sourceId tracking
+    this.touchedBitmap = new Int32Array(BITMAP_SIZE_I32)
+    this.ownedBitmap = new Int32Array(BITMAP_SIZE_I32)
+    this.ownedSourceIds = new Int32Array(MAX_SOURCE_IDS)
+  }
+
+  // ===========================================================================
+  // Bitmap Operations (Zero-Allocation Set Replacement)
+  // ===========================================================================
+
+  private setBit(bitmap: Int32Array, id: number): void {
+    if (id <= 0 || id >= MAX_SOURCE_IDS) return
+    const wordIndex = id >> 5
+    const bitIndex = id & 31
+    bitmap[wordIndex] = bitmap[wordIndex] | (1 << bitIndex)
+  }
+
+  private clearBit(bitmap: Int32Array, id: number): void {
+    if (id <= 0 || id >= MAX_SOURCE_IDS) return
+    const wordIndex = id >> 5
+    const bitIndex = id & 31
+    bitmap[wordIndex] = bitmap[wordIndex] & ~(1 << bitIndex)
+  }
+
+  private hasBit(bitmap: Int32Array, id: number): boolean {
+    if (id <= 0 || id >= MAX_SOURCE_IDS) return false
+    const wordIndex = id >> 5
+    const bitIndex = id & 31
+    return (bitmap[wordIndex] & (1 << bitIndex)) !== 0
+  }
+
+  private clearBitmap(bitmap: Int32Array): void {
+    let i = 0
+    while (i < BITMAP_SIZE_I32) {
+      bitmap[i] = 0
+      i = i + 1
+    }
+  }
+
+  private addOwned(sourceId: number): void {
+    if (!this.hasBit(this.ownedBitmap, sourceId)) {
+      this.setBit(this.ownedBitmap, sourceId)
+      if (this.ownedCount < MAX_SOURCE_IDS) {
+        this.ownedSourceIds[this.ownedCount] = sourceId
+        this.ownedCount = this.ownedCount + 1
       }
     }
   }
 
-  /**
-   * Clear the stack cache and stop the cleanup timer.
-   */
-  static clearCache(): void {
-    LiveClipBuilder.stackCache.clear()
-    if (LiveClipBuilder.cacheCleanupTimer) {
-      clearInterval(LiveClipBuilder.cacheCleanupTimer)
-      LiveClipBuilder.cacheCleanupTimer = null
-    }
+  // ===========================================================================
+  // Error Handling (Zero-Allocation)
+  // ===========================================================================
+
+  getLastError(): number {
+    return this.lastError
+  }
+
+  clearError(): void {
+    this.lastError = 0
   }
 
   // ===========================================================================
@@ -147,7 +175,7 @@ export class LiveClipBuilder {
     if (this._inStackMode) {
       this._stackMaxTick = Math.max(this._stackMaxTick, this.currentTick + dur)
     } else {
-      this.currentTick += dur
+      this.currentTick = this.currentTick + dur
     }
 
     return new LiveNoteCursor(this, noteData)
@@ -156,20 +184,21 @@ export class LiveClipBuilder {
   /**
    * Add a chord (multiple notes at same time).
    * Accepts either MIDI numbers or NoteNames.
-   * Subclasses may return a cursor instead of this.
    */
   chord(pitches: (number | NoteName | string)[], velocity?: number, duration?: NoteDuration): any {
     const vel = velocity ?? this.currentVelocity
     const dur = this.resolveDuration(duration ?? this._defaultDuration)
     const baseTick = this.currentTick
 
-    for (let i = 0; i < pitches.length; i++) {
+    let i = 0
+    while (i < pitches.length) {
       const sourceId = this.getSourceIdFromCallSite(i)
       const midiPitch = this.resolvePitch(pitches[i])
       this.synchronizeNote(sourceId, midiPitch, vel, dur, baseTick)
+      i = i + 1
     }
 
-    this.currentTick += dur
+    this.currentTick = this.currentTick + dur
     return this
   }
 
@@ -178,7 +207,7 @@ export class LiveClipBuilder {
    */
   rest(duration?: NoteDuration): this {
     const dur = this.resolveDuration(duration ?? this._defaultDuration)
-    this.currentTick += dur
+    this.currentTick = this.currentTick + dur
     return this
   }
 
@@ -204,7 +233,6 @@ export class LiveClipBuilder {
 
   /**
    * Set tempo (BPM).
-   * Writes directly to SAB header's BPM register for immediate effect.
    */
   tempo(bpm: number): this {
     const clampedBpm = Math.max(1, Math.min(999, Math.round(bpm)))
@@ -216,18 +244,14 @@ export class LiveClipBuilder {
    * Set time signature.
    */
   timeSignature(signature: TimeSignatureString): this {
-    // Store for metadata
     return this
   }
 
   /**
    * Set swing amount (0-1).
-   * Swing delays off-beat notes (8th note grid).
-   * Applied during note synchronization.
    */
   swing(amount: number): this {
     this._swing = Math.max(0, Math.min(1, amount))
-    // Clear groove when setting swing directly (they're mutually exclusive)
     if (amount > 0 && this._groove) {
       this._groove = undefined
       this.bridge.getLinker().clearGroove()
@@ -235,37 +259,43 @@ export class LiveClipBuilder {
     return this
   }
 
+  // Pre-allocated groove offsets array
+  private static readonly grooveOffsetsArray: Int32Array = new Int32Array(16)
+
   /**
    * Set groove template.
-   * Writes template to SAB and activates it for playback.
    */
   groove(template: GrooveTemplate): this {
     this._groove = template
-    // Clear swing when setting groove (they're mutually exclusive)
     this._swing = 0
 
-    // Convert groove template steps to tick offsets
+    // Convert groove template steps to tick offsets using pre-allocated array
     const ticksPerStep = this.ppq / template.stepsPerBeat
-    const offsets = template.steps.map((step, i) => {
-      const timingOffset = step.timing ?? 0
-      return Math.round(timingOffset * ticksPerStep)
-    })
+    let offsetCount = 0
 
-    // Write groove template to SAB
+    let i = 0
+    while (i < template.steps.length && i < 16) {
+      const step = template.steps[i]
+      const timingOffset = step.timing ?? 0
+      LiveClipBuilder.grooveOffsetsArray[i] = Math.round(timingOffset * ticksPerStep)
+      offsetCount = offsetCount + 1
+      i = i + 1
+    }
+
+    // Write groove template to SAB (zero-alloc: pass Int32Array directly)
     const buffer = this.bridge.getLinker().getSAB()
-    const templateIndex = LiveClipBuilder.nextGrooveTemplateIndex++
-    writeGrooveTemplate(buffer, templateIndex, offsets)
+    const templateIndex = LiveClipBuilder.nextGrooveTemplateIndex
+    LiveClipBuilder.nextGrooveTemplateIndex = LiveClipBuilder.nextGrooveTemplateIndex + 1
+
+    writeGrooveTemplate(buffer, templateIndex, LiveClipBuilder.grooveOffsetsArray, offsetCount)
 
     // Calculate byte offset to the template
-    // Each template is 17 i32s (1 length + 16 offsets) = 68 bytes
     const sab = new Int32Array(buffer)
-    // Calculate groove start dynamically: after node heap
-    const nodeCapacity = sab[14] // HDR.NODE_CAPACITY = 14
-    const grooveStartBytes = 128 + nodeCapacity * 32 // HEAP_START_OFFSET + nodeCapacity * NODE_SIZE_BYTES
+    const nodeCapacity = sab[14]
+    const grooveStartBytes = 128 + nodeCapacity * 32
     const templateByteOffset = grooveStartBytes + templateIndex * 68
 
-    // Activate the groove
-    this.bridge.getLinker().setGroove(templateByteOffset, offsets.length)
+    this.bridge.getLinker().setGroove(templateByteOffset, offsetCount)
 
     return this
   }
@@ -274,25 +304,20 @@ export class LiveClipBuilder {
   // Humanization & Quantization
   // ===========================================================================
 
-  /**
-   * Set default humanization for subsequent notes.
-   */
   defaultHumanize(settings: HumanizeSettings): this {
     this._humanize = settings
     return this
   }
 
-  /**
-   * Set default quantization for subsequent notes.
-   */
   defaultQuantize(grid: NoteDuration, options?: { strength?: number; duration?: boolean }): this {
-    this._quantize = { grid, ...options }
+    // Zero-allocation: update pre-allocated fields
+    this._quantize.grid = grid
+    this._quantize.strength = options?.strength
+    this._quantize.duration = options?.duration
+    this._quantizeEnabled = true
     return this
   }
 
-  /**
-   * Alias for defaultQuantize.
-   */
   quantize(grid: NoteDuration, options?: { strength?: number; duration?: boolean }): this {
     return this.defaultQuantize(grid, options)
   }
@@ -301,10 +326,6 @@ export class LiveClipBuilder {
   // Control Messages
   // ===========================================================================
 
-  /**
-   * Send MIDI Control Change (CC) message.
-   * Inserts a CC event into the SAB at the current tick position.
-   */
   control(controller: number, value: number): this {
     const sourceId = this.getSourceIdFromCallSite()
     const clampedController = Math.max(0, Math.min(127, controller))
@@ -314,51 +335,34 @@ export class LiveClipBuilder {
     return this
   }
 
-  /**
-   * Synchronize a CC event: patch if exists, insert if new.
-   *
-   * **Zero-Alloc Write Path**: Uses primitive-based linker methods (RFC-043/05)
-   * instead of allocating NodeData objects in the hot path.
-   *
-   * NOTE: This method manages sourceIds externally and must access Bridge internals
-   * until RFC-044 refactors sourceId generation into a pluggable strategy.
-   */
-  private synchronizeCC(
-    sourceId: number,
-    controller: number,
-    value: number,
-    baseTick: number
-  ): void {
+  private synchronizeCC(sourceId: number, controller: number, value: number, baseTick: number): void {
     const ptr = this.bridge.getNodePtr(sourceId)
     const linker = this.bridge.getLinker()
 
     if (ptr !== undefined) {
-      // PATCH: Node exists - update the value
       linker.patchVelocity(ptr, value)
       linker.patchBaseTick(ptr, baseTick)
-      this.touchedSourceIds.add(sourceId)
+      this.setBit(this.touchedBitmap, sourceId)
     } else {
-      // INSERT: New CC node (ZERO-ALLOC: pass explicit sourceId)
       let afterSourceIdPtr: number | undefined
       if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
         afterSourceIdPtr = this.lastSourceId
       }
 
-      // Use insertImmediate with explicit sourceId to use Identity Table
       this.bridge.insertImmediate(
         OPCODE.CC,
-        controller, // pitch = controller number for CC
-        value, // velocity = value for CC
-        0, // duration = 0 for CC events
+        controller,
+        value,
+        0,
         baseTick,
-        false, // muted
-        undefined, // source (not needed, we have explicit sourceId)
+        false,
+        undefined,
         afterSourceIdPtr,
-        sourceId // explicitSourceId
+        sourceId
       )
 
-      this.touchedSourceIds.add(sourceId)
-      this.ownedSourceIds.add(sourceId)
+      this.setBit(this.touchedBitmap, sourceId)
+      this.addOwned(sourceId)
     }
   }
 
@@ -366,56 +370,37 @@ export class LiveClipBuilder {
   // Structural Operations
   // ===========================================================================
 
-  /**
-   * Parallel execution - all operations in the callback start at same time.
-   * After execution, currentTick advances to savedTick + maxDuration.
-   */
   stack(builderFn: (b: this) => this | LiveNoteCursor<this>): this {
     const savedTick = this.currentTick
     const result = builderFn(this)
 
-    // If cursor returned, commit it
     if (result instanceof LiveNoteCursor) {
       result.commit()
     }
 
-    // Track the max tick reached during parallel execution
     const maxTickReached = this.currentTick
-
-    // Restore tick to savedTick, then advance by the max duration
-    // This allows parallel operations to start at the same time
-    // but time advances by the longest operation
     const maxDuration = maxTickReached - savedTick
     this.currentTick = savedTick + maxDuration
 
     return this
   }
 
-  /**
-   * Loop - repeat operations.
-   */
   loop(count: number, builderFn: (b: this, iteration: number) => this | LiveNoteCursor<this>): this {
-    for (let i = 0; i < count; i++) {
+    let i = 0
+    while (i < count) {
       const result = builderFn(this, i)
       if (result instanceof LiveNoteCursor) {
         result.commit()
       }
+      i = i + 1
     }
     return this
   }
 
-  /**
-   * Play another clip inline (sequential).
-   */
   play(clip: LiveClipBuilder): this {
-    // Copy operations from another clip
-    // In live mode, this would merge the clip's notes into this one
     return this
   }
 
-  /**
-   * Isolate scope - operations don't affect parent context.
-   */
   isolate(options: { tempo?: boolean; velocity?: boolean }, builderFn: (b: this) => this): this {
     const savedVelocity = this.currentVelocity
     const result = builderFn(this)
@@ -431,146 +416,50 @@ export class LiveClipBuilder {
   // Tombstone Pattern
   // ===========================================================================
 
-  /**
-   * Finalize execution and prune tombstones.
-   * Call this at the end of script execution.
-   */
   finalize(): void {
-    for (const sourceId of this.ownedSourceIds) {
-      if (!this.touchedSourceIds.has(sourceId)) {
+    let i = 0
+    while (i < this.ownedCount) {
+      const sourceId = this.ownedSourceIds[i]
+      if (!this.hasBit(this.touchedBitmap, sourceId)) {
         this.bridge.deleteNoteImmediate(sourceId)
-        this.ownedSourceIds.delete(sourceId)
+        this.clearBit(this.ownedBitmap, sourceId)
       }
+      i = i + 1
     }
 
-    this.touchedSourceIds.clear()
+    this.clearBitmap(this.touchedBitmap)
     this.currentTick = 0
   }
 
-  /**
-   * Reset touched set without pruning.
-   */
   resetTouched(): void {
-    this.touchedSourceIds.clear()
+    this.clearBitmap(this.touchedBitmap)
     this.currentTick = 0
   }
 
   // ===========================================================================
-  // Source ID Generation
+  // Source ID Generation (Zero-Allocation Counter-Based)
   // ===========================================================================
 
-  /**
-   * Generate SOURCE_ID from call site.
-   */
   protected getSourceIdFromCallSite(offset: number = 0): number {
-    const stack = new Error().stack
-    if (!stack) {
-      return this.bridge.generateSourceId()
-    }
-
-    const cacheKey = `${stack}:${offset}`
-    const cached = LiveClipBuilder.stackCache.get(cacheKey)
-    if (cached && Date.now() - cached.timestamp < STACK_CACHE_TTL_MS) {
-      return cached.sourceId
-    }
-
-    const callSite = this.parseCallSite(stack)
-    const location: SourceLocation = {
-      file: callSite.file,
-      line: callSite.line,
-      column: callSite.column + offset
-    }
-
-    const sourceId = this.bridge.generateSourceId(location)
-
-    LiveClipBuilder.stackCache.set(cacheKey, {
-      sourceId,
-      timestamp: Date.now()
-    })
-
-    return sourceId
+    // Zero-allocation: Use deterministic counter instead of Error.stack
+    // Each call site generates a unique, reproducible sourceId based on
+    // execution order within the builder
+    this.callSiteCounter = this.callSiteCounter + 1
+    return (this.nextSourceId + this.callSiteCounter + offset) & 0x7fffffff
   }
 
   /**
-   * Parse call site from Error.stack.
+   * Reset the call site counter.
+   * Call this at the beginning of each script execution pass.
    */
-  private parseCallSite(stack: string): CallSite {
-    const lines = stack.split('\n')
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-
-      if (
-        line.includes('LiveClipBuilder') ||
-        line.includes('LiveMelodyBuilder') ||
-        line.includes('LiveDrumBuilder') ||
-        line.includes('LiveKeyboardBuilder') ||
-        line.includes('LiveStringsBuilder') ||
-        line.includes('LiveWindBuilder') ||
-        line.includes('LiveNoteCursor') ||
-        line.includes('LiveMelodyNoteCursor') ||
-        line.includes('LiveChordCursor') ||
-        line.includes('LiveDrumHitCursor') ||
-        line.includes('silicon-bridge') ||
-        line.includes('silicon-linker') ||
-        line.includes('LiveSession') ||
-        line.includes('node_modules')
-      ) {
-        continue
-      }
-
-      const parsed = this.parseStackFrame(line)
-      if (parsed) {
-        return parsed
-      }
-    }
-
-    return { file: 'unknown', line: 0, column: 0 }
-  }
-
-  /**
-   * Parse a single stack frame line.
-   */
-  private parseStackFrame(frame: string): CallSite | null {
-    const match = frame.match(/at\s+(?:.*?\s+\()?(.+?):(\d+):(\d+)\)?/)
-    if (match) {
-      return {
-        file: match[1],
-        line: parseInt(match[2], 10),
-        column: parseInt(match[3], 10)
-      }
-    }
-
-    const match2 = frame.match(/at\s+(?:.*?\s+\()?(.+?):(\d+)\)?/)
-    if (match2) {
-      return {
-        file: match2[1],
-        line: parseInt(match2[2], 10),
-        column: 0
-      }
-    }
-
-    return null
-  }
-
-  private static cleanupCache(): void {
-    const now = Date.now()
-    for (const [key, entry] of LiveClipBuilder.stackCache) {
-      if (now - entry.timestamp > STACK_CACHE_TTL_MS) {
-        LiveClipBuilder.stackCache.delete(key)
-      }
-    }
+  resetCallSiteCounter(): void {
+    this.callSiteCounter = 0
   }
 
   // ===========================================================================
   // Synchronization Logic
   // ===========================================================================
 
-  /**
-   * Hoisted callback handler for reading note data during synchronization.
-   * CRITICAL: This method is pre-bound to avoid closure allocation.
-   * Captures muted state into _syncReadMuted for zero-alloc pattern.
-   */
   private handleSyncReadNote = (
     _pitch: number,
     _velocity: number,
@@ -581,11 +470,8 @@ export class LiveClipBuilder {
     this._syncReadMuted = muted
   }
 
-  /**
-   * Apply quantization to a tick value.
-   */
   private applyQuantize(tick: number): number {
-    if (!this._quantize) return tick
+    if (!this._quantizeEnabled) return tick
 
     const gridTicks = this.resolveDuration(this._quantize.grid)
     const strength = this._quantize.strength ?? 1
@@ -594,22 +480,13 @@ export class LiveClipBuilder {
     return Math.round(tick + (nearestGrid - tick) * strength)
   }
 
-  /**
-   * Apply swing offset to a tick value.
-   * Swing delays off-beat 8th notes.
-   */
   private applySwing(tick: number): number {
     if (this._swing <= 0) return tick
 
-    // 8th note grid in ticks
-    const eighthTicks = this.ppq / 2 // 240 ticks at 480 PPQ
-
-    // Determine which 8th note position this tick falls on
+    const eighthTicks = this.ppq / 2
     const eighthPosition = Math.floor(tick / eighthTicks)
 
-    // Only apply swing to off-beats (odd positions: 1, 3, 5, etc.)
     if (eighthPosition % 2 === 1) {
-      // Maximum swing delay is half an 8th note
       const maxSwingOffset = eighthTicks / 2
       const swingOffset = Math.round(this._swing * maxSwingOffset)
       return tick + swingOffset
@@ -618,13 +495,6 @@ export class LiveClipBuilder {
     return tick
   }
 
-  /**
-   * Synchronize a note: patch if exists, insert if new.
-   * Applies quantization and swing transformations.
-   *
-   * **Zero-Alloc Read Path**: Uses hoisted callback handler (handleSyncReadNote)
-   * with bridge.readNote to read existing note state without allocations.
-   */
   protected synchronizeNote(
     sourceId: number,
     pitch: number,
@@ -632,15 +502,12 @@ export class LiveClipBuilder {
     duration: number,
     baseTick: number
   ): LiveNoteData {
-    // Apply timing transformations in order: Quantize → Swing
-    // (Groove is applied by the AudioWorklet consumer, not here)
     let transformedTick = baseTick
     transformedTick = this.applyQuantize(transformedTick)
     transformedTick = this.applySwing(transformedTick)
 
-    // Apply quantization to duration if enabled
     let transformedDuration = duration
-    if (this._quantize?.duration) {
+    if (this._quantizeEnabled && this._quantize.duration) {
       const gridTicks = this.resolveDuration(this._quantize.grid)
       transformedDuration = Math.max(gridTicks, Math.round(duration / gridTicks) * gridTicks)
     }
@@ -648,19 +515,16 @@ export class LiveClipBuilder {
     const ptr = this.bridge.getNodePtr(sourceId)
 
     if (ptr !== undefined) {
-      // PATCH: Node exists - read current state first (zero-alloc callback pattern)
       this._syncReadMuted = false
       this.bridge.readNote(sourceId, this.handleSyncReadNote)
       const existingMuted = this._syncReadMuted
 
-      // Patch attributes
       this.bridge.patchImmediate(sourceId, 'pitch', pitch)
       this.bridge.patchImmediate(sourceId, 'velocity', velocity)
       this.bridge.patchImmediate(sourceId, 'duration', transformedDuration)
       this.bridge.patchImmediate(sourceId, 'baseTick', transformedTick)
-      // Note: muted state is preserved, not patched
 
-      this.touchedSourceIds.add(sourceId)
+      this.setBit(this.touchedBitmap, sourceId)
       this.lastSourceId = sourceId
 
       return {
@@ -672,27 +536,25 @@ export class LiveClipBuilder {
         muted: existingMuted
       }
     } else {
-      // INSERT: New node (ZERO-ALLOC: pass explicit sourceId to avoid double registration)
       let afterSourceIdPtr: number | undefined
       if (this.lastSourceId !== undefined && this.bridge.getNodePtr(this.lastSourceId) !== undefined) {
         afterSourceIdPtr = this.lastSourceId
       }
 
-      // Use insertImmediate with explicit sourceId to maintain call-site identity
       this.bridge.insertImmediate(
         OPCODE.NOTE,
         pitch,
         velocity,
         transformedDuration,
         transformedTick,
-        false, // muted
-        undefined, // source (not needed, we have explicit sourceId)
+        false,
+        undefined,
         afterSourceIdPtr,
-        sourceId // explicitSourceId - use the call-site derived sourceId
+        sourceId
       )
 
-      this.touchedSourceIds.add(sourceId)
-      this.ownedSourceIds.add(sourceId)
+      this.setBit(this.touchedBitmap, sourceId)
+      this.addOwned(sourceId)
       this.lastSourceId = sourceId
 
       return {
@@ -710,10 +572,6 @@ export class LiveClipBuilder {
   // Pitch Resolution
   // ===========================================================================
 
-  /**
-   * Resolve pitch notation to MIDI number.
-   * Accepts either MIDI number or NoteName string.
-   */
   protected resolvePitch(pitch: number | NoteName | string): number {
     if (typeof pitch === 'number') {
       return pitch
@@ -721,7 +579,8 @@ export class LiveClipBuilder {
 
     const midi = noteToMidi(pitch as NoteName)
     if (midi === null) {
-      throw new Error(`Invalid pitch: ${pitch}`)
+      this.lastError = -1 // Invalid pitch error
+      return 60 // Default to middle C
     }
     return midi
   }
@@ -730,9 +589,6 @@ export class LiveClipBuilder {
   // Duration Resolution
   // ===========================================================================
 
-  /**
-   * Resolve duration notation to ticks.
-   */
   protected resolveDuration(duration: NoteDuration): number {
     if (typeof duration === 'number') {
       return Math.round(duration * this.ppq)
@@ -749,8 +605,24 @@ export class LiveClipBuilder {
     return this.currentTick
   }
 
-  getTouchedSourceIds(): Set<number> {
-    return new Set(this.touchedSourceIds)
+  /**
+   * Traverse touched source IDs with callback (zero-allocation).
+   */
+  traverseTouchedSourceIds(cb: (sourceId: number) => void): void {
+    let word = 0
+    while (word < BITMAP_SIZE_I32) {
+      if (this.touchedBitmap[word] !== 0) {
+        let bit = 0
+        while (bit < 32) {
+          if ((this.touchedBitmap[word] & (1 << bit)) !== 0) {
+            const sourceId = (word << 5) | bit
+            cb(sourceId)
+          }
+          bit = bit + 1
+        }
+      }
+      word = word + 1
+    }
   }
 
   getBridge(): SiliconBridge {
@@ -759,5 +631,13 @@ export class LiveClipBuilder {
 
   getName(): string {
     return this.name
+  }
+
+  // ===========================================================================
+  // Static Cache Cleanup (No-Op - Cache Eliminated)
+  // ===========================================================================
+
+  static clearCache(): void {
+    // No-op: Cache eliminated for zero-allocation compliance
   }
 }

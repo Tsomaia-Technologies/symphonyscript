@@ -1,18 +1,38 @@
 // =============================================================================
-// SymphonyScript - Silicon Bridge (RFC-043 Phase 4)
+// SymphonyScript - Silicon Bridge (RFC-043 Phase 4 + RFC-045-04 Zero-Alloc)
 // =============================================================================
 // Editor integration layer that wires ClipBuilder to Silicon Linker.
-// Provides SOURCE_ID ↔ NodePtr bidirectional mapping and 10ms debounce.
+// Provides SOURCE_ID ↔ NodePtr bidirectional mapping.
+//
+// RFC-045-04 COMPLIANCE: ABSOLUTE ZERO ALLOCATIONS
+// - No Maps, Sets, Arrays (use pre-allocated TypedArrays)
+// - No throw/try/catch (use error codes)
+// - No setTimeout/setInterval (use tick-based debounce)
+// - No for...of/for...in (use index-based while loops)
+// - No inline arrow functions as arguments
 
 import { SiliconSynapse } from './silicon-synapse'
-import { OPCODE, NULL_PTR, HDR, CMD, FLAG, NODE, PACKED, SYNAPSE, SYN_PACK, SYNAPSE_TABLE } from './constants'
+import {
+  OPCODE,
+  NULL_PTR,
+  HDR,
+  CMD,
+  FLAG,
+  NODE,
+  PACKED,
+  SYNAPSE,
+  SYN_PACK,
+  SYNAPSE_TABLE,
+  BRIDGE_ERR,
+  getSynapseTableOffset
+} from './constants'
 import type { NodePtr, SynapsePtr } from './types'
 import { LocalAllocator } from './local-allocator'
 import { RingBuffer } from './ring-buffer'
 import { SynapseAllocator } from './synapse-allocator'
 
 // =============================================================================
-// Types
+// Types (interfaces are allocation-free - they describe shapes, not create objects)
 // =============================================================================
 
 /**
@@ -40,45 +60,32 @@ export interface EditorNoteData {
 }
 
 /**
- * Patch operation types.
+ * Patch operation type codes (zero-allocation enum replacement).
  */
+export const PATCH_TYPE = {
+  PITCH: 0,
+  VELOCITY: 1,
+  DURATION: 2,
+  BASE_TICK: 3,
+  MUTED: 4
+} as const
+
 export type PatchType = 'pitch' | 'velocity' | 'duration' | 'baseTick' | 'muted'
-
-/**
- * Pending patch operation.
- */
-interface PendingPatch {
-  sourceId: number
-  type: PatchType
-  value: number | boolean
-  timestamp: number
-}
-
-/**
- * Pending structural operation.
- */
-interface PendingStructural {
-  type: 'insert' | 'delete'
-  data?: EditorNoteData
-  sourceId?: number
-  afterSourceId?: number
-  timestamp: number
-}
 
 /**
  * Bridge configuration options.
  */
 export interface SiliconBridgeOptions {
-  /** Debounce delay for attribute patches (default: 10ms) */
-  attributeDebounceMs?: number
-  /** Debounce delay for structural edits (default: 10ms) */
-  structuralDebounceMs?: number
+  /** Debounce delay for attribute patches in ticks (default: 10) */
+  attributeDebounceTicks?: number
+  /** Debounce delay for structural edits in ticks (default: 10) */
+  structuralDebounceTicks?: number
   /** Callback when a patch is applied */
   onPatchApplied?: (sourceId: number, type: PatchType, value: number | boolean) => void
   /** Callback when a structural edit is applied */
   onStructuralApplied?: (type: 'insert' | 'delete', sourceId: number) => void
-  /** Callback when an error occurs */
-  onError?: (error: Error) => void
+  /** Callback when an error occurs (receives error code) */
+  onError?: (errorCode: number) => void
   /** Learning rate for plasticity weight hardening (default: 10 = +1% per reward) */
   learningRate?: number
 }
@@ -93,37 +100,18 @@ export interface SynapseOptions {
   jitter?: number
 }
 
-/**
- * Synapse connection data for persistence.
- */
-export interface SynapseSnapshot {
-  sourceId: number
-  targetId: number
-  weight: number
-  jitter: number
-}
-
-/**
- * Full brain state snapshot for persistence.
- */
-export interface BrainSnapshot {
-  version: number
-  timestamp: number
-  synapses: SynapseSnapshot[]
-}
-
 // =============================================================================
-// SiliconBridge
+// SiliconBridge - Zero-Allocation Implementation
 // =============================================================================
 
 /**
  * Silicon Bridge - Editor integration layer for RFC-043.
  *
- * This class:
- * - Provides bidirectional SOURCE_ID ↔ NodePtr mapping
- * - Implements 10ms debounce for edits
- * - Translates editor operations to linker method calls
- * - Maintains the mapping as nodes are added/removed
+ * RFC-045-04 COMPLIANT: Absolute zero allocations in hot paths.
+ * - All state uses pre-allocated TypedArrays
+ * - Error handling via return codes (no throw/try/catch)
+ * - Debouncing via tick counter (no setTimeout)
+ * - All loops use index-based iteration (no for...of)
  */
 export class SiliconBridge {
   private linker: SiliconSynapse
@@ -135,41 +123,64 @@ export class SiliconBridge {
 
   // RFC-045: Synapse Graph (Neural Audio Processor)
   private synapseAllocator: SynapseAllocator
-  /**
-   * ReverseMap: targetSourceId → Set<sourceSourceId>
-   * Tracks which nodes have incoming synapse connections.
-   * Used by deleteNoteImmediate to auto-disconnect synapses (RFC-045 §6.1).
-   */
-  private reverseMap: Map<number, Set<number>> = new Map()
-  /**
-   * ForwardMap: sourceSourceId → Map<targetSourceId, SynapsePtr>
-   * Tracks outgoing synapse connections for fast disconnect lookup.
-   */
-  private forwardMap: Map<number, Map<number, SynapsePtr>> = new Map()
+  private synapseTableOffsetI32: number
+
   /** Learning rate for plasticity (default: 10 = +1% per reward) */
   private learningRate: number
-  /** Recently fired synapses for reward distribution (ring buffer) */
-  private recentlyFiredSynapses: SynapsePtr[] = []
-  private recentlyFiredIndex: number = 0
-  private static readonly RECENTLY_FIRED_CAPACITY = 16
 
-  // Debounce state
-  private pendingPatches: Map<string, PendingPatch> = new Map() // key: `${sourceId}:${type}`
-  private pendingStructural: PendingStructural[] = []
-  private attributeDebounceTimer: ReturnType<typeof setTimeout> | null = null
-  private structuralDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  // =========================================================================
+  // Pre-Allocated Ring Buffers (RFC-045-04)
+  // =========================================================================
 
-  // Configuration
-  private attributeDebounceMs: number
-  private structuralDebounceMs: number
-  private onPatchApplied?: (sourceId: number, type: PatchType, value: number | boolean) => void
-  private onStructuralApplied?: (type: 'insert' | 'delete', sourceId: number) => void
-  private onError?: (error: Error) => void
+  // Fired synapse ring buffer
+  private static readonly FIRED_RING_CAPACITY = 16
+  private static readonly FIRED_RING_MASK = 15
+  private readonly firedRing: Int32Array
+  private firedRingHead: number = 0
+
+  // Pending patches ring buffer (SoA pattern)
+  private static readonly PATCH_RING_CAPACITY = 64
+  private static readonly PATCH_RING_MASK = 63
+  private readonly patchSourceIds: Int32Array
+  private readonly patchTypes: Int8Array
+  private readonly patchValues: Int32Array
+  private patchHead: number = 0
+  private patchTail: number = 0
+
+  // Pending structural ring buffer (SoA pattern)
+  private static readonly STRUCT_RING_CAPACITY = 32
+  private static readonly STRUCT_RING_MASK = 31
+  private readonly structTypes: Int8Array // 0=none, 1=insert, 2=delete
+  private readonly structSourceIds: Int32Array
+  private readonly structAfterIds: Int32Array
+  private readonly structPitches: Int32Array
+  private readonly structVelocities: Int32Array
+  private readonly structDurations: Int32Array
+  private readonly structBaseTicks: Int32Array
+  private readonly structFlags: Int8Array
+  private structHead: number = 0
+  private structTail: number = 0
+
+  // Tick-based debouncing (no setTimeout)
+  private currentTick: number = 0
+  private patchDebounceTick: number = 0
+  private structDebounceTick: number = 0
+  private attributeDebounceTicks: number
+  private structuralDebounceTicks: number
+
+  // Configuration callbacks
+  private onPatchApplied: ((sourceId: number, type: PatchType, value: number | boolean) => void) | null = null
+  private onStructuralApplied: ((type: 'insert' | 'delete', sourceId: number) => void) | null = null
+  private onError: ((errorCode: number) => void) | null = null
 
   // Source ID generation
   private nextSourceId: number = 1
 
-  // Traverse callback state (for zero-alloc traverseNotes)
+  // =========================================================================
+  // Pre-Bound Callback Handlers (allocated once at construction)
+  // =========================================================================
+
+  // Traverse callback state
   private traverseNotesCallback:
     | ((
         sourceId: number,
@@ -181,28 +192,33 @@ export class SiliconBridge {
       ) => void)
     | null = null
 
-  // ReadNote callback state (for zero-alloc readNote)
+  // ReadNote callback state
   private readNoteCallback:
     | ((pitch: number, velocity: number, duration: number, baseTick: number, muted: boolean) => void)
     | null = null
 
-  // GetSourceId temporary state (for zero-alloc getSourceId)
-  private _getSourceIdResult: number | undefined = undefined
+  // GetSourceId temporary state
+  private _getSourceIdResult: number = 0
   private _getSourceIdIsActive: boolean = false
 
-  // GetSourceLocation callback state (for zero-alloc getSourceLocation)
+  // GetSourceLocation callback state
   private getSourceLocationCallback: ((line: number, column: number) => void) | null = null
 
-  // TraverseSourceIds callback state (for zero-alloc traverseSourceIds)
+  // TraverseSourceIds callback state
   private traverseSourceIdsCallback: ((sourceId: number) => void) | null = null
+
+  // Snapshot streaming callback state
+  private snapshotOnSynapse: ((sourceId: number, targetId: number, weight: number, jitter: number) => void) | null =
+    null
+  private snapshotOnComplete: ((count: number) => void) | null = null
 
   constructor(linker: SiliconSynapse, options: SiliconBridgeOptions = {}) {
     this.linker = linker
-    this.attributeDebounceMs = options.attributeDebounceMs ?? 10
-    this.structuralDebounceMs = options.structuralDebounceMs ?? 10
-    this.onPatchApplied = options.onPatchApplied
-    this.onStructuralApplied = options.onStructuralApplied
-    this.onError = options.onError
+    this.attributeDebounceTicks = options.attributeDebounceTicks ?? 10
+    this.structuralDebounceTicks = options.structuralDebounceTicks ?? 10
+    this.onPatchApplied = options.onPatchApplied ?? null
+    this.onStructuralApplied = options.onStructuralApplied ?? null
+    this.onError = options.onError ?? null
 
     // RFC-044: Initialize Zero-Blocking Command Ring infrastructure
     const sab = linker.getSAB()
@@ -213,11 +229,30 @@ export class SiliconBridge {
 
     // RFC-045: Initialize Synapse Graph infrastructure
     this.synapseAllocator = new SynapseAllocator(sab)
-    this.learningRate = options.learningRate ?? 10 // +1% per reward by default
+    this.learningRate = options.learningRate ?? 10
+    this.synapseTableOffsetI32 = getSynapseTableOffset(nodeCapacity) / 4
 
-    // Pre-allocate recently fired ring buffer
-    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
-      this.recentlyFiredSynapses.push(NULL_PTR)
+    // Pre-allocate ring buffers (init-time allocation is acceptable)
+    this.firedRing = new Int32Array(SiliconBridge.FIRED_RING_CAPACITY)
+
+    this.patchSourceIds = new Int32Array(SiliconBridge.PATCH_RING_CAPACITY)
+    this.patchTypes = new Int8Array(SiliconBridge.PATCH_RING_CAPACITY)
+    this.patchValues = new Int32Array(SiliconBridge.PATCH_RING_CAPACITY)
+
+    this.structTypes = new Int8Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structSourceIds = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structAfterIds = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structPitches = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structVelocities = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structDurations = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structBaseTicks = new Int32Array(SiliconBridge.STRUCT_RING_CAPACITY)
+    this.structFlags = new Int8Array(SiliconBridge.STRUCT_RING_CAPACITY)
+
+    // Initialize fired ring to NULL_PTR
+    let i = 0
+    while (i < SiliconBridge.FIRED_RING_CAPACITY) {
+      this.firedRing[i] = NULL_PTR
+      i = i + 1
     }
   }
 
@@ -230,29 +265,26 @@ export class SiliconBridge {
    * Uses a hash of file:line:column for uniqueness.
    *
    * CRITICAL: SourceIds must fit in positive Int32 range (1 to 2^31-1)
-   * to avoid sign issues when stored/read from SAB.
-   *
-   * NOTE: Location is NOT stored here. Call registerMapping() with location
-   * data after inserting into Identity Table to store in Symbol Table.
    */
   generateSourceId(source?: SourceLocation): number {
     if (!source) {
-      return this.nextSourceId++
+      const id = this.nextSourceId
+      this.nextSourceId = this.nextSourceId + 1
+      return id
     }
 
     // Simple hash: combine file hash + line + column
-    const fileHash = source.file
-      ? this.hashString(source.file)
-      : 0
+    const fileHash = source.file ? this.hashString(source.file) : 0
     const locationHash = (fileHash * 31 + source.line) * 31 + source.column
 
     // Ensure positive Int32 range: 1 to 0x7FFFFFFF
-    // Use >>> 0 to convert to unsigned, then & to mask to 31 bits
-    // If result is 0, use nextSourceId instead (0 is reserved for EMPTY_TID)
-    const maskedHash = (Math.abs(locationHash) >>> 0) & 0x7FFFFFFF
-    const sourceId = maskedHash || this.nextSourceId++ // Ensures sourceId >= 1
-
-    return sourceId
+    const maskedHash = (Math.abs(locationHash) >>> 0) & 0x7fffffff
+    if (maskedHash === 0) {
+      const id = this.nextSourceId
+      this.nextSourceId = this.nextSourceId + 1
+      return id
+    }
+    return maskedHash
   }
 
   /**
@@ -260,8 +292,10 @@ export class SiliconBridge {
    */
   private hashString(str: string): number {
     let hash = 0
-    for (let i = 0; i < str.length; i++) {
+    let i = 0
+    while (i < str.length) {
       hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0
+      i = i + 1
     }
     return hash
   }
@@ -281,19 +315,16 @@ export class SiliconBridge {
 
   /**
    * Get SOURCE_ID for a NodePtr.
-   * Reads SOURCE_ID directly from the node in SAB.
-   * Returns undefined if node is not active (freed).
+   * Returns 0 (not found) if node is not active.
    *
-   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
+   * **Zero-Alloc Implementation**: Uses hoisted handler.
    */
-  getSourceId(ptr: NodePtr): number | undefined {
-    if (ptr === NULL_PTR) return undefined
+  getSourceId(ptr: NodePtr): number {
+    if (ptr === NULL_PTR) return 0
 
-    // Reset state
-    this._getSourceIdResult = undefined
+    this._getSourceIdResult = 0
     this._getSourceIdIsActive = false
 
-    // ZERO-ALLOC: Use pre-bound callback handler
     this.linker.readNode(ptr, this.handleGetSourceIdNode)
 
     return this._getSourceIdResult
@@ -301,66 +332,36 @@ export class SiliconBridge {
 
   /**
    * Get source location for a SOURCE_ID with zero-allocation callback pattern.
-   * Reads from Symbol Table in SAB.
-   *
-   * NOTE: File path is not recoverable from Symbol Table (only fileHash is stored).
-   * Callback receives (line, column) primitives directly - no object allocation.
-   *
-   * **Zero-Alloc Implementation**: Uses hoisted handler with save-restore pattern.
-   * Primitives flow directly from SAB to user callback. Zero heap traffic.
-   *
-   * Supports re-entrancy: nested calls will not corrupt callback state.
    *
    * @param sourceId - Source ID to lookup
    * @param cb - Callback receiving (line, column) primitives
    * @returns true if found and callback invoked, false if not found
    */
-  getSourceLocation(
-    sourceId: number,
-    cb: (line: number, column: number) => void
-  ): boolean {
-    // Save previous callback to support re-entrancy
+  getSourceLocation(sourceId: number, cb: (line: number, column: number) => void): boolean {
     const prevCb = this.getSourceLocationCallback
     this.getSourceLocationCallback = cb
 
-    try {
-      // ZERO-ALLOC: Use pre-bound callback handler
-      return this.linker.symTableLookup(sourceId, this.handleGetSourceLocationLookup)
-    } finally {
-      // Restore previous callback (or null if no outer lookup)
-      this.getSourceLocationCallback = prevCb
-    }
+    const result = this.linker.symTableLookup(sourceId, this.handleGetSourceLocationLookup)
+
+    this.getSourceLocationCallback = prevCb
+    return result
   }
 
   /**
    * Register a mapping between SOURCE_ID and NodePtr.
-   * Inserts into Identity Table in SAB.
-   * Optionally stores source location in Symbol Table.
-   *
-   * **Strict Write Order**: Symbol Table is written FIRST to prevent transient
-   * states where the Identity Table has an entry but Symbol Table doesn't.
-   * The Identity Table is the "Master Registry" and must be written last.
-   *
-   * @param sourceId - Source ID
-   * @param ptr - Node pointer
-   * @param source - Optional source location to store in Symbol Table
    */
   private registerMapping(sourceId: number, ptr: NodePtr, source?: SourceLocation): void {
-    // 1. FIRST: Write Symbol Table (metadata) if provided
     if (source) {
       const fileHash = source.file ? this.hashString(source.file) : 0
       this.linker.symTableStore(sourceId, fileHash, source.line, source.column)
     }
-
-    // 2. LAST: Commit to Identity Table (master registry)
     this.linker.idTableInsert(sourceId, ptr)
   }
 
   /**
    * Unregister a mapping.
-   * Removes from Identity Table and Symbol Table in SAB.
    */
-  private unregisterMapping(sourceId: number, _ptr: NodePtr): void {
+  private unregisterMapping(sourceId: number): void {
     this.linker.idTableRemove(sourceId)
     this.linker.symTableRemove(sourceId)
   }
@@ -368,32 +369,19 @@ export class SiliconBridge {
   /**
    * Traverse all registered SOURCE_IDs with zero-allocation callback pattern.
    *
-   * **Zero-Alloc Alternative to getAllSourceIds()**: Instead of collecting IDs
-   * into an array, this method invokes a callback for each sourceId, avoiding
-   * intermediate array allocations.
-   *
-   * **Zero-Alloc Implementation**: Uses hoisted handler to avoid closure allocation.
-   * Supports re-entrancy: nested calls will not corrupt the callback state.
-   *
    * @param cb - Callback invoked with each sourceId
    */
   traverseSourceIds(cb: (sourceId: number) => void): void {
-    // Save previous callback to support re-entrancy (same pattern as traverseNotes)
     const prevCb = this.traverseSourceIdsCallback
     this.traverseSourceIdsCallback = cb
 
-    try {
-      // ZERO-ALLOC: Use pre-bound callback handler
-      this.linker.traverse(this.handleTraverseSourceIdsNode)
-    } finally {
-      // Restore previous callback (or null if no outer traversal)
-      this.traverseSourceIdsCallback = prevCb
-    }
+    this.linker.traverse(this.handleTraverseSourceIdsNode)
+
+    this.traverseSourceIdsCallback = prevCb
   }
 
   /**
    * Get mapping count.
-   * Returns the node count from the linker.
    */
   getMappingCount(): number {
     return this.linker.getNodeCount()
@@ -405,24 +393,8 @@ export class SiliconBridge {
 
   /**
    * Insert a MIDI event immediately (bypasses debounce).
-   * Used for initial clip loading and real-time event insertion.
    *
-   * **Zero-Alloc Implementation**: Uses argument explosion to eliminate
-   * object allocation in the kernel write path.
-   *
-   * **Generalized API**: Supports full MIDI instruction set (NOTE, CC, BEND, etc.)
-   * via opcode parameter, eliminating the need for encapsulation-breaking hacks.
-   *
-   * @param opcode - MIDI opcode (OPCODE.NOTE, OPCODE.CC, OPCODE.BEND, etc.)
-   * @param pitch - MIDI pitch (NOTE) or controller number (CC)
-   * @param velocity - MIDI velocity (NOTE) or value (CC/BEND)
-   * @param duration - Duration in ticks (0 for CC/BEND)
-   * @param baseTick - Base tick (grid-aligned timing)
-   * @param muted - Whether the event is muted
-   * @param source - Optional source location for editor mapping
-   * @param afterSourceId - Optional SOURCE_ID to insert after
-   * @param explicitSourceId - Optional explicit SOURCE_ID to use instead of generating
-   * @returns The SOURCE_ID assigned to the new node
+   * @returns The SOURCE_ID assigned to the new node, or BRIDGE_ERR.NOT_FOUND if afterSourceId not found
    */
   insertImmediate(
     opcode: number,
@@ -436,37 +408,18 @@ export class SiliconBridge {
     explicitSourceId?: number
   ): number {
     const sourceId = explicitSourceId ?? this.generateSourceId(source)
-
-    // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
-    const flags = muted ? 0x02 : 0 // FLAG.MUTED = 0x02
+    const flags = muted ? 0x02 : 0
 
     let ptr: NodePtr
 
     if (afterSourceId !== undefined) {
       const afterPtr = this.getNodePtr(afterSourceId)
       if (afterPtr === undefined) {
-        throw new Error(`Unknown afterSourceId: ${afterSourceId}`)
+        return BRIDGE_ERR.NOT_FOUND
       }
-      ptr = this.linker.insertNode(
-        afterPtr,
-        opcode,
-        pitch,
-        velocity,
-        duration,
-        baseTick,
-        sourceId,
-        flags
-      )
+      ptr = this.linker.insertNode(afterPtr, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
     } else {
-      ptr = this.linker.insertHead(
-        opcode,
-        pitch,
-        velocity,
-        duration,
-        baseTick,
-        sourceId,
-        flags
-      )
+      ptr = this.linker.insertHead(opcode, pitch, velocity, duration, baseTick, sourceId, flags)
     }
 
     this.registerMapping(sourceId, ptr, source)
@@ -476,25 +429,7 @@ export class SiliconBridge {
   /**
    * Insert a node asynchronously using RFC-044 Command Ring (zero-blocking).
    *
-   * **RFC-044 "Local-Write, Remote-Link" Protocol:**
-   * 1. Allocate node in Zone B (LocalAllocator, zero contention)
-   * 2. Write data directly to SAB (node is "floating", not linked yet)
-   * 3. Enqueue INSERT command to Ring Buffer
-   * 4. Signal Worker via Atomics.notify (instant wake)
-   * 5. Register mapping (Identity/Symbol tables updated immediately)
-   *
-   * **Result:** Main Thread returns control in < 5µs, regardless of Audio thread load.
-   * Worker processes command asynchronously and links node into chain.
-   *
-   * @param opcode - MIDI opcode (OPCODE.NOTE, OPCODE.CC, OPCODE.BEND, etc.)
-   * @param pitch - MIDI pitch (NOTE) or controller number (CC)
-   * @param velocity - MIDI velocity (NOTE) or value (CC/BEND)
-   * @param duration - Duration in ticks (0 for CC/BEND)
-   * @param baseTick - Base tick (grid-aligned timing)
-   * @param muted - Whether the event is muted
-   * @param sourceId - SOURCE_ID for this node
-   * @param afterSourceId - Optional SOURCE_ID to insert after (for ordering)
-   * @returns The NODE pointer (byte offset) in Zone B
+   * @returns The NODE pointer (byte offset) in Zone B, or negative error code
    */
   insertAsync(
     opcode: number,
@@ -505,50 +440,37 @@ export class SiliconBridge {
     muted: boolean,
     sourceId: number,
     afterSourceId?: number
-  ): NodePtr {
-    // 1. Allocate node in Zone B (bump pointer, zero contention)
+  ): number {
     const ptr = this.localAllocator.alloc()
+    if (ptr < 0) {
+      return ptr // Error code from allocator
+    }
 
-    // 2. Write node data directly to SAB (floating node, not linked yet)
-    const offset = ptr / 4 // Convert byte offset to i32 index
+    const offset = (ptr / 4) | 0
     const flags = (muted ? FLAG.MUTED : 0) | FLAG.ACTIVE
 
-    // Pack opcode, pitch, velocity, flags into PACKED_A
     const packedA =
-      (opcode << PACKED.OPCODE_SHIFT) |
-      (pitch << PACKED.PITCH_SHIFT) |
-      (velocity << PACKED.VELOCITY_SHIFT) |
-      flags
+      (opcode << PACKED.OPCODE_SHIFT) | (pitch << PACKED.PITCH_SHIFT) | (velocity << PACKED.VELOCITY_SHIFT) | flags
 
-    // Write node fields using Atomics.store for memory ordering
     Atomics.store(this.sab, offset + NODE.PACKED_A, packedA)
     Atomics.store(this.sab, offset + NODE.BASE_TICK, baseTick)
     Atomics.store(this.sab, offset + NODE.DURATION, duration)
-    Atomics.store(this.sab, offset + NODE.NEXT_PTR, NULL_PTR) // Not linked yet
-    Atomics.store(this.sab, offset + NODE.PREV_PTR, NULL_PTR) // Not linked yet
+    Atomics.store(this.sab, offset + NODE.NEXT_PTR, NULL_PTR)
+    Atomics.store(this.sab, offset + NODE.PREV_PTR, NULL_PTR)
     Atomics.store(this.sab, offset + NODE.SOURCE_ID, sourceId)
-    Atomics.store(this.sab, offset + NODE.SEQ_FLAGS, 0) // Initial sequence = 0
+    Atomics.store(this.sab, offset + NODE.SEQ_FLAGS, 0)
     Atomics.store(this.sab, offset + NODE.LAST_PASS_ID, 0)
 
-    // 3. Resolve prevPtr for ordering
     let prevPtr = NULL_PTR
     if (afterSourceId !== undefined) {
       const afterPtr = this.getNodePtr(afterSourceId)
       if (afterPtr !== undefined) {
         prevPtr = afterPtr
       }
-      // If afterSourceId not found, fall back to head insert (prevPtr = NULL_PTR)
     }
 
-    // 4. Enqueue INSERT command to Ring Buffer
     this.ringBuffer.write(CMD.INSERT, ptr, prevPtr)
-
-    // 5. Signal Worker via Atomics.notify (instant wake)
     Atomics.notify(this.sab, HDR.YIELD_SLOT, 1)
-
-    // 6. Register mapping (Identity/Symbol tables updated immediately)
-    // Note: registerMapping expects source location, but we'll handle that separately
-    // For now, just return the pointer. The caller should handle registerMapping.
 
     return ptr
   }
@@ -575,227 +497,230 @@ export class SiliconBridge {
   /**
    * Delete a note immediately (bypasses debounce).
    *
-   * **RFC-045 Disconnect Protocol**: Automatically disconnects all incoming
-   * and outgoing synapses before deleting the node to prevent dangling pointers.
+   * RFC-045 Disconnect Protocol: Automatically disconnects all incoming
+   * and outgoing synapses before deleting the node.
+   *
+   * @returns BRIDGE_ERR.OK on success, BRIDGE_ERR.NOT_FOUND if not found
    */
-  deleteNoteImmediate(sourceId: number): void {
+  deleteNoteImmediate(sourceId: number): number {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
-      throw new Error(`Unknown sourceId: ${sourceId}`)
+      return BRIDGE_ERR.NOT_FOUND
     }
 
-    // RFC-045 §6.1: Auto-disconnect synapses before deleting node
-    this.disconnectIncoming(sourceId) // Disconnect all incoming synapses
-    this.disconnect(sourceId) // Disconnect all outgoing synapses
+    // RFC-045: Auto-disconnect synapses via table scan
+    this.disconnectAllFromSource(ptr)
+    this.disconnectAllToTarget(ptr)
 
     this.linker.deleteNode(ptr)
-    this.unregisterMapping(sourceId, ptr)
+    this.unregisterMapping(sourceId)
+    return BRIDGE_ERR.OK
   }
 
   /**
    * Patch an attribute immediately (bypasses debounce).
+   *
+   * @returns BRIDGE_ERR.OK on success, BRIDGE_ERR.NOT_FOUND if not found
    */
-  patchImmediate(sourceId: number, type: PatchType, value: number | boolean): void {
+  patchImmediate(sourceId: number, type: PatchType, value: number | boolean): number {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) {
-      throw new Error(`Unknown sourceId: ${sourceId}`)
+      return BRIDGE_ERR.NOT_FOUND
     }
 
-    switch (type) {
-      case 'pitch':
-        this.linker.patchPitch(ptr, value as number)
-        break
-      case 'velocity':
-        this.linker.patchVelocity(ptr, value as number)
-        break
-      case 'duration':
-        this.linker.patchDuration(ptr, value as number)
-        break
-      case 'baseTick':
-        this.linker.patchBaseTick(ptr, value as number)
-        break
-      case 'muted':
-        this.linker.patchMuted(ptr, value as boolean)
-        break
+    if (type === 'pitch') {
+      this.linker.patchPitch(ptr, value as number)
+    } else if (type === 'velocity') {
+      this.linker.patchVelocity(ptr, value as number)
+    } else if (type === 'duration') {
+      this.linker.patchDuration(ptr, value as number)
+    } else if (type === 'baseTick') {
+      this.linker.patchBaseTick(ptr, value as number)
+    } else if (type === 'muted') {
+      this.linker.patchMuted(ptr, value as boolean)
     }
 
-    this.onPatchApplied?.(sourceId, type, value)
+    if (this.onPatchApplied !== null) {
+      this.onPatchApplied(sourceId, type, value)
+    }
+    return BRIDGE_ERR.OK
   }
 
   // ===========================================================================
-  // Debounced Operations
+  // Tick-Based Debouncing (No setTimeout)
   // ===========================================================================
 
   /**
+   * Advance the internal tick counter and flush any due debounced operations.
+   * Call this from an external frame loop (e.g., requestAnimationFrame wrapper).
+   */
+  tick(): void {
+    this.currentTick = this.currentTick + 1
+
+    if (this.patchTail !== this.patchHead && this.currentTick >= this.patchDebounceTick) {
+      this.flushPatches()
+    }
+
+    if (this.structTail !== this.structHead && this.currentTick >= this.structDebounceTick) {
+      this.flushStructural()
+    }
+  }
+
+  /**
    * Queue an attribute patch with debouncing.
-   * Multiple patches to the same sourceId:type are coalesced.
    */
   patchDebounced(sourceId: number, type: PatchType, value: number | boolean): void {
-    const key = `${sourceId}:${type}`
+    const idx = this.patchTail & SiliconBridge.PATCH_RING_MASK
 
-    this.pendingPatches.set(key, {
-      sourceId,
-      type,
-      value,
-      timestamp: Date.now()
-    })
+    this.patchSourceIds[idx] = sourceId
+    this.patchTypes[idx] =
+      type === 'pitch'
+        ? PATCH_TYPE.PITCH
+        : type === 'velocity'
+          ? PATCH_TYPE.VELOCITY
+          : type === 'duration'
+            ? PATCH_TYPE.DURATION
+            : type === 'baseTick'
+              ? PATCH_TYPE.BASE_TICK
+              : PATCH_TYPE.MUTED
+    this.patchValues[idx] = typeof value === 'boolean' ? (value ? 1 : 0) : (value as number)
 
-    this.scheduleAttributeFlush()
+    this.patchTail = this.patchTail + 1
+    this.patchDebounceTick = this.currentTick + this.attributeDebounceTicks
   }
 
   /**
    * Queue a structural insert with debouncing.
+   *
+   * @returns The pre-assigned sourceId for tracking
    */
-  insertNoteDebounced(note: EditorNoteData, afterSourceId?: number): void {
-    const sourceId = this.generateSourceId(note.source)
+  insertNoteDebounced(
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    muted: boolean,
+    afterSourceId?: number
+  ): number {
+    const sourceId = this.generateSourceId()
+    const idx = this.structTail & SiliconBridge.STRUCT_RING_MASK
 
-    this.pendingStructural.push({
-      type: 'insert',
-      data: note,
-      sourceId,
-      afterSourceId,
-      timestamp: Date.now()
-    })
+    this.structTypes[idx] = 1 // insert
+    this.structSourceIds[idx] = sourceId
+    this.structAfterIds[idx] = afterSourceId ?? -1
+    this.structPitches[idx] = pitch
+    this.structVelocities[idx] = velocity
+    this.structDurations[idx] = duration
+    this.structBaseTicks[idx] = baseTick
+    this.structFlags[idx] = muted ? 1 : 0
 
-    this.scheduleStructuralFlush()
+    this.structTail = this.structTail + 1
+    this.structDebounceTick = this.currentTick + this.structuralDebounceTicks
+
+    return sourceId
   }
 
   /**
    * Queue a structural delete with debouncing.
    */
   deleteNoteDebounced(sourceId: number): void {
-    this.pendingStructural.push({
-      type: 'delete',
-      sourceId,
-      timestamp: Date.now()
-    })
+    const idx = this.structTail & SiliconBridge.STRUCT_RING_MASK
 
-    this.scheduleStructuralFlush()
-  }
+    this.structTypes[idx] = 2 // delete
+    this.structSourceIds[idx] = sourceId
+    this.structAfterIds[idx] = -1
+    this.structPitches[idx] = 0
+    this.structVelocities[idx] = 0
+    this.structDurations[idx] = 0
+    this.structBaseTicks[idx] = 0
+    this.structFlags[idx] = 0
 
-  /**
-   * Schedule attribute patch flush.
-   */
-  private scheduleAttributeFlush(): void {
-    if (this.attributeDebounceTimer) {
-      clearTimeout(this.attributeDebounceTimer)
-    }
-
-    this.attributeDebounceTimer = setTimeout(() => {
-      this.flushPatches()
-    }, this.attributeDebounceMs)
-  }
-
-  /**
-   * Schedule structural edit flush.
-   */
-  private scheduleStructuralFlush(): void {
-    if (this.structuralDebounceTimer) {
-      clearTimeout(this.structuralDebounceTimer)
-    }
-
-    this.structuralDebounceTimer = setTimeout(() => {
-      this.flushStructural()
-    }, this.structuralDebounceMs)
+    this.structTail = this.structTail + 1
+    this.structDebounceTick = this.currentTick + this.structuralDebounceTicks
   }
 
   /**
    * Flush all pending attribute patches.
    */
   flushPatches(): void {
-    this.attributeDebounceTimer = null
+    while (this.patchHead !== this.patchTail) {
+      const idx = this.patchHead & SiliconBridge.PATCH_RING_MASK
 
-    for (const patch of this.pendingPatches.values()) {
-      try {
-        this.patchImmediate(patch.sourceId, patch.type, patch.value)
-      } catch (error) {
-        this.onError?.(error as Error)
+      const sourceId = this.patchSourceIds[idx]
+      const patchType = this.patchTypes[idx]
+      const value = this.patchValues[idx]
+
+      const type: PatchType =
+        patchType === PATCH_TYPE.PITCH
+          ? 'pitch'
+          : patchType === PATCH_TYPE.VELOCITY
+            ? 'velocity'
+            : patchType === PATCH_TYPE.DURATION
+              ? 'duration'
+              : patchType === PATCH_TYPE.BASE_TICK
+                ? 'baseTick'
+                : 'muted'
+
+      const actualValue = type === 'muted' ? value !== 0 : value
+      const result = this.patchImmediate(sourceId, type, actualValue)
+
+      if (result < 0 && this.onError !== null) {
+        this.onError(result)
       }
-    }
 
-    this.pendingPatches.clear()
+      this.patchHead = this.patchHead + 1
+    }
   }
 
   /**
    * Flush all pending structural edits.
-   *
-   * **Blocking Synchronization Model**: This method is synchronous and blocks
-   * until each structural operation is acknowledged by the AudioWorklet.
-   *
-   * **Zero-Alloc Implementation**: Uses standard for loop and argument explosion
-   * to eliminate iterator and object allocations in the hot path.
    */
   flushStructural(): void {
-    this.structuralDebounceTimer = null
+    while (this.structHead !== this.structTail) {
+      const idx = this.structHead & SiliconBridge.STRUCT_RING_MASK
 
-    // Process in order - ZERO-ALLOC: Standard for loop (no iterator allocation)
-    for (let i = 0; i < this.pendingStructural.length; i++) {
-      const op = this.pendingStructural[i]
-      try {
-        if (op.type === 'insert' && op.data && op.sourceId !== undefined) {
-          // ZERO-ALLOC: Compute flags once on stack, pass primitives directly
-          const flags = op.data.muted ? 0x02 : 0
+      const opType = this.structTypes[idx]
+      const sourceId = this.structSourceIds[idx]
 
-          let ptr: NodePtr
+      if (opType === 1) {
+        // insert
+        const afterId = this.structAfterIds[idx]
+        const pitch = this.structPitches[idx]
+        const velocity = this.structVelocities[idx]
+        const duration = this.structDurations[idx]
+        const baseTick = this.structBaseTicks[idx]
+        const muted = this.structFlags[idx] !== 0
 
-          if (op.afterSourceId !== undefined) {
-            const afterPtr = this.getNodePtr(op.afterSourceId)
-            if (afterPtr !== undefined) {
-              ptr = this.linker.insertNode(
-                afterPtr,
-                OPCODE.NOTE,
-                op.data.pitch,
-                op.data.velocity,
-                op.data.duration,
-                op.data.baseTick,
-                op.sourceId,
-                flags
-              )
-            } else {
-              ptr = this.linker.insertHead(
-                OPCODE.NOTE,
-                op.data.pitch,
-                op.data.velocity,
-                op.data.duration,
-                op.data.baseTick,
-                op.sourceId,
-                flags
-              )
-            }
-          } else {
-            ptr = this.linker.insertHead(
-              OPCODE.NOTE,
-              op.data.pitch,
-              op.data.velocity,
-              op.data.duration,
-              op.data.baseTick,
-              op.sourceId,
-              flags
-            )
-          }
+        const result = this.insertImmediate(
+          OPCODE.NOTE,
+          pitch,
+          velocity,
+          duration,
+          baseTick,
+          muted,
+          undefined,
+          afterId >= 0 ? afterId : undefined,
+          sourceId
+        )
 
-          this.registerMapping(op.sourceId, ptr, op.data.source)
-          this.onStructuralApplied?.('insert', op.sourceId)
-
-          // Synchronously wait for ACK before next structural edit
-          this.linker.syncAck()
-        } else if (op.type === 'delete' && op.sourceId !== undefined) {
-          const ptr = this.getNodePtr(op.sourceId!)
-          if (ptr !== undefined) {
-            this.linker.deleteNode(ptr)
-            this.unregisterMapping(op.sourceId, ptr)
-            this.onStructuralApplied?.('delete', op.sourceId)
-
-            // Synchronously wait for ACK before next structural edit
-            this.linker.syncAck()
-          }
+        if (result >= 0 && this.onStructuralApplied !== null) {
+          this.onStructuralApplied('insert', sourceId)
+        } else if (result < 0 && this.onError !== null) {
+          this.onError(result)
         }
-      } catch (error) {
-        this.onError?.(error as Error)
-      }
-    }
+      } else if (opType === 2) {
+        // delete
+        const result = this.deleteNoteImmediate(sourceId)
 
-    this.pendingStructural = []
+        if (result >= 0 && this.onStructuralApplied !== null) {
+          this.onStructuralApplied('delete', sourceId)
+        } else if (result < 0 && this.onError !== null) {
+          this.onError(result)
+        }
+      }
+
+      this.structHead = this.structHead + 1
+    }
   }
 
   // ===========================================================================
@@ -803,24 +728,83 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Load a clip by inserting all notes.
-   * Notes should be sorted by baseTick for optimal chain structure.
+   * Load notes from parallel TypedArrays. COLD PATH.
    *
-   * @deprecated This method uses array-based, object-heavy patterns that create
-   * heap allocations. For real-time bulk-loading (e.g., MIDI file import) without
-   * GC spikes, consider using insertImmediate in a loop with primitive-passing
-   * patterns, or wait for the primitive stream API in RFC-044.
+   * @param pitches - Pitch values
+   * @param velocities - Velocity values
+   * @param durations - Duration values
+   * @param baseTicks - BaseTick values
+   * @param flags - Flag values (muted etc)
+   * @param count - Number of notes
+   * @param outSourceIds - Pre-allocated output array for assigned sourceIds
+   * @returns Number of notes loaded
+   */
+  loadNotesFromArrays(
+    pitches: Int32Array,
+    velocities: Int32Array,
+    durations: Int32Array,
+    baseTicks: Int32Array,
+    flags: Int8Array,
+    count: number,
+    outSourceIds: Int32Array
+  ): number {
+    let loaded = 0
+    let i = count - 1 // Insert in reverse for sorted chain
+
+    while (i >= 0) {
+      const sourceId = this.nextSourceId
+      this.nextSourceId = this.nextSourceId + 1
+
+      const ptr = this.linker.insertHead(
+        OPCODE.NOTE,
+        pitches[i],
+        velocities[i],
+        durations[i],
+        baseTicks[i],
+        sourceId,
+        flags[i]
+      )
+
+      this.linker.idTableInsert(sourceId, ptr)
+      outSourceIds[count - 1 - i] = sourceId
+      loaded = loaded + 1
+      i = i - 1
+    }
+
+    return loaded
+  }
+
+  /**
+   * Load notes from EditorNoteData array. COLD PATH - TEST COMPATIBILITY.
    *
-   * @param notes - Array of notes sorted by baseTick
-   * @returns Array of SOURCE_IDs in insertion order
+   * This method allocates and is NOT zero-allocation compliant.
+   * Use loadNotesFromArrays for hot paths.
+   *
+   * @param notes - Array of EditorNoteData objects
+   * @returns Array of assigned sourceIds
    */
   loadClip(notes: EditorNoteData[]): number[] {
     const sourceIds: number[] = []
 
-    // Insert in reverse order so chain is sorted (insertHead prepends)
-    for (let i = notes.length - 1; i >= 0; i--) {
-      const sourceId = this.insertNoteImmediate(notes[i])
-      sourceIds.unshift(sourceId) // Maintain original order
+    // Insert in reverse order to maintain sorted chain
+    let i = notes.length - 1
+    while (i >= 0) {
+      const note = notes[i]
+      const sourceId = this.generateSourceId(note.source)
+
+      const ptr = this.linker.insertHead(
+        OPCODE.NOTE,
+        note.pitch,
+        note.velocity,
+        note.duration,
+        note.baseTick,
+        sourceId,
+        note.muted ? 0x02 : 0
+      )
+
+      this.registerMapping(sourceId, ptr, note.source)
+      sourceIds[notes.length - 1 - i] = sourceId
+      i = i - 1
     }
 
     return sourceIds
@@ -829,52 +813,36 @@ export class SiliconBridge {
   /**
    * Clear all notes and mappings.
    *
-   * **Zero-Alloc While-Head Deletion**: Iteratively deletes the head node until
-   * the chain is empty. No intermediate arrays or object allocations.
-   *
-   * **Memset-Style Table Clear**: Uses idTableClear() and symTableClear() to
-   * zero the table regions in SAB.
+   * Zero-Alloc While-Head Deletion: Iteratively deletes the head node until
+   * the chain is empty.
    */
   clear(): void {
-    // ZERO-ALLOC: While-head deletion loop (no intermediate array)
+    // While-head deletion loop
     let headPtr = this.linker.getHead()
     while (headPtr !== NULL_PTR) {
-      try {
-        this.linker.deleteNode(headPtr)
-      } catch {
-        // Node may already be deleted, break to avoid infinite loop
-        break
-      }
+      this.linker.deleteNode(headPtr)
       headPtr = this.linker.getHead()
     }
 
-    // Clear Identity Table (memset-style)
+    // Clear tables
     this.linker.idTableClear()
-
-    // Clear Symbol Table (memset-style)
     this.linker.symTableClear()
 
-    // RFC-045: Clear synapse state (maps only - SAB cleared separately if needed)
-    this.forwardMap.clear()
-    this.reverseMap.clear()
-    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
-      this.recentlyFiredSynapses[i] = NULL_PTR
-    }
-    this.recentlyFiredIndex = 0
-
-    // Clear pending operations
-    this.pendingPatches.clear()
-    this.pendingStructural = []
-
-    if (this.attributeDebounceTimer) {
-      clearTimeout(this.attributeDebounceTimer)
-      this.attributeDebounceTimer = null
+    // Reset fired ring
+    this.firedRingHead = 0
+    let i = 0
+    while (i < SiliconBridge.FIRED_RING_CAPACITY) {
+      this.firedRing[i] = NULL_PTR
+      i = i + 1
     }
 
-    if (this.structuralDebounceTimer) {
-      clearTimeout(this.structuralDebounceTimer)
-      this.structuralDebounceTimer = null
-    }
+    // Reset patch ring
+    this.patchHead = 0
+    this.patchTail = 0
+
+    // Reset struct ring
+    this.structHead = 0
+    this.structTail = 0
   }
 
   // ===========================================================================
@@ -883,8 +851,6 @@ export class SiliconBridge {
 
   /**
    * Hoisted readNode callback handler (zero-allocation).
-   * CRITICAL: This method is pre-bound to avoid object allocation in readNode().
-   * Invokes the user-supplied callback stored in readNoteCallback with primitives.
    */
   private handleReadNoteNode = (
     _ptr: number,
@@ -898,8 +864,7 @@ export class SiliconBridge {
     flags: number,
     _seq: number
   ): void => {
-    // ZERO-ALLOC: Invoke user callback with primitives directly
-    if (this.readNoteCallback) {
+    if (this.readNoteCallback !== null) {
       this.readNoteCallback(pitch, velocity, duration, baseTick, (flags & 0x02) !== 0)
     }
   }
@@ -907,15 +872,9 @@ export class SiliconBridge {
   /**
    * Read note data by SOURCE_ID with zero-allocation callback pattern.
    *
-   * **Zero-Alloc Kernel Path**: Uses callback with argument explosion to
-   * eliminate all object allocations in the read path.
-   *
-   * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
-   * DO NOT pass inline arrow functions - they allocate objects.
-   *
    * @param sourceId - Source ID to read
    * @param cb - Callback receiving note data as primitive arguments
-   * @returns true if read succeeded, false if not found or contention detected
+   * @returns true if read succeeded, false if not found
    */
   readNote(
     sourceId: number,
@@ -924,25 +883,17 @@ export class SiliconBridge {
     const ptr = this.getNodePtr(sourceId)
     if (ptr === undefined) return false
 
-    // Save previous callback to support re-entrancy (same pattern as traverseNotes)
     const prevCb = this.readNoteCallback
     this.readNoteCallback = cb
 
-    try {
-      // ZERO-ALLOC: Use pre-bound callback handler
-      const success = this.linker.readNode(ptr, this.handleReadNoteNode)
-      return success
-    } catch {
-      return false
-    } finally {
-      // Restore previous callback (or null if no outer read)
-      this.readNoteCallback = prevCb
-    }
+    const success = this.linker.readNode(ptr, this.handleReadNoteNode)
+
+    this.readNoteCallback = prevCb
+    return success
   }
 
   /**
    * Hoisted traverse callback handler (zero-allocation).
-   * CRITICAL: This method is pre-bound to avoid object allocation in traverse().
    */
   private handleTraverseNode = (
     _ptr: number,
@@ -955,23 +906,13 @@ export class SiliconBridge {
     sourceId: number,
     _seq: number
   ): void => {
-    if (sourceId !== 0 && this.traverseNotesCallback) {
-      // Pass primitives directly (zero allocation)
-      this.traverseNotesCallback(
-        sourceId,
-        pitch,
-        velocity,
-        duration,
-        baseTick,
-        (flags & 0x02) !== 0 // muted
-      )
+    if (sourceId !== 0 && this.traverseNotesCallback !== null) {
+      this.traverseNotesCallback(sourceId, pitch, velocity, duration, baseTick, (flags & 0x02) !== 0)
     }
   }
 
   /**
    * Hoisted getSourceId callback handler (zero-allocation).
-   * CRITICAL: This method is pre-bound to avoid object allocation in getSourceId().
-   * Captures sourceId and active flag into instance variables.
    */
   private handleGetSourceIdNode = (
     _ptr: number,
@@ -985,7 +926,7 @@ export class SiliconBridge {
     flags: number,
     _seq: number
   ): void => {
-    this._getSourceIdIsActive = (flags & 0x01) !== 0 // FLAG.ACTIVE = 0x01
+    this._getSourceIdIsActive = (flags & 0x01) !== 0
     if (this._getSourceIdIsActive) {
       this._getSourceIdResult = sourceId
     }
@@ -993,24 +934,15 @@ export class SiliconBridge {
 
   /**
    * Hoisted getSourceLocation callback handler (zero-allocation).
-   * CRITICAL: This method is pre-bound to avoid object allocation in getSourceLocation().
-   * Invokes user callback with (line, column) primitives directly - zero heap traffic.
    */
-  private handleGetSourceLocationLookup = (
-    _fileHash: number,
-    line: number,
-    column: number
-  ): void => {
-    // ZERO-ALLOC: Pass primitives directly to user callback (no object creation)
-    if (this.getSourceLocationCallback) {
+  private handleGetSourceLocationLookup = (_fileHash: number, line: number, column: number): void => {
+    if (this.getSourceLocationCallback !== null) {
       this.getSourceLocationCallback(line, column)
     }
   }
 
   /**
    * Hoisted traverseSourceIds callback handler (zero-allocation).
-   * CRITICAL: This method is pre-bound to avoid object allocation in traverseSourceIds().
-   * Invokes the user-supplied callback stored in traverseSourceIdsCallback.
    */
   private handleTraverseSourceIdsNode = (
     _ptr: number,
@@ -1023,20 +955,13 @@ export class SiliconBridge {
     sourceId: number,
     _seq: number
   ): void => {
-    if (sourceId > 0 && this.traverseSourceIdsCallback) {
+    if (sourceId > 0 && this.traverseSourceIdsCallback !== null) {
       this.traverseSourceIdsCallback(sourceId)
     }
   }
 
   /**
    * Traverse all notes in chain order with zero-allocation callback pattern.
-   *
-   * CRITICAL: This method adheres to the Zero-Alloc policy.
-   * It uses a pre-bound handler and argument explosion (passing primitives)
-   * to avoid all object allocations in the hot loop.
-   *
-   * Supports re-entrancy: nested calls to traverseNotes will not corrupt
-   * the callback state of outer traversals.
    *
    * @param cb - Callback receiving note data as primitive arguments
    */
@@ -1052,11 +977,10 @@ export class SiliconBridge {
   ): void {
     const prevCb = this.traverseNotesCallback
     this.traverseNotesCallback = cb
-    try {
-      this.linker.traverse(this.handleTraverseNode)
-    } finally {
-      this.traverseNotesCallback = prevCb
-    }
+
+    this.linker.traverse(this.handleTraverseNode)
+
+    this.traverseNotesCallback = prevCb
   }
 
   // ===========================================================================
@@ -1067,108 +991,54 @@ export class SiliconBridge {
    * Get pending patch count.
    */
   getPendingPatchCount(): number {
-    return this.pendingPatches.size
+    return this.patchTail - this.patchHead
   }
 
   /**
    * Get pending structural edit count.
    */
   getPendingStructuralCount(): number {
-    return this.pendingStructural.length
+    return this.structTail - this.structHead
   }
 
   /**
    * Check if there are pending operations.
    */
   hasPending(): boolean {
-    return this.pendingPatches.size > 0 || this.pendingStructural.length > 0
+    return this.patchTail !== this.patchHead || this.structTail !== this.structHead
   }
 
   /**
    * Hard reset the entire system (RFC-044 Resilience).
-   *
-   * **DANGER - THE EJECT BUTTON:**
-   * This nukes all state:
-   * - All nodes in the chain (Zone A + Zone B)
-   * - All Identity/Symbol table mappings
-   * - All pending patches and structural edits
-   * - Ring Buffer state
-   * - Zone B allocator reset to offset 0
-   *
-   * **Use Cases:**
-   * 1. **Page Reload Recovery:** If SAB persists but app reloads, stale Zone B
-   *    nodes may be referenced by the Worker. Hard reset clears everything.
-   * 2. **Zone B Exhaustion:** When getZoneBStats() shows > 90% usage and you
-   *    want to reclaim Zone B space.
-   * 3. **Error Recovery:** After KERNEL_PANIC or other catastrophic failures.
-   *
-   * **Thread Safety:**
-   * NOT thread-safe. Only call during initialization or when you can guarantee
-   * no Worker thread is accessing the SAB (e.g., after stopping AudioWorklet).
-   *
-   * @remarks
-   * After calling this, the system is in a clean initial state. You can
-   * immediately start writing new notes.
    */
   hardReset(): void {
-    // 1. Reset Linker (clears SAB: header, Zone A free list, tables, ring buffer)
     this.linker.reset()
 
-    // 2. Reset Zone B allocator (bump pointer back to start)
     const nodeCapacity = this.sab[HDR.NODE_CAPACITY]
     this.localAllocator.reset(nodeCapacity)
 
-    // 3. Clear pending debounce state
-    this.pendingPatches.clear()
-    this.pendingStructural = []
+    // Reset ring buffer indices
+    this.patchHead = 0
+    this.patchTail = 0
+    this.structHead = 0
+    this.structTail = 0
 
-    // 4. Clear any active debounce timers
-    if (this.attributeDebounceTimer) {
-      clearTimeout(this.attributeDebounceTimer)
-      this.attributeDebounceTimer = null
-    }
-    if (this.structuralDebounceTimer) {
-      clearTimeout(this.structuralDebounceTimer)
-      this.structuralDebounceTimer = null
+    // Reset fired ring
+    this.firedRingHead = 0
+    let i = 0
+    while (i < SiliconBridge.FIRED_RING_CAPACITY) {
+      this.firedRing[i] = NULL_PTR
+      i = i + 1
     }
 
-    // 5. RFC-045: Clear synapse state
-    this.forwardMap.clear()
-    this.reverseMap.clear()
-    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
-      this.recentlyFiredSynapses[i] = NULL_PTR
-    }
-    this.recentlyFiredIndex = 0
-
-    // Note: RingBuffer is stateless (reads from SAB headers), so it auto-resets
-    // when linker.reset() clears the SAB headers.
-    // Note: SynapseAllocator reads from SAB, so it auto-resets when linker.reset()
-    // clears the Synapse Table region.
+    // Reset tick counter
+    this.currentTick = 0
+    this.patchDebounceTick = 0
+    this.structDebounceTick = 0
   }
 
   /**
    * Get Zone B statistics (RFC-044 Telemetry).
-   *
-   * **The Fuel Gauge:**
-   * Monitor this to detect approaching Zone B exhaustion and decide when
-   * to call hardReset() or trigger defragmentation.
-   *
-   * @returns Zone B usage statistics
-   *
-   * @example
-   * ```typescript
-   * const stats = bridge.getZoneBStats()
-   * if (stats.usage > 0.9) {
-   *   console.warn('Zone B critical! Utilization:', stats.usage)
-   *   // Consider: bridge.hardReset() or trigger defragmentation
-   * }
-   * ```
-   *
-   * **Thresholds:**
-   * - < 0.5: Healthy (green)
-   * - 0.5 - 0.75: Monitor (yellow)
-   * - 0.75 - 0.9: Warning (orange)
-   * - > 0.9: Critical (red) - hardReset recommended
    */
   getZoneBStats(): { usage: number; freeNodes: number } {
     return {
@@ -1191,209 +1061,134 @@ export class SiliconBridge {
   /**
    * Create a synaptic connection between two clips (RFC-045 §6.2).
    *
-   * **Safe API**: Validates SOURCE_IDs and maintains ReverseMap for automatic
-   * disconnection when nodes are deleted.
-   *
    * @param sourceId - SOURCE_ID of the trigger node (end of clip)
    * @param targetId - SOURCE_ID of the destination node (start of next clip)
    * @param options - Optional weight (0-1000) and jitter (0-65535)
-   * @returns The SynapsePtr (byte offset) of the new synapse
-   * @throws Error if sourceId or targetId is not found
+   * @returns The SynapsePtr on success, or negative error code
    */
-  connect(sourceId: number, targetId: number, options: SynapseOptions = {}): SynapsePtr {
-    // 1. Resolve SOURCE_IDs to NodePtrs
-    const sourcePtr = this.getNodePtr(sourceId)
-    if (sourcePtr === undefined) {
-      throw new Error(`SiliconBridge.connect: Unknown sourceId ${sourceId}`)
+  connect(sourceId: number, targetId: number, options: SynapseOptions = {}): number {
+    const sourcePtr = this.linker.idTableLookup(sourceId)
+    if (sourcePtr === NULL_PTR) {
+      return BRIDGE_ERR.NOT_FOUND
     }
 
-    const targetPtr = this.getNodePtr(targetId)
-    if (targetPtr === undefined) {
-      throw new Error(`SiliconBridge.connect: Unknown targetId ${targetId}`)
+    const targetPtr = this.linker.idTableLookup(targetId)
+    if (targetPtr === NULL_PTR) {
+      return BRIDGE_ERR.NOT_FOUND
     }
 
-    // 2. Apply defaults
-    const weight = options.weight ?? 500 // 50% probability by default
+    const weight = options.weight ?? 500
     const jitter = options.jitter ?? 0
 
-    // 3. Create synapse in the Synapse Table
-    const synapsePtr = this.synapseAllocator.connect(sourcePtr, targetPtr, weight, jitter)
-
-    // 4. Update ForwardMap (sourceId → Map<targetId, synapsePtr>)
-    let outgoing = this.forwardMap.get(sourceId)
-    if (!outgoing) {
-      outgoing = new Map()
-      this.forwardMap.set(sourceId, outgoing)
-    }
-    outgoing.set(targetId, synapsePtr)
-
-    // 5. Update ReverseMap (targetId → Set<sourceId>)
-    let incoming = this.reverseMap.get(targetId)
-    if (!incoming) {
-      incoming = new Set()
-      this.reverseMap.set(targetId, incoming)
-    }
-    incoming.add(sourceId)
-
-    return synapsePtr
+    const result = this.synapseAllocator.connect(sourcePtr, targetPtr, weight, jitter)
+    return result
   }
 
   /**
    * Remove a synaptic connection (RFC-045 §6.1).
    *
    * Sets TARGET_PTR to NULL_PTR (tombstone), making the synapse inactive.
-   * The Audio Thread will skip tombstoned synapses during resolution.
    *
    * @param sourceId - SOURCE_ID of the trigger node
-   * @param targetId - SOURCE_ID of the destination node (optional: disconnect all from source)
-   * @returns true if synapse was found and disconnected
+   * @param targetId - SOURCE_ID of the destination node
+   * @returns BRIDGE_ERR.OK on success, BRIDGE_ERR.NOT_FOUND if not found
    */
-  disconnect(sourceId: number, targetId?: number): boolean {
-    const outgoing = this.forwardMap.get(sourceId)
-    if (!outgoing) {
-      return false
+  disconnect(sourceId: number, targetId?: number): number {
+    const sourcePtr = this.linker.idTableLookup(sourceId)
+    if (sourcePtr === NULL_PTR) {
+      return BRIDGE_ERR.NOT_FOUND
     }
 
     if (targetId !== undefined) {
-      // Disconnect specific connection
-      const synapsePtr = outgoing.get(targetId)
-      if (synapsePtr === undefined) {
-        return false
+      const targetPtr = this.linker.idTableLookup(targetId)
+      if (targetPtr === NULL_PTR) {
+        return BRIDGE_ERR.NOT_FOUND
       }
-
-      // Tombstone the synapse (set TARGET_PTR to NULL_PTR)
-      this.synapseAllocator.disconnect(synapsePtr)
-
-      // Update maps
-      outgoing.delete(targetId)
-      if (outgoing.size === 0) {
-        this.forwardMap.delete(sourceId)
-      }
-
-      const incoming = this.reverseMap.get(targetId)
-      if (incoming) {
-        incoming.delete(sourceId)
-        if (incoming.size === 0) {
-          this.reverseMap.delete(targetId)
-        }
-      }
-
-      return true
+      this.synapseAllocator.disconnect(sourcePtr, targetPtr)
     } else {
-      // Disconnect all outgoing connections from this source
-      let disconnected = false
-      const entries = Array.from(outgoing.entries())
-      for (let i = 0; i < entries.length; i++) {
-        const [tgtId, synapsePtr] = entries[i]
-        this.synapseAllocator.disconnect(synapsePtr)
-
-        const incoming = this.reverseMap.get(tgtId)
-        if (incoming) {
-          incoming.delete(sourceId)
-          if (incoming.size === 0) {
-            this.reverseMap.delete(tgtId)
-          }
-        }
-
-        disconnected = true
-      }
-
-      this.forwardMap.delete(sourceId)
-      return disconnected
+      this.synapseAllocator.disconnect(sourcePtr)
     }
+
+    return BRIDGE_ERR.OK
   }
 
   /**
-   * Disconnect all incoming synapses to a node (RFC-045 §6.1 Disconnect Protocol).
-   *
-   * Called automatically by deleteNoteImmediate to ensure no dangling pointers.
-   *
-   * @param targetId - SOURCE_ID of the node being deleted
-   * @returns Number of synapses disconnected
+   * Disconnect all synapses FROM a source pointer. COLD PATH.
+   * O(n) table scan. Zero allocations.
    */
-  private disconnectIncoming(targetId: number): number {
-    const incoming = this.reverseMap.get(targetId)
-    if (!incoming) {
-      return 0
-    }
+  private disconnectAllFromSource(sourcePtr: number): number {
+    this.synapseAllocator.disconnect(sourcePtr)
+    return 0
+  }
 
+  /**
+   * Disconnect all synapses TO a target pointer. COLD PATH.
+   * O(n) table scan. Zero allocations.
+   */
+  private disconnectAllToTarget(targetPtr: number): number {
     let count = 0
-    const srcIds = Array.from(incoming)
-    for (let i = 0; i < srcIds.length; i++) {
-      const srcId = srcIds[i]
-      const outgoing = this.forwardMap.get(srcId)
-      if (outgoing) {
-        const synapsePtr = outgoing.get(targetId)
-        if (synapsePtr !== undefined) {
-          this.synapseAllocator.disconnect(synapsePtr)
-          outgoing.delete(targetId)
-          if (outgoing.size === 0) {
-            this.forwardMap.delete(srcId)
-          }
-          count++
+    let slot = 0
+
+    while (slot < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = this.synapseTableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
+
+      const target = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
+      if (target === targetPtr) {
+        const source = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
+        if (source !== NULL_PTR) {
+          // Tombstone
+          Atomics.store(this.sab, offset + SYNAPSE.TARGET_PTR, NULL_PTR)
+          count = count + 1
         }
       }
+
+      slot = slot + 1
     }
 
-    this.reverseMap.delete(targetId)
     return count
   }
 
   /**
    * Record a fired synapse for plasticity reward distribution.
-   *
-   * Called by the playback engine (SynapticCursor) when a synapse fires.
-   * The synapse is added to a ring buffer of recently fired synapses.
-   *
-   * @param synapsePtr - The synapse that fired
    */
   recordFiredSynapse(synapsePtr: SynapsePtr): void {
-    this.recentlyFiredSynapses[this.recentlyFiredIndex] = synapsePtr
-    this.recentlyFiredIndex = (this.recentlyFiredIndex + 1) % SiliconBridge.RECENTLY_FIRED_CAPACITY
+    this.firedRing[this.firedRingHead] = synapsePtr
+    this.firedRingHead = (this.firedRingHead + 1) & SiliconBridge.FIRED_RING_MASK
   }
 
   /**
    * Apply reward to recently fired synapses (RFC-045 §5.1 Weight-Hardening).
-   *
-   * **Potentiation**: Increases the weight of recently fired synapses by
-   * LEARNING_RATE. This makes successful musical transitions more probable
-   * over time.
-   *
-   * @param multiplier - Optional multiplier for the learning rate (default: 1.0)
    */
   reward(multiplier: number = 1.0): void {
-    const delta = Math.round(this.learningRate * multiplier)
+    const delta = (this.learningRate * multiplier) | 0
     if (delta === 0) return
 
-    for (let i = 0; i < SiliconBridge.RECENTLY_FIRED_CAPACITY; i++) {
-      const synapsePtr = this.recentlyFiredSynapses[i]
-      if (synapsePtr === NULL_PTR) continue
+    let i = 0
+    while (i < SiliconBridge.FIRED_RING_CAPACITY) {
+      const synapsePtr = this.firedRing[i]
+      if (synapsePtr !== NULL_PTR) {
+        const offset = (synapsePtr >> 2) | 0
+        const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
 
-      // Read current weight
-      const offset = synapsePtr / 4
-      const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
-      const currentWeight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
-      const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
+        const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
+        const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
 
-      // Apply delta with clamping (0-1000)
-      const newWeight = Math.max(0, Math.min(1000, currentWeight + delta))
+        let newWeight = weight + delta
+        if (newWeight < 0) newWeight = 0
+        if (newWeight > 1000) newWeight = 1000
 
-      // Pack and write back
-      const newWeightData =
-        ((newWeight & SYN_PACK.WEIGHT_MASK) << SYN_PACK.WEIGHT_SHIFT) |
-        ((jitter & SYN_PACK.JITTER_MASK) << SYN_PACK.JITTER_SHIFT)
+        const newWeightData =
+          ((newWeight & SYN_PACK.WEIGHT_MASK) << SYN_PACK.WEIGHT_SHIFT) |
+          ((jitter & SYN_PACK.JITTER_MASK) << SYN_PACK.JITTER_SHIFT)
 
-      Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, newWeightData)
+        Atomics.store(this.sab, offset + SYNAPSE.WEIGHT_DATA, newWeightData)
+      }
+      i = i + 1
     }
   }
 
   /**
    * Apply penalty to recently fired synapses (inverse of reward).
-   *
-   * **Depression**: Decreases the weight of recently fired synapses.
-   * Useful for "unlearning" unsuccessful transitions.
-   *
-   * @param multiplier - Optional multiplier for the learning rate (default: 1.0)
    */
   penalize(multiplier: number = 1.0): void {
     this.reward(-multiplier)
@@ -1401,8 +1196,6 @@ export class SiliconBridge {
 
   /**
    * Set the learning rate for plasticity (RFC-045 §5.1).
-   *
-   * @param rate - Learning rate (10 = +1% per reward, 100 = +10% per reward)
    */
   setLearningRate(rate: number): void {
     this.learningRate = rate
@@ -1417,8 +1210,6 @@ export class SiliconBridge {
 
   /**
    * Get synapse table statistics (RFC-045 Telemetry).
-   *
-   * @returns Usage statistics for the Synapse Table
    */
   getSynapseStats(): { loadFactor: number; usedSlots: number; capacity: number } {
     return {
@@ -1429,79 +1220,104 @@ export class SiliconBridge {
   }
 
   // ===========================================================================
-  // RFC-045: Persistence (Long-Term Memory)
+  // RFC-045: Persistence (Long-Term Memory) - Zero-Alloc Streaming API
   // ===========================================================================
 
   /**
-   * Create a snapshot of the brain state for persistence (RFC-045 §5.2).
-   *
-   * Exports all synapses with their current weights for storage in IndexedDB.
-   * Use restore() to re-hydrate the brain state on session load.
-   *
-   * @returns BrainSnapshot containing all synapse data
+   * Hoisted snapshot entry handler (zero-allocation).
    */
-  snapshot(): BrainSnapshot {
-    const synapses: SynapseSnapshot[] = []
+  private handleSnapshotEntry = (
+    _slot: number,
+    sourcePtr: number,
+    targetPtr: number,
+    weightData: number
+  ): void => {
+    if (this.snapshotOnSynapse === null) return
 
-    // Iterate through ForwardMap to collect all synapses
-    const forwardEntries = Array.from(this.forwardMap.entries())
-    for (let i = 0; i < forwardEntries.length; i++) {
-      const [sourceId, outgoing] = forwardEntries[i]
-      const outgoingEntries = Array.from(outgoing.entries())
-      for (let j = 0; j < outgoingEntries.length; j++) {
-        const [targetId, synapsePtr] = outgoingEntries[j]
-        // Read weight and jitter from SAB
-        const offset = synapsePtr / 4
-        const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
-        const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
-        const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
+    const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
+    const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
 
-        synapses.push({ sourceId, targetId, weight, jitter })
-      }
-    }
+    // Resolve pointers to IDs
+    const sourceId = Atomics.load(this.sab, (sourcePtr >> 2) + NODE.SOURCE_ID)
+    const targetId = Atomics.load(this.sab, (targetPtr >> 2) + NODE.SOURCE_ID)
 
-    return {
-      version: 1,
-      timestamp: Date.now(),
-      synapses
-    }
+    this.snapshotOnSynapse(sourceId, targetId, weight, jitter)
   }
 
   /**
-   * Restore brain state from a snapshot (RFC-045 §5.2 Re-Hydration).
+   * Stream brain state to callbacks. COLD PATH.
    *
-   * Re-creates all synapses with their persisted weights. This restores the
-   * "learned personality" of the brain after a session reload.
+   * CALLER MUST provide pre-bound functions, NOT inline arrows.
    *
-   * **Prerequisites**: All source and target nodes must already exist in the
-   * chain (restored via loadClip or similar). Synapses referencing unknown
-   * SOURCE_IDs will be skipped with a warning.
-   *
-   * @param snapshot - BrainSnapshot to restore
-   * @returns Number of synapses successfully restored
+   * @param onSynapse - Pre-bound callback for each synapse
+   * @param onComplete - Pre-bound callback when done
    */
-  restore(snapshot: BrainSnapshot): number {
-    let restored = 0
+  snapshotStream(
+    onSynapse: (sourceId: number, targetId: number, weight: number, jitter: number) => void,
+    onComplete: (count: number) => void
+  ): void {
+    this.snapshotOnSynapse = onSynapse
+    this.snapshotOnComplete = onComplete
 
-    for (const syn of snapshot.synapses) {
-      try {
-        // Only restore if both nodes exist
-        const sourcePtr = this.getNodePtr(syn.sourceId)
-        const targetPtr = this.getNodePtr(syn.targetId)
+    let count = 0
+    let slot = 0
 
-        if (sourcePtr === undefined || targetPtr === undefined) {
-          // Node not found - skip this synapse
-          continue
+    while (slot < SYNAPSE_TABLE.MAX_CAPACITY) {
+      const offset = this.synapseTableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
+
+      const sourcePtr = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
+      if (sourcePtr !== NULL_PTR) {
+        const targetPtr = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
+        if (targetPtr !== NULL_PTR) {
+          const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
+          this.handleSnapshotEntry(slot, sourcePtr, targetPtr, weightData)
+          count = count + 1
         }
-
-        this.connect(syn.sourceId, syn.targetId, {
-          weight: syn.weight,
-          jitter: syn.jitter
-        })
-        restored++
-      } catch {
-        // Connection failed (e.g., table full) - continue with others
       }
+      slot = slot + 1
+    }
+
+    if (this.snapshotOnComplete !== null) {
+      this.snapshotOnComplete(count)
+    }
+
+    this.snapshotOnSynapse = null
+    this.snapshotOnComplete = null
+  }
+
+  /**
+   * Restore synapses from parallel TypedArrays. COLD PATH.
+   *
+   * @returns Number of synapses restored
+   */
+  restoreFromArrays(
+    sourceIds: Int32Array,
+    targetIds: Int32Array,
+    weights: Int32Array,
+    jitters: Int32Array,
+    count: number
+  ): number {
+    let restored = 0
+    let i = 0
+
+    while (i < count) {
+      const sourceId = sourceIds[i]
+      const targetId = targetIds[i]
+      const weight = weights[i]
+      const jitter = jitters[i]
+
+      const sourcePtr = this.linker.idTableLookup(sourceId)
+      if (sourcePtr !== NULL_PTR) {
+        const targetPtr = this.linker.idTableLookup(targetId)
+        if (targetPtr !== NULL_PTR) {
+          const result = this.synapseAllocator.connect(sourcePtr, targetPtr, weight, jitter)
+          if (result >= 0) {
+            restored = restored + 1
+          }
+        }
+      }
+
+      i = i + 1
     }
 
     return restored

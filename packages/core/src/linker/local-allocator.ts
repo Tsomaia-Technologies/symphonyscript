@@ -3,9 +3,7 @@
 // =============================================================================
 // Zone B bump-pointer allocator for Main Thread lock-free allocation.
 
-import { HEAP_START_OFFSET, NODE_SIZE_BYTES, getZoneSplitIndex } from './constants'
-import { HeapExhaustedError } from './types'
-import type { NodePtr } from './types'
+import { HEAP_START_OFFSET, NODE_SIZE_BYTES, getZoneSplitIndex, ALLOC_ERR } from './constants'
 
 /**
  * Local Allocator for Zone B (UI-Owned Heap).
@@ -54,21 +52,22 @@ export class LocalAllocator {
   /**
    * Allocate a node from Zone B (bump pointer).
    *
-   * @returns Byte offset to the allocated node
-   * @throws {HeapExhaustedError} if Zone B is exhausted
+   * RFC-045-04: Zero-allocation error handling via return codes.
+   *
+   * @returns Byte offset to the allocated node on success, or ALLOC_ERR.EXHAUSTED (-1) if Zone B is exhausted
    *
    * @remarks
    * This is an O(1) operation with zero contention. No atomic operations required.
    * The allocated node is "floating" (not in the linked list) until the Worker
    * processes the corresponding INSERT command from the Ring Buffer.
    */
-  alloc(): NodePtr {
+  alloc(): number {
     if (this.nextPtr >= this.limitPtr) {
-      throw new HeapExhaustedError()
+      return ALLOC_ERR.EXHAUSTED
     }
 
     const ptr = this.nextPtr
-    this.nextPtr += NODE_SIZE_BYTES
+    this.nextPtr = this.nextPtr + NODE_SIZE_BYTES
     return ptr
   }
 
