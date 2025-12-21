@@ -34,7 +34,7 @@ export const DEFAULT_SAFE_ZONE_TICKS = 960
 export const NULL_PTR = 0
 
 // =============================================================================
-// PHYSICAL MEMORY MAP (v1.5)
+// PHYSICAL MEMORY MAP (v2.0 - RFC-045)
 // =============================================================================
 /**
  * SharedArrayBuffer Memory Layout
@@ -109,6 +109,24 @@ export const NULL_PTR = 0
  * │ Packed SourceLocation: [fileHash: i32, lineCol: i32] × capacity    │
  * │   fileHash = 0: No location stored                                  │
  * │   lineCol = (line << 16) | (column & 0xFFFF)                       │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ GROOVE TEMPLATES (dynamic offset)                      1024 bytes  │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Fixed-size region for groove template patterns (humanization)      │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ COMMAND RING BUFFER (dynamic offset) [RFC-044]        64KB        │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ Circular buffer for zero-blocking structural edits (4096 commands) │
+ * │ Each command: 4 × i32 = 16 bytes [OPCODE, PARAM_1, PARAM_2, RSV]  │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ SYNAPSE TABLE (dynamic offset) [RFC-045]               1MB        │
+ * ├─────────────────────────────────────────────────────────────────────┤
+ * │ The Silicon Brain: Linear-probe hash table (65536 synapses)        │
+ * │ Each synapse: 4 × i32 = 16 bytes (neuromorphic connection)        │
+ * │   [+0] SOURCE_PTR   : Trigger node (hash key for lookup)          │
+ * │   [+4] TARGET_PTR   : Destination node (signal target)            │
+ * │   [+8] WEIGHT_DATA  : weight(16b) | jitter(16b)                   │
+ * │   [+12] META_NEXT   : plasticity(8b) | nextSynapse(24b)           │
  * └─────────────────────────────────────────────────────────────────────┘
  *
  * ATOMIC OPERATIONS:
@@ -505,6 +523,102 @@ export const COMMAND = {
   DEFAULT_RING_SIZE_BYTES: 65536
 } as const
 
+// =============================================================================
+// Synapse Table (RFC-045) - The Neural Connection Graph
+// =============================================================================
+
+/**
+ * Synapse Table constants for the "Silicon Brain" Neural Audio Processor.
+ *
+ * The Synapse Table is a 1MB linear-probe hash table that connects musical
+ * "Axons" (Clips) via probabilistic "Synapses" (Connections). This enables
+ * non-linear, generative music where clips trigger each other based on weights,
+ * jitter, and plasticity.
+ *
+ * Each Synapse occupies exactly 16 bytes (4 × i32) with tightly packed fields:
+ * - SOURCE_PTR: The trigger node (end of clip) - used as hash key
+ * - TARGET_PTR: The destination node (start of next clip)
+ * - WEIGHT_DATA: Packed [Weight (16b) | Jitter (16b)]
+ * - META_NEXT: Packed [Plasticity Flags (8b) | Next Synapse Ptr (24b)]
+ */
+export const SYNAPSE_TABLE = {
+  /** Synapse Table size in bytes (1MB) */
+  SIZE_BYTES: 1048576,
+  /** Maximum number of synapses (1MB / 16 bytes) */
+  MAX_CAPACITY: 65536,
+  /** Synapse stride in bytes (16 bytes for 4 × i32) */
+  STRIDE_BYTES: 16,
+  /** Synapse stride in i32 units (4 words) */
+  STRIDE_I32: 4
+} as const
+
+/**
+ * Synapse structure offsets (4 × i32 = 16 bytes per synapse).
+ *
+ * The Synapse struct represents a connection between two Axons (clips) in the
+ * neural topology. It is tightly packed for cache efficiency and atomic operations.
+ *
+ * Layout:
+ * - [+0] SOURCE_PTR: Byte offset to trigger node (hash key for lookup)
+ * - [+1] TARGET_PTR: Byte offset to destination node
+ * - [+2] WEIGHT_DATA: Packed (weight << 0) | (jitter << 16)
+ * - [+3] META_NEXT: Packed (plasticity << 0) | (nextSynapse << 8)
+ */
+export const SYNAPSE = {
+  /** Source node pointer (trigger point, used as hash key) */
+  SOURCE_PTR: 0,
+  /** Target node pointer (destination for signal propagation) */
+  TARGET_PTR: 1,
+  /** Packed weight (0-1000) and jitter (0-65535) data */
+  WEIGHT_DATA: 2,
+  /** Packed plasticity flags (8 bits) and next synapse pointer (24 bits) */
+  META_NEXT: 3
+} as const
+
+/**
+ * Synapse packing constants for atomic bit manipulation.
+ *
+ * These constants enable efficient packing/unpacking of multiple fields into
+ * single 32-bit integers for cache-aligned, atomic operations.
+ *
+ * WEIGHT_DATA packing (i32 at offset 2):
+ * - Bits 0-15:  Weight (0-1000 fixed-point probability/intensity)
+ * - Bits 16-31: Jitter (0-65535 micro-timing deviation in ticks)
+ *
+ * META_NEXT packing (i32 at offset 3):
+ * - Bits 0-7:   Plasticity flags (learning/potentiation state)
+ * - Bits 8-31:  Next synapse pointer (24-bit collision chain index)
+ */
+export const SYN_PACK = {
+  // WEIGHT_DATA field (offset 2)
+  /** Weight field: bits 0-15 (0-1000 fixed-point, 0.0 to 1.0) */
+  WEIGHT_MASK: 0xffff,
+  WEIGHT_SHIFT: 0,
+  /** Jitter field: bits 16-31 (0-65535 ticks micro-timing deviation) */
+  JITTER_MASK: 0xffff,
+  JITTER_SHIFT: 16,
+
+  // META_NEXT field (offset 3)
+  /** Plasticity flags: bits 0-7 (learning state, potentiation markers) */
+  PLASTICITY_MASK: 0xff,
+  PLASTICITY_SHIFT: 0,
+  /** Next synapse pointer: bits 8-31 (24-bit index for collision chain) */
+  NEXT_PTR_MASK: 0xffffff,
+  NEXT_PTR_SHIFT: 8
+} as const
+
+/**
+ * Synapse execution safety quotas to prevent infinite loops in Audio Thread.
+ *
+ * The Kernel tracks how many synapses have fired in the current audio block.
+ * If this quota is exceeded, synaptic resolution aborts to guarantee real-time
+ * performance (prevents runaway feedback loops or recursive synapse chains).
+ */
+export const SYNAPSE_QUOTA = {
+  /** Maximum synapses that can fire per audio block (default: 64) */
+  MAX_FIRES_PER_BLOCK: 64
+} as const
+
 /**
  * Default number of commands that can be queued (64KB / 16 bytes).
  */
@@ -564,6 +678,7 @@ export function getZoneSplitIndex(nodeCapacity: number): number {
  * - Symbol Table: nodeCapacity × 8 bytes (fileHash + lineCol per entry)
  * - Groove Templates: 1024 bytes (fixed)
  * - Command Ring Buffer: 64KB (RFC-044)
+ * - Synapse Table: 1MB (RFC-045) - Neural connection graph
  *
  * @param nodeCapacity - Maximum number of nodes
  * @returns Total bytes needed for SharedArrayBuffer
@@ -575,7 +690,8 @@ export function calculateSABSize(nodeCapacity: number): number {
   const symbolTableSize = nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const grooveSize = 1024 // Fixed groove template region
   const ringBufferSize = COMMAND.DEFAULT_RING_SIZE_BYTES // 64KB command ring (RFC-044)
-  return headerSize + heapSize + identityTableSize + symbolTableSize + grooveSize + ringBufferSize
+  const synapseTableSize = SYNAPSE_TABLE.SIZE_BYTES // 1MB synapse table (RFC-045)
+  return headerSize + heapSize + identityTableSize + symbolTableSize + grooveSize + ringBufferSize + synapseTableSize
 }
 
 /**
@@ -624,6 +740,20 @@ export function getGrooveTemplateOffset(nodeCapacity: number): number {
  */
 export function getRingBufferOffset(nodeCapacity: number): number {
   return getGrooveTemplateOffset(nodeCapacity) + 1024 // Groove size is fixed at 1024 bytes
+}
+
+/**
+ * Calculate byte offset where Synapse Table begins (RFC-045).
+ *
+ * The Synapse Table is a 1MB linear-probe hash table that stores neural
+ * connections between Axons (clips). It resides immediately after the
+ * Command Ring Buffer in the SharedArrayBuffer.
+ *
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Byte offset to Synapse Table
+ */
+export function getSynapseTableOffset(nodeCapacity: number): number {
+  return getRingBufferOffset(nodeCapacity) + COMMAND.DEFAULT_RING_SIZE_BYTES
 }
 
 // =============================================================================
