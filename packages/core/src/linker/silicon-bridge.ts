@@ -856,16 +856,87 @@ export class SiliconBridge {
   }
 
   /**
-   * Load notes from EditorNoteData array. COLD PATH - TEST COMPATIBILITY.
+   * Load notes from EditorNoteData array.
    *
    * RFC-045-FINAL: Uses command ring + processCommands for synchronous loading.
-   * This method allocates and is NOT zero-allocation compliant.
-   * Use loadNotesFromArrays for hot paths.
    *
    * @param notes - Array of EditorNoteData objects
-   * @returns Array of assigned sourceIds
+   * @param outSourceIds - Pre-allocated output array (REQUIRED for zero-allocation)
+   * @returns Number of notes loaded (when outSourceIds provided), or array (legacy mode)
+   *
+   * @remarks
+   * **Zero-allocation path (preferred):** Pass a pre-allocated Int32Array.
+   * Returns the number of notes loaded.
+   *
+   * **Legacy path (test compatibility):** Omit outSourceIds parameter.
+   * Allocates and returns a number[] array.
+   *
+   * @deprecated The legacy path (without outSourceIds) allocates.
+   * Use loadNotesFromArrays() for true zero-allocation hot paths.
    */
-  loadClip(notes: EditorNoteData[]): number[] {
+  loadClip(notes: EditorNoteData[], outSourceIds?: Int32Array): number | number[] {
+    // Zero-allocation path (preferred)
+    if (outSourceIds !== undefined) {
+      return this._loadClipZeroAlloc(notes, outSourceIds)
+    }
+
+    // Legacy allocating path (for test compatibility)
+    return this._loadClipLegacy(notes)
+  }
+
+  /**
+   * Zero-allocation loadClip implementation.
+   * @internal
+   */
+  private _loadClipZeroAlloc(notes: EditorNoteData[], outSourceIds: Int32Array): number {
+    let loaded = 0
+
+    // Insert in reverse order to maintain sorted chain
+    let i = notes.length - 1
+    while (i >= 0) {
+      const note = notes[i]
+      const sourceId = this._advanceSourceId()
+
+      const ptr = this.insertAsync(
+        OPCODE.NOTE,
+        note.pitch,
+        note.velocity,
+        note.duration,
+        note.baseTick,
+        note.muted ?? false,
+        sourceId,
+        undefined
+      )
+
+      if (ptr >= 0 && loaded < outSourceIds.length) {
+        outSourceIds[loaded] = sourceId
+        loaded = loaded + 1
+      }
+      i = i - 1
+    }
+
+    // Process all commands at once
+    this.linker.processCommands()
+
+    // Register mappings
+    let j = 0
+    while (j < loaded) {
+      const ptr = this.linker.idTableLookup(outSourceIds[j])
+      if (ptr !== NULL_PTR) {
+        this.registerMapping(outSourceIds[j], ptr, undefined)
+      }
+      j = j + 1
+    }
+
+    return loaded
+  }
+
+  /**
+   * Legacy allocating loadClip implementation.
+   * @internal
+   * @deprecated Allocates - use zero-allocation path with outSourceIds
+   */
+  private _loadClipLegacy(notes: EditorNoteData[]): number[] {
     const sourceIds: number[] = []
 
     // Insert in reverse order to maintain sorted chain
