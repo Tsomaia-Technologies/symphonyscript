@@ -703,7 +703,7 @@ export class SiliconBridge {
       const sourceId = this.structSourceIds[idx]
 
       if (opType === 1) {
-        // insert
+        // insert - RFC-045-FINAL: Use async command ring instead of immediate
         const afterId = this.structAfterIds[idx]
         const pitch = this.structPitches[idx]
         const velocity = this.structVelocities[idx]
@@ -711,31 +711,46 @@ export class SiliconBridge {
         const baseTick = this.structBaseTicks[idx]
         const muted = this.structFlags[idx] !== 0
 
-        const result = this.insertImmediate(
+        const result = this.insertAsync(
           OPCODE.NOTE,
           pitch,
           velocity,
           duration,
           baseTick,
           muted,
-          undefined,
-          afterId >= 0 ? afterId : undefined,
-          sourceId
+          sourceId,
+          afterId >= 0 ? afterId : undefined
         )
 
-        if (result >= 0 && this.onStructuralApplied !== null) {
-          this.onStructuralApplied('insert', sourceId)
-        } else if (result < 0 && this.onError !== null) {
+        // Register mapping immediately (ptr is in Zone B, will be linked by worker)
+        if (result >= 0) {
+          this.registerMapping(sourceId, result, undefined)
+          if (this.onStructuralApplied !== null) {
+            this.onStructuralApplied('insert', sourceId)
+          }
+        } else if (this.onError !== null) {
           this.onError(result)
         }
       } else if (opType === 2) {
-        // delete
-        const result = this.deleteNoteImmediate(sourceId)
+        // delete - RFC-045-FINAL: Use async command ring
+        const ptr = this.getNodePtr(sourceId)
+        if (ptr !== undefined) {
+          // RFC-045: Auto-disconnect synapses before delete
+          this.disconnectAllFromSource(ptr)
+          this.disconnectAllToTarget(ptr)
 
-        if (result >= 0 && this.onStructuralApplied !== null) {
-          this.onStructuralApplied('delete', sourceId)
-        } else if (result < 0 && this.onError !== null) {
-          this.onError(result)
+          // Queue delete command
+          this.ringBuffer.write(CMD.DELETE, ptr, 0)
+          Atomics.notify(this.sab, HDR.YIELD_SLOT, 1)
+
+          // Unregister immediately (worker will process delete)
+          this.unregisterMapping(sourceId)
+
+          if (this.onStructuralApplied !== null) {
+            this.onStructuralApplied('delete', sourceId)
+          }
+        } else if (this.onError !== null) {
+          this.onError(BRIDGE_ERR.NOT_FOUND)
         }
       }
 

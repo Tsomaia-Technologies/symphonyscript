@@ -403,7 +403,7 @@ export class SiliconSynapse implements ISiliconLinker {
    * @param flags - Initial flags
    * @returns Pointer to new node, or NULL_PTR on error
    */
-  insertNode(
+  private _insertNode(
     afterPtr: NodePtr,
     opcode: number,
     pitch: number,
@@ -479,7 +479,7 @@ export class SiliconSynapse implements ISiliconLinker {
    * @param flags - Initial flags
    * @returns Pointer to new node, or NULL_PTR on error
    */
-  insertHead(
+  private _insertHead(
     opcode: number,
     pitch: number,
     velocity: number,
@@ -552,7 +552,7 @@ export class SiliconSynapse implements ISiliconLinker {
    * @param ptr - Node to delete
    * @returns true if deleted, false on error
    */
-  deleteNode(ptr: NodePtr): boolean {
+  private _deleteNode(ptr: NodePtr): boolean {
     if (ptr === NULL_PTR) return true // No-op is success
 
     const offset = this.nodeOffset(ptr)
@@ -618,51 +618,6 @@ export class SiliconSynapse implements ISiliconLinker {
   // Commit Protocol
   // ===========================================================================
 
-  /**
-   * Synchronously wait for consumer to acknowledge structural change.
-   *
-   * **Blocking Synchronization Model**: Spins on COMMIT_FLAG until Consumer
-   * sets ACK (2), then clears to IDLE (0) to complete the handshake.
-   *
-   * This method blocks until:
-   * - Consumer acknowledges the change (COMMIT_FLAG → ACK)
-   * - Panic threshold is reached (AudioWorklet unresponsive)
-   *
-   * RFC-045-04: Returns boolean instead of throwing.
-   *
-   * @returns true if ACK received, false if timeout (ERROR_FLAG set)
-   * @deprecated Use Command Ring approach instead (RFC-044)
-   */
-  syncAck(): boolean {
-    let spins = 0
-
-    // Wait for Consumer to set ACK (2)
-    while (Atomics.load(this.sab, HDR.COMMIT_FLAG) !== COMMIT.ACK) {
-      // Zero-alloc yield to prevent CPU starvation
-      this._yieldToCPU()
-      spins = spins + 1
-
-      // Dead-Man's Switch: AudioWorklet unresponsive
-      if (spins > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
-        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
-        return false // RFC-045-04: Return error instead of throwing
-      }
-    }
-
-    // ⚠️ CRITICAL OWNERSHIP INVARIANT (RFC-044 Decree 044-11):
-    // THE KERNEL (Main Thread) OWNS THE ACK → IDLE TRANSITION.
-    //
-    // The 3-phase commit protocol is:
-    //   1. Kernel sets PENDING (after structural change)
-    //   2. Worker sets ACK (after acknowledging change)
-    //   3. Kernel sets IDLE (completing handshake) ← THIS IS KERNEL'S RESPONSIBILITY
-    //
-    // DO NOT "fix" this by waiting for IDLE. The Worker thread NEVER writes IDLE.
-    // If you change this, the handshake will deadlock (Worker waits forever for
-    // Kernel to clear ACK, Kernel waits forever for IDLE that never comes).
-    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.IDLE)
-    return true
-  }
 
   // ===========================================================================
   // Read Operations
@@ -1513,7 +1468,7 @@ export class SiliconSynapse implements ISiliconLinker {
   /**
    * Execute DELETE command: Remove a node from the chain (RFC-044).
    *
-   * **Note:** This uses the existing deleteNode() method which already
+   * **Note:** This uses the existing _deleteNode() method which already
    * handles mutex acquisition and Identity Table cleanup.
    *
    * RFC-045-04: Returns boolean (no try/catch).
@@ -1522,8 +1477,8 @@ export class SiliconSynapse implements ISiliconLinker {
    * @returns true on success, false on error
    */
   private executeDelete(ptr: NodePtr): boolean {
-    // RFC-045-04: deleteNode now returns boolean instead of throwing
-    return this.deleteNode(ptr)
+    // RFC-045-04: _deleteNode now returns boolean instead of throwing
+    return this._deleteNode(ptr)
   }
 
   /**

@@ -187,38 +187,42 @@ export interface ISiliconLinker {
   /** Set/clear muted flag (immediate, no COMMIT_FLAG). */
   patchMuted(ptr: NodePtr, muted: boolean): void
 
-  // --- Structural Operations (Safe Zone Enforced) ---
+  // --- Command Ring Protocol (RFC-044) ---
 
-  /** Insert a new node after the given node. Throws if in safe zone. */
-  insertNode(
-    afterPtr: NodePtr,
-    opcode: number,
-    pitch: number,
-    velocity: number,
-    duration: number,
-    baseTick: number,
-    sourceId: number,
-    flags: number
-  ): NodePtr
+  /**
+   * Process pending commands from the Ring Buffer.
+   * This is the single source of truth for structural changes.
+   * @returns Number of commands processed
+   */
+  processCommands(): number
 
-  /** Insert a new node at the head of the chain. */
-  insertHead(
-    opcode: number,
-    pitch: number,
-    velocity: number,
-    duration: number,
-    baseTick: number,
-    sourceId: number,
-    flags: number
-  ): NodePtr
+  // --- Identity Table (sourceId ↔ NodePtr mapping) ---
 
-  /** Delete a node from the chain. Throws if in safe zone. */
-  deleteNode(ptr: NodePtr): void
+  /** Lookup NodePtr by sourceId. Returns NULL_PTR if not found. */
+  idTableLookup(sourceId: number): NodePtr
 
-  // --- Commit Protocol ---
+  /** Insert sourceId → ptr mapping. */
+  idTableInsert(sourceId: number, ptr: NodePtr): void
 
-  /** Synchronously wait for consumer to acknowledge structural change. */
-  syncAck(): void
+  /** Remove sourceId from table. */
+  idTableRemove(sourceId: number): void
+
+  /** Clear all identity mappings. */
+  idTableClear(): void
+
+  // --- Symbol Table (sourceId ↔ SourceLocation mapping) ---
+
+  /** Lookup source location by sourceId with callback pattern. Returns true if found. */
+  symTableLookup(sourceId: number, cb: (line: number, column: number) => void): boolean
+
+  /** Store source location for sourceId. */
+  symTableStore(sourceId: number, line: number, column: number): void
+
+  /** Remove source location for sourceId. */
+  symTableRemove(sourceId: number): void
+
+  /** Clear all symbol mappings. */
+  symTableClear(): void
 
   // --- Read Operations ---
 
@@ -298,6 +302,9 @@ export interface ISiliconLinker {
 
   /** Get free count. */
   getFreeCount(): number
+
+  /** Reset linker state (clear chain and tables). */
+  reset(): void
 
   /** Get underlying SAB. */
   getSAB(): SharedArrayBuffer
