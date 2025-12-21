@@ -515,6 +515,25 @@ export const CONCURRENCY = {
 } as const
 
 // =============================================================================
+// Source ID Range (RFC-045-04)
+// =============================================================================
+
+/**
+ * Source ID range constants for positive Int32 enforcement.
+ *
+ * SourceIds must fit in the positive Int32 range (1 to 2^31-1).
+ * After 2,147,483,647 IDs, the counter wraps around to MIN.
+ */
+export const SOURCE_ID = {
+  /** Minimum valid source ID (0 is reserved for NULL) */
+  MIN: 1,
+  /** Maximum valid source ID (Int32 positive range) */
+  MAX: 0x7FFFFFFF,
+  /** Wraparound point: restart from MIN when MAX is exceeded */
+  WRAP_THRESHOLD: 0x7FFFFFFF
+} as const
+
+// =============================================================================
 // Command Ring Buffer (RFC-044)
 // =============================================================================
 

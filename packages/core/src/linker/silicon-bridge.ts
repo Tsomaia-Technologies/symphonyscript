@@ -24,6 +24,7 @@ import {
   SYN_PACK,
   SYNAPSE_TABLE,
   BRIDGE_ERR,
+  SOURCE_ID,
   getSynapseTableOffset
 } from './constants'
 import type { NodePtr, SynapsePtr, BrainSnapshot } from './types'
@@ -176,8 +177,8 @@ export class SiliconBridge {
   private onStructuralApplied: ((type: 'insert' | 'delete', sourceId: number) => void) | null = null
   private onError: ((errorCode: number) => void) | null = null
 
-  // Source ID generation
-  private nextSourceId: number = 1
+  // Source ID generation (RFC-045-04: wraparound at MAX)
+  private nextSourceId: number = SOURCE_ID.MIN
 
   // =========================================================================
   // Pre-Bound Callback Handlers (allocated once at construction)
@@ -267,27 +268,42 @@ export class SiliconBridge {
    * Generate a SOURCE_ID from a source location.
    * Uses a hash of file:line:column for uniqueness.
    *
-   * CRITICAL: SourceIds must fit in positive Int32 range (1 to 2^31-1)
+   * CRITICAL: SourceIds must fit in positive Int32 range (1 to 2^31-1).
+   * RFC-045-04: Implements wraparound at MAX to prevent overflow.
    */
   generateSourceId(source?: SourceLocation): number {
     if (!source) {
-      const id = this.nextSourceId
-      this.nextSourceId = this.nextSourceId + 1
-      return id
+      return this._advanceSourceId()
     }
 
     // Simple hash: combine file hash + line + column
     const fileHash = source.file ? this.hashString(source.file) : 0
     const locationHash = (fileHash * 31 + source.line) * 31 + source.column
 
-    // Ensure positive Int32 range: 1 to 0x7FFFFFFF
-    const maskedHash = (Math.abs(locationHash) >>> 0) & 0x7fffffff
+    // Ensure positive Int32 range: 1 to SOURCE_ID.MAX
+    const maskedHash = (Math.abs(locationHash) >>> 0) & SOURCE_ID.MAX
     if (maskedHash === 0) {
-      const id = this.nextSourceId
-      this.nextSourceId = this.nextSourceId + 1
-      return id
+      return this._advanceSourceId()
     }
     return maskedHash
+  }
+
+  /**
+   * Advance nextSourceId with wraparound (RFC-045-04).
+   *
+   * Returns the current ID and advances the counter. When MAX is exceeded,
+   * wraps around to MIN. This handles theoretical 2B+ note scenarios.
+   *
+   * Note: Wraparound means potential ID collision with very old notes.
+   * In practice, old notes should be deleted before 2B new ones are created.
+   */
+  private _advanceSourceId(): number {
+    const id = this.nextSourceId
+    this.nextSourceId = this.nextSourceId + 1
+    if (this.nextSourceId > SOURCE_ID.MAX) {
+      this.nextSourceId = SOURCE_ID.MIN
+    }
+    return id
   }
 
   /**
@@ -810,8 +826,7 @@ export class SiliconBridge {
     let i = count - 1 // Insert in reverse for sorted chain
 
     while (i >= 0) {
-      const sourceId = this.nextSourceId
-      this.nextSourceId = this.nextSourceId + 1
+      const sourceId = this._advanceSourceId()
 
       const muted = (flags[i] & 0x02) !== 0
 
