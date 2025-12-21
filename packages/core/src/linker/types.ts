@@ -140,6 +140,24 @@ export class SynapseTableFullError extends Error {
 }
 
 /**
+ * Synapse connection data for snapshot/restore (RFC-045).
+ */
+export interface SynapseData {
+  sourceId: number
+  targetId: number
+  weight: number
+  jitter: number
+}
+
+/**
+ * Brain snapshot containing all neural connections (RFC-045).
+ * Used for zero-allocation save/restore of synaptic state.
+ */
+export interface BrainSnapshot {
+  synapses: SynapseData[]
+}
+
+/**
  * Silicon Linker interface.
  * Acts as MMU for the SharedArrayBuffer, handling all memory operations.
  */

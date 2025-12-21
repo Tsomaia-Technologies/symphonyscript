@@ -26,7 +26,7 @@ import {
   BRIDGE_ERR,
   getSynapseTableOffset
 } from './constants'
-import type { NodePtr, SynapsePtr } from './types'
+import type { NodePtr, SynapsePtr, BrainSnapshot } from './types'
 import { LocalAllocator } from './local-allocator'
 import { RingBuffer } from './ring-buffer'
 import { SynapseAllocator } from './synapse-allocator'
@@ -71,6 +71,9 @@ export const PATCH_TYPE = {
 } as const
 
 export type PatchType = 'pitch' | 'velocity' | 'duration' | 'baseTick' | 'muted'
+
+// Re-export snapshot types for convenience (RFC-045)
+export type { BrainSnapshot, SynapseData } from './types'
 
 /**
  * Bridge configuration options.
@@ -1300,6 +1303,49 @@ export class SiliconBridge {
 
     this.snapshotOnSynapse = null
     this.snapshotOnComplete = null
+  }
+
+  /**
+   * Restore synapses from BrainSnapshot. COLD PATH.
+   * RFC-045-04 Compliant: Zero allocations, error code handling.
+   *
+   * @param snapshot - Brain snapshot containing synapse connections
+   * @returns Number of synapses successfully restored
+   */
+  restore(snapshot: BrainSnapshot): number {
+    let restored = 0
+    const synapses = snapshot.synapses
+    const count = synapses.length
+    let i = 0
+
+    while (i < count) {
+      const syn = synapses[i]
+
+      // 1. Resolve Pointers Once (avoid double lookup)
+      const sourcePtr = this.getNodePtr(syn.sourceId)
+      const targetPtr = this.getNodePtr(syn.targetId)
+
+      // 2. Direct Validation
+      if (sourcePtr !== undefined && targetPtr !== undefined) {
+        // 3. Direct Low-Level Write (Zero-Overhead)
+        // Returns offset (positive) or error (negative)
+        const result = this.synapseAllocator.connect(
+          sourcePtr,
+          targetPtr,
+          syn.weight,
+          syn.jitter
+        )
+
+        // 4. Validate Success
+        if (result >= 0) {
+          restored = restored + 1
+        }
+      }
+
+      i = i + 1
+    }
+
+    return restored
   }
 
   /**
