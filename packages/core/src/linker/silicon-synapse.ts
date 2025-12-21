@@ -759,7 +759,7 @@ export class SiliconSynapse implements ISiliconLinker {
 
       // If SEQ changed, writer was mutating during our read - retry
       if (seq1 !== seq2) {
-        retries++
+        retries = retries + 1
       }
     } while (seq1 !== seq2)
 
@@ -1500,7 +1500,7 @@ export class SiliconSynapse implements ISiliconLinker {
           Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.UNKNOWN_OPCODE)
       }
 
-      commandsProcessed++
+      commandsProcessed = commandsProcessed + 1
     }
 
     return commandsProcessed

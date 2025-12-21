@@ -94,9 +94,9 @@ export class SynapseAllocator {
    * @param targetPtr - The Destination Node (Start of Next Clip)
    * @param weight - Probability/Intensity (0-1000)
    * @param jitter - Micro-timing deviation in ticks (0-65535)
-   * @returns The byte pointer to the new Synapse entry on success, or negative error code
+   * @returns The SynapsePtr to the new entry on success, or negative error code
    */
-  connect(sourcePtr: number, targetPtr: number, weight: number, jitter: number): number {
+  connect(sourcePtr: number, targetPtr: number, weight: number, jitter: number): SynapsePtr {
     if (sourcePtr === NULL_PTR || targetPtr === NULL_PTR) {
       return SYNAPSE_ERR.INVALID_PTR
     }
@@ -221,7 +221,8 @@ export class SynapseAllocator {
       const nextPtr = this.getNextPtr(currentSlot)
       currentSlot = nextPtr === NULL_PTR ? -1 : this.slotFromPtr(nextPtr)
 
-      if (++ops > 1000) break // Safety
+      ops = ops + 1
+      if (ops > 1000) break // Safety
     }
   }
 
@@ -258,7 +259,7 @@ export class SynapseAllocator {
 
       // Collision (different source), linear probe
       slot = (slot + 1) % this.capacity
-      probes++
+      probes = probes + 1
     }
 
     return -1 // Table full/scanned completely
@@ -281,7 +282,7 @@ export class SynapseAllocator {
       }
 
       slot = (slot + 1) % this.capacity
-      probes++
+      probes = probes + 1
     }
 
     return -1

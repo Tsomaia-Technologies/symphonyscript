@@ -483,8 +483,12 @@ export class LiveMelodyBuilder extends LiveClipBuilder {
       case 'converge':
         let left = 0, right = pool.length - 1
         while (left <= right) {
-          sequence.push(pool[left++])
-          if (left <= right) sequence.push(pool[right--])
+          sequence.push(pool[left])
+          left = left + 1
+          if (left <= right) {
+            sequence.push(pool[right])
+            right = right - 1
+          }
         }
         break
       case 'diverge':

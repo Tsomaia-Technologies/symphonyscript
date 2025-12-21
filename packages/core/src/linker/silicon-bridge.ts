@@ -1304,7 +1304,7 @@ export class SiliconBridge {
    * @param options - Optional weight (0-1000) and jitter (0-65535)
    * @returns The SynapsePtr on success, or negative error code
    */
-  connect(sourceId: number, targetId: number, options: SynapseOptions = {}): number {
+  connect(sourceId: number, targetId: number, options: SynapseOptions = {}): SynapsePtr {
     const sourcePtr = this.linker.idTableLookup(sourceId)
     if (sourcePtr === NULL_PTR) {
       return BRIDGE_ERR.NOT_FOUND
