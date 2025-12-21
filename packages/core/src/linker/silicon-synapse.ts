@@ -585,6 +585,8 @@ export class SiliconSynapse implements ISiliconLinker {
    * - Panic threshold is reached (AudioWorklet unresponsive)
    *
    * @throws KernelPanicError if AudioWorklet fails to acknowledge after 1M iterations
+   *
+   * @deprecated Use Command Ring approach instead
    */
   syncAck(): void {
     let spins = 0
