@@ -4,6 +4,8 @@
 
 SymphonyScript is a high-performance music engine that bridges the gap between high-level TypeScript and real-time audio hardware. By utilizing **Direct-to-Silicon Mirroring**, it eliminates compilation latency, allowing your code to manipulate the audio playhead's future with zero perceived delay.
 
+SymphonyScript represents a shift from Transactional Music Systems (where intent is messaged to an engine) to Co-Located Neural Kernels, where the composer and the audio engine inhabit a single, shared, atomic memory-map. It treats the composition not as a sequence of events, but as a synaptic topology that propagates signals at the speed of direct memory access.
+
 ## 🚀 The "Zero-Latency" Guarantee
 
 Traditional web audio sequencers suffer from JavaScript's single-threaded nature and Garbage Collection pauses. SymphonyScript solves this by moving playback entirely out of the main thread and retiring the "Compilation Phase".
