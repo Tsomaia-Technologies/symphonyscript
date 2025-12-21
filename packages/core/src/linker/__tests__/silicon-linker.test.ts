@@ -21,9 +21,7 @@ import {
   ERROR,
   NULL_PTR,
   DEFAULT_PPQ,
-  HeapExhaustedError,
-  SafeZoneViolationError,
-  KernelPanicError,
+  // RFC-045-05: Error classes no longer thrown - using error codes
   CMD,
   RingBuffer,
   LocalAllocator,
@@ -485,9 +483,10 @@ describe('RFC-043: Silicon Linker', () => {
       sab[HDR.PLAYHEAD_TICK] = 1500
 
       // Try to insert after ptr1 - target tick is ptr1's tick (2000)
-      expect(() => {
-        linker.insertNode(ptr1, ...noteData(67, 2500))
-      }).toThrow(SafeZoneViolationError)
+      // RFC-045-05: insertNode now returns NULL_PTR on error
+      const result = linker.insertNode(ptr1, ...noteData(67, 2500))
+      expect(result).toBe(NULL_PTR)
+      expect(linker.getError()).toBe(ERROR.SAFE_ZONE)
     })
 
     it('should allow insertion outside safe zone', () => {
@@ -651,17 +650,20 @@ describe('RFC-043: Silicon Linker', () => {
       expect(linker.getError()).toBe(ERROR.OK)
     })
 
-    it('should throw HeapExhaustedError on insertHead when full', () => {
+    it('should return NULL_PTR on insertHead when heap exhausted', () => {
       // RFC-044: capacity=4 means Zone A=2
       const linker = createTestLinker(4)
 
-      linker.insertHead(...noteData(60, 0))
-      linker.insertHead(...noteData(64, 96))
+      const ptr1 = linker.insertHead(...noteData(60, 0))
+      const ptr2 = linker.insertHead(...noteData(64, 96))
+      expect(ptr1).not.toBe(NULL_PTR)
+      expect(ptr2).not.toBe(NULL_PTR)
 
       // Third insert should exhaust Zone A
-      expect(() => {
-        linker.insertHead(...noteData(67, 192))
-      }).toThrow(HeapExhaustedError)
+      // RFC-045-05: insertHead now returns NULL_PTR on error
+      const ptr3 = linker.insertHead(...noteData(67, 192))
+      expect(ptr3).toBe(NULL_PTR)
+      expect(linker.getError()).toBe(ERROR.HEAP_EXHAUSTED)
     })
   })
 
@@ -726,7 +728,7 @@ describe('RFC-043: Silicon Linker', () => {
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
     })
 
-    it('should timeout and throw KernelPanicError if no ACK', async () => {
+    it('should timeout and return false if no ACK', async () => {
       const linker = createTestLinker()
       const sab = new Int32Array(linker.getSAB())
 
@@ -734,9 +736,9 @@ describe('RFC-043: Silicon Linker', () => {
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
 
       // Don't simulate ACK - Dead-Man's Switch should trigger
-      expect(() => {
-        linker.syncAck()
-      }).toThrow(KernelPanicError)
+      // RFC-045-05: syncAck now returns false instead of throwing
+      const result = linker.syncAck()
+      expect(result).toBe(false)
 
       // Error flag should be set
       expect(sab[HDR.ERROR_FLAG]).toBe(ERROR.KERNEL_PANIC)

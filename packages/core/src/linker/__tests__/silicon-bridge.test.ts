@@ -5,7 +5,7 @@
 import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
 import type { EditorNoteData, PatchType, SourceLocation } from '../silicon-bridge'
 import { SiliconSynapse } from '../silicon-synapse'
-import { HDR, NULL_PTR, OPCODE, getZoneSplitIndex, HEAP_START_OFFSET, NODE_SIZE_BYTES } from '../constants'
+import { HDR, NULL_PTR, OPCODE, getZoneSplitIndex, HEAP_START_OFFSET, NODE_SIZE_BYTES, BRIDGE_ERR } from '../constants'
 
 // =============================================================================
 // Test Helpers
@@ -244,12 +244,12 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(ticks).toEqual([0, 480, 960])
   })
 
-  test('insertNoteImmediate with invalid afterSourceId throws', () => {
+  test('insertNoteImmediate with invalid afterSourceId returns error', () => {
     const bridge = createTestBridge()
 
-    expect(() => {
-      bridge.insertNoteImmediate(createTestNote(), 99999)
-    }).toThrow('Unknown afterSourceId')
+    // RFC-045-05: insertNoteImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
+    const result = bridge.insertNoteImmediate(createTestNote(), 99999)
+    expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 
   test('deleteNoteImmediate removes node from linker', () => {
@@ -261,12 +261,12 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(readNoteData(bridge, sourceId)).toBeUndefined()
   })
 
-  test('deleteNoteImmediate with invalid sourceId throws', () => {
+  test('deleteNoteImmediate with invalid sourceId returns error', () => {
     const bridge = createTestBridge()
 
-    expect(() => {
-      bridge.deleteNoteImmediate(99999)
-    }).toThrow('Unknown sourceId')
+    // RFC-045-05: deleteNoteImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
+    const result = bridge.deleteNoteImmediate(99999)
+    expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 
   test('patchImmediate updates pitch', () => {
@@ -318,12 +318,12 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
   })
 
-  test('patchImmediate with invalid sourceId throws', () => {
+  test('patchImmediate with invalid sourceId returns error', () => {
     const bridge = createTestBridge()
 
-    expect(() => {
-      bridge.patchImmediate(99999, 'pitch', 60)
-    }).toThrow('Unknown sourceId')
+    // RFC-045-05: patchImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
+    const result = bridge.patchImmediate(99999, 'pitch', 60)
+    expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 })
 
