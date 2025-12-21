@@ -20,6 +20,7 @@ import {
   getIdentityTableOffset,
   getSymbolTableOffset,
   getGrooveTemplateOffset,
+  getZoneSplitIndex,
   ID_TABLE,
   SYM_TABLE
 } from './constants'
@@ -67,8 +68,11 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
   // Initialize register bank
   initializeRegisters(sab, cfg)
 
-  // Initialize free list (links all nodes, sets 64-bit FREE_LIST_HEAD)
-  FreeList.initialize(sab, sab64, cfg.nodeCapacity)
+  // Initialize free list (RFC-044: Only Zone A, not Zone B)
+  // Zone A is for Worker/Audio Thread CAS-based allocation
+  // Zone B is reserved for Main Thread bump-pointer allocation (LocalAllocator)
+  const zoneASize = getZoneSplitIndex(cfg.nodeCapacity)
+  FreeList.initialize(sab, sab64, zoneASize, cfg.nodeCapacity)
 
   // Initialize Identity Table
   initializeIdentityTable(sab, cfg.nodeCapacity)
@@ -260,8 +264,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
   sab[HDR.PLAYHEAD_TICK] = 0
   sab[HDR.ERROR_FLAG] = ERROR.OK
 
-  // Re-initialize free list (clears all nodes, resets 64-bit FREE_LIST_HEAD)
-  FreeList.initialize(sab, sab64, nodeCapacity)
+  // Re-initialize free list (RFC-044: Only Zone A, not Zone B)
+  const zoneASize = getZoneSplitIndex(nodeCapacity)
+  FreeList.initialize(sab, sab64, zoneASize, nodeCapacity)
 
   // Re-initialize Identity Table
   initializeIdentityTable(sab, nodeCapacity)

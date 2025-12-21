@@ -255,25 +255,43 @@ export class FreeList {
    * Links all nodes in the heap into a free list chain.
    * Initializes FREE_LIST_HEAD as 64-bit tagged pointer with version 0.
    */
-  static initialize(sab: Int32Array, sab64: BigInt64Array, nodeCapacity: number): void {
+  /**
+   * Initialize the free list with Zone A nodes only (RFC-044).
+   *
+   * @param sab - Int32Array view of SharedArrayBuffer
+   * @param sab64 - BigInt64Array view for atomic 64-bit operations
+   * @param zoneASize - Number of nodes in Zone A (Worker-owned)
+   * @param totalCapacity - Total node capacity of heap (Zone A + Zone B)
+   *
+   * @remarks
+   * RFC-044 partitions the heap into Zone A (Worker) and Zone B (Main Thread).
+   * The free list only contains Zone A nodes. Zone B nodes are managed by LocalAllocator.
+   */
+  static initialize(
+    sab: Int32Array,
+    sab64: BigInt64Array,
+    zoneASize: number,
+    totalCapacity: number
+  ): void {
     const heapStartI32 = HEAP_START_OFFSET / 4
 
-    // Link all nodes into free list: node[i].PACKED_A = ptr to node[i+1]
+    // Link Zone A nodes into free list: node[i].PACKED_A = ptr to node[i+1]
     // Last node points to NULL_PTR
-    for (let i = 0; i < nodeCapacity; i++) {
+    // Zone B nodes (from zoneASize to totalCapacity - 1) are left uninitialized
+    for (let i = 0; i < zoneASize; i++) {
       const offset = heapStartI32 + i * NODE_SIZE_I32
       const ptr = offset * 4 // Convert i32 index to byte pointer
 
       // Initialize SEQ_FLAGS with initial sequence number 0
       sab[offset + NODE.SEQ_FLAGS] = 0
 
-      if (i < nodeCapacity - 1) {
-        // Point to next node
+      if (i < zoneASize - 1) {
+        // Point to next node in Zone A
         const nextOffset = heapStartI32 + (i + 1) * NODE_SIZE_I32
         const nextPtr = nextOffset * 4
         sab[offset + NODE.PACKED_A] = nextPtr
       } else {
-        // Last node points to null
+        // Last Zone A node points to null
         sab[offset + NODE.PACKED_A] = NULL_PTR
       }
 
@@ -294,9 +312,9 @@ export class FreeList {
     sab64[HDR_I64.FREE_LIST_HEAD] = BigInt(firstNodePtr)
 
     sab[HDR.HEAD_PTR] = NULL_PTR // Empty chain initially
-    sab[HDR.FREE_COUNT] = nodeCapacity
+    sab[HDR.FREE_COUNT] = zoneASize // Only Zone A nodes in free list
     sab[HDR.NODE_COUNT] = 0
-    sab[HDR.NODE_CAPACITY] = nodeCapacity
+    sab[HDR.NODE_CAPACITY] = totalCapacity // Total capacity (Zone A + Zone B)
     sab[HDR.HEAP_START] = HEAP_START_OFFSET
   }
 }

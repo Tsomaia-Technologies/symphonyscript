@@ -41,6 +41,7 @@ export {
   HEAP_START_I32,
   // RFC-044: Command Ring & Zone Partitioning
   COMMAND,
+  CMD,
   DEFAULT_RING_CAPACITY,
   getZoneSplitIndex,
   getRingBufferOffset

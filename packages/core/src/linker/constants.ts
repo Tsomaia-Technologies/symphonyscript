@@ -511,6 +511,29 @@ export const COMMAND = {
 export const DEFAULT_RING_CAPACITY = COMMAND.DEFAULT_RING_SIZE_BYTES / COMMAND.STRIDE_BYTES
 
 /**
+ * Command opcodes for Ring Buffer protocol (RFC-044).
+ *
+ * These opcodes are written to the Command Ring Buffer by the Main Thread
+ * and processed by the Worker Thread to perform deferred structural operations.
+ *
+ * **Protocol:**
+ * - Main Thread: Allocates node in Zone B, writes data, enqueues command
+ * - Worker Thread: Dequeues command, links node into chain, updates Identity Table
+ *
+ * Each command has the format: [OPCODE, PARAM_1, PARAM_2, RESERVED]
+ */
+export const CMD = {
+  /** Insert a floating node into the chain at a specific position */
+  INSERT: 1,
+  /** Delete a node from the chain (returns to Zone A free list) */
+  DELETE: 2,
+  /** Patch node attributes atomically (deferred/batched updates) */
+  PATCH: 3,
+  /** Clear all nodes from the chain (mass delete) */
+  CLEAR: 4
+} as const
+
+/**
  * Calculate the Zone Split Index for partitioned heap allocation (RFC-044).
  *
  * The node heap is partitioned into two zones to eliminate allocation contention:
