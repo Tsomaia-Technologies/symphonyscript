@@ -14,6 +14,7 @@ import {
   HDR,
   KNUTH_HASH_CONST
 } from '../constants'
+import type { PlasticityCallback } from '../types'
 
 // RFC-045-04: Error indicator for collectCandidates
 const CURSOR_ERR_CHAIN_LOOP = -1
@@ -96,6 +97,9 @@ export class SynapticCursor {
   /** PRNG state for deterministic stochastic selection */
   private prngState: number
 
+  /** RFC-045-03: Plasticity callback for automatic reward distribution */
+  private plasticityCallback: PlasticityCallback | null = null
+
   constructor(buffer: SharedArrayBuffer, initialPtr: number = NULL_PTR, prngSeed: number = 12345) {
     this.sab = new Int32Array(buffer)
 
@@ -174,6 +178,18 @@ export class SynapticCursor {
   }
 
   /**
+   * Set the plasticity callback for automatic reward distribution.
+   *
+   * RFC-045-03: Called whenever a synapse fires successfully during playback.
+   * Use this to implement Hebbian learning (reward winning synapses).
+   *
+   * @param cb - Callback to invoke with synapsePtr, or null to disable
+   */
+  setPlasticityCallback(cb: PlasticityCallback | null): void {
+    this.plasticityCallback = cb
+  }
+
+  /**
    * Resolve synaptic connection when cursor reaches end of chain.
    *
    * This is the core neural branching logic (RFC-045 Section 4.1).
@@ -232,8 +248,10 @@ export class SynapticCursor {
     this.pendingJitter = this.candJitters[winnerIdx]
     this.currentPtr = this.candTargetPtrs[winnerIdx]
 
-    // Placeholder for plasticity hook (RFC-045-04)
-    // this._triggerRewardUpdate(this.candSynapsePtrs[winnerIdx])
+    // RFC-045-03: Invoke plasticity callback for automatic reward (Hebbian learning)
+    if (this.plasticityCallback !== null) {
+      this.plasticityCallback(this.candSynapsePtrs[winnerIdx])
+    }
 
     // RFC-045-04: Populate pre-allocated result (caller must not hold reference across calls)
     this._result.targetPtr = this.candTargetPtrs[winnerIdx]
@@ -429,23 +447,5 @@ export class SynapticCursor {
    */
   setSeed(seed: number): void {
     this.prngState = (seed >>> 0) || 1
-  }
-
-  // ===========================================================================
-  // Plasticity Hook (Placeholder for RFC-045-04)
-  // ===========================================================================
-
-  /**
-   * Trigger reward update for the winning synapse.
-   * This is a placeholder for the Plasticity Engine (RFC-045-04).
-   *
-   * @param _synapsePtr - Pointer to the synapse that fired
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected _triggerRewardUpdate(_synapsePtr: number): void {
-    // RFC-045-04 will implement:
-    // - Weight hardening (potentiation)
-    // - Learning rate application
-    // - Reward counter integration
   }
 }

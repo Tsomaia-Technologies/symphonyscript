@@ -56,6 +56,7 @@ export type { Opcode, CommitState, ErrorCode, NodeFlag } from './constants'
 export type {
   NodePtr,
   SynapsePtr,
+  PlasticityCallback,
   LinkerConfig,
   EditResult,
   ISiliconLinker

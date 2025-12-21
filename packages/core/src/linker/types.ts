@@ -17,6 +17,16 @@ export type NodePtr = number
 export type SynapsePtr = number
 
 /**
+ * Plasticity callback type (RFC-045-03 Section 4).
+ *
+ * Called whenever a synapse fires successfully during playback.
+ * Used for automatic reward distribution (Hebbian learning).
+ *
+ * @param synapsePtr - Pointer to the synapse that fired
+ */
+export type PlasticityCallback = (synapsePtr: SynapsePtr) => void
+
+/**
  * Silicon Linker configuration options.
  */
 export interface LinkerConfig {
