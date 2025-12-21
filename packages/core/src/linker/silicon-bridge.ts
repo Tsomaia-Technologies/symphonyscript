@@ -27,7 +27,7 @@ import {
   SOURCE_ID,
   getSynapseTableOffset
 } from './constants'
-import type { NodePtr, SynapsePtr, BrainSnapshot } from './types'
+import type { NodePtr, SynapsePtr, BrainSnapshot, BrainSnapshotArrays } from './types'
 import { LocalAllocator } from './local-allocator'
 import { RingBuffer } from './ring-buffer'
 import { SynapseAllocator } from './synapse-allocator'
@@ -74,7 +74,7 @@ export const PATCH_TYPE = {
 export type PatchType = 'pitch' | 'velocity' | 'duration' | 'baseTick' | 'muted'
 
 // Re-export snapshot types for convenience (RFC-045)
-export type { BrainSnapshot, SynapseData } from './types'
+export type { BrainSnapshot, BrainSnapshotArrays, SynapseData } from './types'
 
 /**
  * Bridge configuration options.
@@ -1453,6 +1453,54 @@ export class SiliconBridge {
 
     this.snapshotOnSynapse = null
     this.snapshotOnComplete = null
+  }
+
+  /**
+   * Snapshot brain state to pre-allocated TypedArrays. COLD PATH.
+   * RFC-045-04: Zero-allocation alternative to BrainSnapshot.
+   *
+   * Fills the provided BrainSnapshotArrays with synapse data.
+   * All arrays must be pre-allocated by caller.
+   *
+   * @param out - Pre-allocated BrainSnapshotArrays structure
+   * @returns Number of synapses captured (also stored in out.count)
+   */
+  snapshotToArrays(out: BrainSnapshotArrays): number {
+    let count = 0
+    let slot = 0
+    const maxEntries = out.sourceIds.length
+
+    while (slot < SYNAPSE_TABLE.MAX_CAPACITY && count < maxEntries) {
+      const offset = this.synapseTableOffsetI32 + slot * SYNAPSE_TABLE.STRIDE_I32
+
+      const sourcePtr = Atomics.load(this.sab, offset + SYNAPSE.SOURCE_PTR)
+      if (sourcePtr !== NULL_PTR) {
+        const targetPtr = Atomics.load(this.sab, offset + SYNAPSE.TARGET_PTR)
+        if (targetPtr !== NULL_PTR) {
+          const weightData = Atomics.load(this.sab, offset + SYNAPSE.WEIGHT_DATA)
+
+          // Read source/target IDs from node memory
+          const sourceId = Atomics.load(this.sab, (sourcePtr >> 2) + NODE.SOURCE_ID)
+          const targetId = Atomics.load(this.sab, (targetPtr >> 2) + NODE.SOURCE_ID)
+
+          // Unpack weight and jitter
+          const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
+          const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
+
+          // Store in parallel arrays
+          out.sourceIds[count] = sourceId
+          out.targetIds[count] = targetId
+          out.weights[count] = weight
+          out.jitters[count] = jitter
+
+          count = count + 1
+        }
+      }
+      slot = slot + 1
+    }
+
+    out.count = count
+    return count
   }
 
   /**

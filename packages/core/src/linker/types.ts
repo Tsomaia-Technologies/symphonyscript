@@ -87,10 +87,31 @@ export interface SynapseData {
 
 /**
  * Brain snapshot containing all neural connections (RFC-045).
- * Used for zero-allocation save/restore of synaptic state.
+ *
+ * @deprecated For zero-allocation, use BrainSnapshotArrays.
+ * This interface uses SynapseData[] which allocates on every snapshot.
  */
 export interface BrainSnapshot {
   synapses: SynapseData[]
+}
+
+/**
+ * Brain snapshot using TypedArrays (RFC-045-04 zero-allocation).
+ *
+ * All arrays must be pre-allocated by caller. Uses parallel array layout
+ * (Structure of Arrays) for cache-friendly access.
+ */
+export interface BrainSnapshotArrays {
+  /** Source IDs (parallel array) */
+  sourceIds: Int32Array
+  /** Target IDs (parallel array) */
+  targetIds: Int32Array
+  /** Weights (parallel array, 0-255) */
+  weights: Int32Array
+  /** Jitters (parallel array, in ticks) */
+  jitters: Int32Array
+  /** Number of valid entries (filled by snapshot operation) */
+  count: number
 }
 
 /**
