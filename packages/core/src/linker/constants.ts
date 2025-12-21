@@ -189,7 +189,19 @@ export const HDR = {
   /** [v1.5] Dedicated slot for Atomics.wait() yield coordination */
   YIELD_SLOT: 30,
   /** Reserved for future expansion */
-  RESERVED_31: 31
+  RESERVED_31: 31,
+
+  // -------------------------------------------------------------------------
+  // Command Ring Buffer Header (RFC-044)
+  // -------------------------------------------------------------------------
+  /** [RFC-044] [ATOMIC] Ring Buffer Read Index (Worker consumes from here) */
+  RB_HEAD: 32,
+  /** [RFC-044] [ATOMIC] Ring Buffer Write Index (Main Thread produces here) */
+  RB_TAIL: 33,
+  /** [RFC-044] Ring Buffer capacity in commands (fixed at init) */
+  RB_CAPACITY: 34,
+  /** [RFC-044] Byte offset to Command Ring Buffer data region */
+  COMMAND_RING_PTR: 35
 } as const
 
 /**
@@ -472,6 +484,50 @@ export const CONCURRENCY = {
 } as const
 
 // =============================================================================
+// Command Ring Buffer (RFC-044)
+// =============================================================================
+
+/**
+ * Command Ring Buffer constants for zero-blocking structural edits.
+ *
+ * The Command Ring is a fixed-stride circular buffer that queues structural
+ * operations (INSERT, DELETE, PATCH, CLEAR) from the Main Thread to the Worker.
+ *
+ * Each command occupies exactly 4 × i32 (16 bytes) for alignment:
+ * [OPCODE, PARAM_1, PARAM_2, RESERVED]
+ */
+export const COMMAND = {
+  /** Command stride in bytes (16 bytes for 4 × i32) */
+  STRIDE_BYTES: 16,
+  /** Command stride in i32 units (4 words) */
+  STRIDE_I32: 4,
+  /** Default ring buffer size in bytes (64KB = 4096 commands) */
+  DEFAULT_RING_SIZE_BYTES: 65536
+} as const
+
+/**
+ * Default number of commands that can be queued (64KB / 16 bytes).
+ */
+export const DEFAULT_RING_CAPACITY = COMMAND.DEFAULT_RING_SIZE_BYTES / COMMAND.STRIDE_BYTES
+
+/**
+ * Calculate the Zone Split Index for partitioned heap allocation (RFC-044).
+ *
+ * The node heap is partitioned into two zones to eliminate allocation contention:
+ * - **Zone A (Kernel)**: Indices 0 to ZONE_SPLIT_INDEX - 1 (Worker/Audio Thread)
+ * - **Zone B (UI)**: Indices ZONE_SPLIT_INDEX to nodeCapacity - 1 (Main Thread)
+ *
+ * This allows lock-free allocation: Worker uses CAS-based free list in Zone A,
+ * Main Thread uses bump allocator in Zone B.
+ *
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Index where Zone B begins (typically nodeCapacity / 2)
+ */
+export function getZoneSplitIndex(nodeCapacity: number): number {
+  return Math.floor(nodeCapacity / 2)
+}
+
+// =============================================================================
 // Memory Layout Calculation
 // =============================================================================
 
@@ -479,31 +535,32 @@ export const CONCURRENCY = {
  * Calculate total SAB size needed for given node capacity.
  *
  * Layout:
- * - Header: 64 bytes (16 × i32)
- * - Registers: 64 bytes (16 × i32)
+ * - Header + Registers + Command Ring Header: 144 bytes (36 × i32)
  * - Node Heap: nodeCapacity × 32 bytes
  * - Identity Table: nodeCapacity × 8 bytes (TID + NodePtr per entry)
  * - Symbol Table: nodeCapacity × 8 bytes (fileHash + lineCol per entry)
  * - Groove Templates: 1024 bytes (fixed)
+ * - Command Ring Buffer: 64KB (RFC-044)
  *
  * @param nodeCapacity - Maximum number of nodes
  * @returns Total bytes needed for SharedArrayBuffer
  */
 export function calculateSABSize(nodeCapacity: number): number {
-  const headerSize = 64 // 16 × i32
-  const registerSize = 64 // 16 × i32
+  const headerSize = HEAP_START_OFFSET // 144 bytes (includes header + registers + command ring header)
   const heapSize = nodeCapacity * NODE_SIZE_BYTES
   const identityTableSize = nodeCapacity * ID_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const symbolTableSize = nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES // 8 bytes per entry
   const grooveSize = 1024 // Fixed groove template region
-  return headerSize + registerSize + heapSize + identityTableSize + symbolTableSize + grooveSize
+  const ringBufferSize = COMMAND.DEFAULT_RING_SIZE_BYTES // 64KB command ring (RFC-044)
+  return headerSize + heapSize + identityTableSize + symbolTableSize + grooveSize + ringBufferSize
 }
 
 /**
  * Calculate byte offset where node heap begins.
- * Header (64) + Registers (64) = 128 bytes.
+ * Header (64) + Registers (64) + Command Ring Header (16) = 144 bytes.
+ * Indices 0-35 = 36 × 4 bytes = 144 bytes.
  */
-export const HEAP_START_OFFSET = 128
+export const HEAP_START_OFFSET = 144
 
 /**
  * Calculate i32 index where node heap begins.
@@ -535,6 +592,15 @@ export function getSymbolTableOffset(nodeCapacity: number): number {
  */
 export function getGrooveTemplateOffset(nodeCapacity: number): number {
   return getSymbolTableOffset(nodeCapacity) + nodeCapacity * SYM_TABLE.ENTRY_SIZE_BYTES
+}
+
+/**
+ * Calculate byte offset where Command Ring Buffer data begins (RFC-044).
+ * @param nodeCapacity - Maximum number of nodes
+ * @returns Byte offset to Command Ring Buffer data region
+ */
+export function getRingBufferOffset(nodeCapacity: number): number {
+  return getGrooveTemplateOffset(nodeCapacity) + 1024 // Groove size is fixed at 1024 bytes
 }
 
 // =============================================================================
