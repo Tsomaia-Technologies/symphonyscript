@@ -26,7 +26,9 @@ import {
   ID_TABLE,
   SYM_TABLE,
   REVERSE_INDEX,
-  getReverseIndexOffset
+  getReverseIndexOffset,
+  SYNAPSE_TABLE,
+  getSynapseTableOffset
 } from './constants'
 import { FreeList } from './free-list'
 import type { LinkerConfig } from './types'
@@ -89,6 +91,9 @@ export function createLinkerSAB(config?: LinkerConfig): SharedArrayBuffer {
 
   // Initialize Reverse Index table (ISSUE-016)
   initializeReverseIndex(sab, cfg.nodeCapacity)
+
+  // Initialize Synapse Table (ISSUE-023)
+  initializeSynapseTable(sab, cfg.nodeCapacity)
 
   return buffer
 }
@@ -254,6 +259,34 @@ function initializeReverseIndex(sab: Int32Array, nodeCapacity: number): void {
 }
 
 /**
+ * Initialize the Synapse Table region (ISSUE-023).
+ *
+ * While SharedArrayBuffer is zero-initialized by spec, we explicitly clear the
+ * Synapse Table to:
+ * 1. Document intent that all entries start empty
+ * 2. Support future non-zero sentinel values if needed
+ * 3. Ensure consistent behavior across all platforms
+ *
+ * Each synapse entry is 4 × i32: [SOURCE_PTR, TARGET_PTR, WEIGHT_DATA, META_NEXT]
+ * Total size: SYNAPSE_TABLE.MAX_CAPACITY (65536) × SYNAPSE_TABLE.STRIDE_I32 (4) = 262144 i32s
+ *
+ * @param sab - Int32Array view of the SharedArrayBuffer
+ * @param nodeCapacity - Number of nodes in the SAB (used to calculate offset)
+ */
+function initializeSynapseTable(sab: Int32Array, nodeCapacity: number): void {
+  const tableOffset = getSynapseTableOffset(nodeCapacity)
+  const tableOffsetI32 = tableOffset / 4
+  const totalI32 = SYNAPSE_TABLE.MAX_CAPACITY * SYNAPSE_TABLE.STRIDE_I32
+
+  // Zero all synapse entries
+  let i = 0
+  while (i < totalI32) {
+    sab[tableOffsetI32 + i] = 0
+    i = i + 1
+  }
+}
+
+/**
  * Validate that a SharedArrayBuffer has the correct Silicon Linker format.
  *
  * @param buffer - Buffer to validate
@@ -343,6 +376,9 @@ export function resetLinkerSAB(buffer: SharedArrayBuffer): void {
 
   // Re-initialize Reverse Index table (ISSUE-016)
   initializeReverseIndex(sab, nodeCapacity)
+
+  // Re-initialize Synapse Table (ISSUE-023)
+  initializeSynapseTable(sab, nodeCapacity)
 }
 
 /**
