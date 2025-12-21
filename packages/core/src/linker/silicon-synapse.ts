@@ -1480,8 +1480,8 @@ export class SiliconSynapse implements ISiliconLinker {
           // Could be used for batched/deferred patches in future
           break
         default:
-          // Unknown opcode - log error but continue processing
-          console.error(`SiliconLinker: Unknown command opcode ${opcode}`)
+          // Unknown opcode - set error flag (zero-allocation)
+          Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.UNKNOWN_OPCODE)
       }
 
       commandsProcessed++

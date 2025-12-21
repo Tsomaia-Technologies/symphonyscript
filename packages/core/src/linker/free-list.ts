@@ -13,7 +13,8 @@ import {
   NULL_PTR,
   SEQ,
   FLAG,
-  HEAP_START_OFFSET
+  HEAP_START_OFFSET,
+  ERROR
 } from './constants'
 import type { NodePtr } from './types'
 
@@ -119,8 +120,8 @@ export class FreeList {
 
       // Validate pointer
       if (!this.isValidPtr(ptr)) {
-        // Corrupted free list - this shouldn't happen
-        console.error('[FreeList] Invalid head pointer:', ptr)
+        // Corrupted free list - set error flag (zero-allocation)
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.FREE_LIST_CORRUPT)
         return NULL_PTR
       }
 
@@ -175,7 +176,8 @@ export class FreeList {
     }
 
     if (!this.isValidPtr(ptr)) {
-      console.error('[FreeList] Attempt to free invalid pointer:', ptr)
+      // Invalid pointer - set error flag (zero-allocation)
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.FREE_LIST_CORRUPT)
       return
     }
 

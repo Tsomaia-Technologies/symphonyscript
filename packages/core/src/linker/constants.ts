@@ -424,7 +424,11 @@ export const ERROR = {
   /** [v1.5] Kernel panic: mutex deadlock or catastrophic failure */
   KERNEL_PANIC: 4,
   /** [v1.5] Identity Table load factor exceeded 75% warning */
-  LOAD_FACTOR_WARNING: 5
+  LOAD_FACTOR_WARNING: 5,
+  /** [RFC-045-04] Free list corruption detected */
+  FREE_LIST_CORRUPT: 6,
+  /** [RFC-045-04] Unknown command opcode received */
+  UNKNOWN_OPCODE: 7
 } as const
 
 // =============================================================================
