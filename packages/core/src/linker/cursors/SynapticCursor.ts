@@ -14,7 +14,7 @@ import {
   HDR,
   KNUTH_HASH_CONST
 } from '../constants'
-import type { PlasticityCallback } from '../types'
+import type { PlasticityCallback, SynapseResolutionCallback } from '../types'
 
 // RFC-045-04: Error indicator for collectCandidates
 const CURSOR_ERR_CHAIN_LOOP = -1
@@ -202,6 +202,10 @@ export class SynapticCursor {
    * 4. Stochastic selection (weighted random)
    * 5. Apply jitter and return target
    *
+   * @deprecated Use resolveSynapseWithCallback() for safety.
+   * This method returns a reference to an internal object that is
+   * reused across calls. Caller MUST NOT cache the returned object.
+   *
    * @param sourcePtr - The source node pointer (end of current clip)
    * @returns Resolution result with target, jitter, and metadata
    */
@@ -217,7 +221,7 @@ export class SynapticCursor {
     }
 
     // Increment quota counter
-    this.synapsesFiredThisBlock++
+    this.synapsesFiredThisBlock = this.synapsesFiredThisBlock + 1
 
     // 2. Hash Lookup
     const headSlot = this.findHeadSlot(sourcePtr)
@@ -261,6 +265,63 @@ export class SynapticCursor {
     return this._result
   }
 
+  /**
+   * Resolve synaptic connection with zero-allocation callback (RFC-045-04).
+   *
+   * Safer alternative to resolveSynapse() that passes primitives to a callback
+   * instead of returning a reused object reference. Eliminates aliasing risk.
+   *
+   * @param sourcePtr - The source node pointer (end of current clip)
+   * @param cb - Callback receiving resolution result as primitives
+   * @returns true if synapse was resolved, false if cursor dies (quota/no synapse)
+   */
+  resolveSynapseWithCallback(
+    sourcePtr: number,
+    cb: SynapseResolutionCallback
+  ): boolean {
+    // 1. Quota Check
+    if (!this.canFireSynapse()) {
+      return false  // Cursor dies
+    }
+
+    // Increment quota counter
+    this.synapsesFiredThisBlock = this.synapsesFiredThisBlock + 1
+
+    // 2. Hash Lookup
+    const headSlot = this.findHeadSlot(sourcePtr)
+    if (headSlot === -1) {
+      return false  // No synapse found
+    }
+
+    // 3. Collect Candidates
+    const candidateCount = this.collectCandidates(headSlot)
+    if (candidateCount <= 0) {
+      return false  // All tombstones or chain loop
+    }
+
+    // 4. Stochastic Selection
+    const winnerIdx = this.selectWinner(candidateCount)
+
+    // 5. Apply Jitter and Update State
+    this.pendingJitter = this.candJitters[winnerIdx]
+    this.currentPtr = this.candTargetPtrs[winnerIdx]
+
+    // RFC-045-03: Invoke plasticity callback
+    if (this.plasticityCallback !== null) {
+      this.plasticityCallback(this.candSynapsePtrs[winnerIdx])
+    }
+
+    // RFC-045-04: Invoke callback with primitives (zero-allocation, no aliasing risk)
+    cb(
+      this.candTargetPtrs[winnerIdx],
+      this.candJitters[winnerIdx],
+      this.candWeights[winnerIdx],
+      this.candSynapsePtrs[winnerIdx]
+    )
+
+    return true
+  }
+
   // ===========================================================================
   // Private Helpers
   // ===========================================================================
@@ -301,7 +362,7 @@ export class SynapticCursor {
 
       // Collision (different source), linear probe
       slot = (slot + 1) % this.capacity
-      probes++
+      probes = probes + 1
     }
 
     return -1 // Table full/scanned completely

@@ -57,6 +57,7 @@ export type {
   NodePtr,
   SynapsePtr,
   PlasticityCallback,
+  SynapseResolutionCallback,
   LinkerConfig,
   EditResult,
   ISiliconLinker

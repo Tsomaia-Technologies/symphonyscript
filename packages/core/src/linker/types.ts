@@ -27,6 +27,24 @@ export type SynapsePtr = number
 export type PlasticityCallback = (synapsePtr: SynapsePtr) => void
 
 /**
+ * Synapse resolution callback type (RFC-045-04).
+ *
+ * Zero-allocation alternative to SynapseResolutionResult object.
+ * Receives resolution data as primitives to avoid aliasing risk.
+ *
+ * @param targetPtr - Target node pointer (next clip start)
+ * @param jitter - Jitter to apply to timing (in ticks)
+ * @param weight - Weight of the winning synapse
+ * @param synapsePtr - Pointer to the winning synapse
+ */
+export type SynapseResolutionCallback = (
+  targetPtr: number,
+  jitter: number,
+  weight: number,
+  synapsePtr: number
+) => void
+
+/**
  * Silicon Linker configuration options.
  */
 export interface LinkerConfig {
