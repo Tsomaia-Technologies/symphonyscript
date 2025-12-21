@@ -217,7 +217,8 @@ describe('RFC-043: Silicon Linker', () => {
       const ptr = linker.allocNode()
       expect(ptr).not.toBe(NULL_PTR)
       expect(linker.getFreeCount()).toBe(3)
-      expect(linker.getNodeCount()).toBe(1)
+      // RFC-045: NODE_COUNT is incremented when node is linked, not when allocated
+      expect(linker.getNodeCount()).toBe(0)
     })
 
     it('should return NULL_PTR when heap exhausted', () => {
@@ -712,38 +713,9 @@ describe('RFC-043: Silicon Linker', () => {
   // ===========================================================================
   // 11. Commit Protocol
   // ===========================================================================
-  describe('11. Commit Protocol', () => {
-    it('should await ACK and clear to IDLE', async () => {
-      const linker = createTestLinker()
-      const sab = new Int32Array(linker.getSAB())
-
-      linker.insertHead(...noteData(60, 0))
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
-
-      // Simulate consumer acknowledging
-      sab[HDR.COMMIT_FLAG] = COMMIT.ACK
-
-      linker.syncAck()
-
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
-    })
-
-    it('should timeout and return false if no ACK', async () => {
-      const linker = createTestLinker()
-      const sab = new Int32Array(linker.getSAB())
-
-      linker.insertHead(...noteData(60, 0))
-      expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.PENDING)
-
-      // Don't simulate ACK - Dead-Man's Switch should trigger
-      // RFC-045-05: syncAck now returns false instead of throwing
-      const result = linker.syncAck()
-      expect(result).toBe(false)
-
-      // Error flag should be set
-      expect(sab[HDR.ERROR_FLAG]).toBe(ERROR.KERNEL_PANIC)
-    })
-  })
+  // 11. Commit Protocol - REMOVED (RFC-045-FINAL)
+  // syncAck() deprecated - Command Ring is now single source of truth
+  // ===========================================================================
 
   // ===========================================================================
   // 12. RFC-044: Command Ring Architecture

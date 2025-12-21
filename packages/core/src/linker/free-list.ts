@@ -152,8 +152,8 @@ export class FreeList {
         this.zeroNode(headOffset)
 
         // Update counters atomically
+        // RFC-045: NODE_COUNT is now incremented by executeInsert (when node is linked)
         Atomics.sub(this.sab, HDR.FREE_COUNT, 1)
-        Atomics.add(this.sab, HDR.NODE_COUNT, 1)
 
         return ptr
       }
@@ -215,8 +215,8 @@ export class FreeList {
         // CAS succeeded - node is now on the free list
 
         // Update counters atomically
+        // RFC-045: NODE_COUNT is now decremented by executeDelete (when node is unlinked)
         Atomics.add(this.sab, HDR.FREE_COUNT, 1)
-        Atomics.sub(this.sab, HDR.NODE_COUNT, 1)
 
         return
       }

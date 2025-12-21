@@ -4,7 +4,7 @@
 // Verifies <0.001ms target for attribute patches and measures structural ops.
 
 import { SiliconSynapse } from '../silicon-synapse'
-import { OPCODE } from '../constants'
+import { OPCODE, FLAG } from '../constants'
 
 // Benchmark configuration
 const WARMUP_ITERATIONS = 100
@@ -58,14 +58,15 @@ describe('RFC-043 Latency Benchmarks', () => {
     linker = SiliconSynapse.create({ nodeCapacity: 1000, safeZoneTicks: 0 })
 
     // Pre-allocate a node for patching tests
-    nodePtr = linker.insertHead({
-      opcode: OPCODE.NOTE,
-      pitch: 60,
-      velocity: 100,
-      duration: 480,
-      baseTick: 10000, // Far in the future
-      sourceId: 1
-    })
+    nodePtr = linker.insertHead(
+      OPCODE.NOTE, // opcode
+      60, // pitch
+      100, // velocity
+      480, // duration
+      10000, // baseTick - far in the future
+      1, // sourceId
+      FLAG.ACTIVE // flags
+    )
 
     // Warmup
     for (let i = 0; i < WARMUP_ITERATIONS; i++) {
@@ -154,14 +155,15 @@ describe('RFC-043 Latency Benchmarks', () => {
       const freshLinker = SiliconSynapse.create({ nodeCapacity: 2000, safeZoneTicks: 0 })
 
       const result = measureLatency(() => {
-        freshLinker.insertHead({
-          opcode: OPCODE.NOTE,
-          pitch: 60,
-          velocity: 100,
-          duration: 480,
-          baseTick: 10000,
-          sourceId: 1
-        })
+        freshLinker.insertHead(
+          OPCODE.NOTE, // opcode
+          60, // pitch
+          100, // velocity
+          480, // duration
+          10000, // baseTick
+          1, // sourceId
+          FLAG.ACTIVE // flags
+        )
       }, BENCHMARK_ITERATIONS)
 
       console.log('insertHead latency:', {
@@ -181,14 +183,15 @@ describe('RFC-043 Latency Benchmarks', () => {
 
       for (let i = 0; i < BENCHMARK_ITERATIONS; i++) {
         ptrs.push(
-          freshLinker.insertHead({
-            opcode: OPCODE.NOTE,
-            pitch: 60,
-            velocity: 100,
-            duration: 480,
-            baseTick: 10000 + i,
-            sourceId: i
-          })
+          freshLinker.insertHead(
+            OPCODE.NOTE, // opcode
+            60, // pitch
+            100, // velocity
+            480, // duration
+            10000 + i, // baseTick
+            i, // sourceId
+            FLAG.ACTIVE // flags
+          )
         )
       }
 
@@ -262,14 +265,15 @@ describe('RFC-043 Latency Benchmarks', () => {
       const start = performance.now()
 
       for (let i = 0; i < 5000; i++) {
-        freshLinker.insertHead({
-          opcode: OPCODE.NOTE,
-          pitch: 60 + (i % 12),
-          velocity: 80 + (i % 40),
-          duration: 480,
-          baseTick: i * 120,
-          sourceId: i
-        })
+        freshLinker.insertHead(
+          OPCODE.NOTE, // opcode
+          60 + (i % 12), // pitch
+          80 + (i % 40), // velocity
+          480, // duration
+          i * 120, // baseTick
+          i, // sourceId
+          FLAG.ACTIVE // flags
+        )
       }
 
       const elapsed = performance.now() - start
@@ -283,14 +287,15 @@ describe('RFC-043 Latency Benchmarks', () => {
     it('should handle 5000 attribute patches in under 5ms', () => {
       const freshLinker = SiliconSynapse.create({ nodeCapacity: 100, safeZoneTicks: 0 })
 
-      const ptr = freshLinker.insertHead({
-        opcode: OPCODE.NOTE,
-        pitch: 60,
-        velocity: 100,
-        duration: 480,
-        baseTick: 10000,
-        sourceId: 1
-      })
+      const ptr = freshLinker.insertHead(
+        OPCODE.NOTE, // opcode
+        60, // pitch
+        100, // velocity
+        480, // duration
+        10000, // baseTick
+        1, // sourceId
+        FLAG.ACTIVE // flags
+      )
 
       const start = performance.now()
 

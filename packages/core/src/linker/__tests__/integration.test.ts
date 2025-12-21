@@ -162,7 +162,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Consumer processes and acknowledges the change
       consumer.process()
-      linker.syncAck()
 
       // Continue playback
       consumer.runUntilTick(300)
@@ -190,7 +189,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
 
       // Consumer acknowledges the change
       consumer.process()
-      linker.syncAck()
 
       // Continue - should pick up new note
       consumer.runUntilTick(500)
@@ -243,7 +241,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.ACK)
 
       // Linker completes handshake
-      linker.syncAck()
       expect(sab[HDR.COMMIT_FLAG]).toBe(COMMIT.IDLE)
     })
 
@@ -547,7 +544,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       // Delete middle note before it plays
       linker.deleteNode(ptr2)
       consumer.process() // Consumer acknowledges the change
-      linker.syncAck()
 
       // Continue playback
       consumer.runUntilTick(300)
@@ -568,7 +564,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       consumer.runUntilTick(24)
       linker.deleteNode(headPtr)
       consumer.process() // Consumer acknowledges the change
-      linker.syncAck()
 
       consumer.runUntilTick(300)
 
@@ -595,7 +590,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       }
 
       consumer.process() // Consumer acknowledges the changes
-      linker.syncAck()
 
       // Play all notes
       consumer.runUntilTick(1500)
@@ -619,7 +613,6 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       }
 
       consumer.process() // Consumer acknowledges the changes
-      linker.syncAck()
 
       // Finish playback
       consumer.runUntilTick(2000)

@@ -37,7 +37,7 @@ function createTestBridge(): SiliconBridge {
     safeZoneTicks: 0
   })
   return new SiliconBridge(linker, {
-    attributeDebounceMs: 1,
+    attributeDebounceTicks: 1,
     structuralDebounceMs: 1
   })
 }
@@ -48,7 +48,7 @@ function createTestEnvironment() {
     safeZoneTicks: 0
   })
   const bridge = new SiliconBridge(linker, {
-    attributeDebounceMs: 1,
+    attributeDebounceTicks: 1,
     structuralDebounceMs: 1
   })
   const consumer = new MockConsumer(linker.getSAB(), 24)

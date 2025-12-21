@@ -78,7 +78,7 @@ function createLiveEnvironment() {
   })
 
   const bridge = new SiliconBridge(linker, {
-    attributeDebounceMs: 1, // Fast debounce for tests
+    attributeDebounceTicks: 1, // Fast debounce for tests
     structuralDebounceMs: 1
   })
 
@@ -250,7 +250,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     const sab = new Int32Array(linker.getSAB())
 
     // Queue debounced insert (no immediate insert first to start from clean state)
-    bridge.insertNoteDebounced(createTestNote({ baseTick: 480 }))
+    bridge.insertNoteDebounced(60, 100, 480, 480, false)
 
     // Debounced insert is pending, not yet flushed
     expect(bridge.getPendingStructuralCount()).toBe(1)
@@ -504,7 +504,7 @@ describe('E2E Live Coding - Performance', () => {
 
     // Rapidly queue 100 structural edits
     for (let i = 0; i < 100; i++) {
-      bridge.insertNoteDebounced(createTestNote({ baseTick: i * 10 }))
+      bridge.insertNoteDebounced(60, 100, 480, i * 10, false)
     }
 
     // All are pending
@@ -654,10 +654,11 @@ describe('E2E Live Coding - Stress Test', () => {
       // Occasional insert
       if (Math.random() > 0.9) {
         bridge.insertNoteDebounced(
-          createTestNote({
-            baseTick: tick + 32,
-            pitch: 60 + Math.floor(Math.random() * 24)
-          })
+          60 + Math.floor(Math.random() * 24), // pitch
+          100, // velocity
+          480, // duration
+          tick + 32, // baseTick
+          false // muted
         )
         editsMade++
       }

@@ -455,7 +455,11 @@ export class SiliconSynapse implements ISiliconLinker {
     // 4. Atomic Splice: NoteA.NEXT_PTR = NoteX
     Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
 
-    // 5. Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
+    // 5. Increment NODE_COUNT (node is now linked)
+    const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
+    Atomics.store(this.sab, HDR.NODE_COUNT, currentCount + 1)
+
+    // 6. Signal structural change
     Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
     // Release mutex and return success
@@ -530,7 +534,11 @@ export class SiliconSynapse implements ISiliconLinker {
     // Update HEAD_PTR (simple store - mutex guarantees no concurrent modification)
     Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
 
-    // Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
+    // Increment NODE_COUNT (node is now linked)
+    const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
+    Atomics.store(this.sab, HDR.NODE_COUNT, currentCount + 1)
+
+    // Signal structural change
     Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
 
     // Track operation for telemetry
@@ -600,7 +608,11 @@ export class SiliconSynapse implements ISiliconLinker {
       Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
     }
 
-    // Free the node (NODE_COUNT decremented by FreeList.free)
+    // Decrement NODE_COUNT (RFC-045: now done at unlink time, not at free time)
+    const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
+    Atomics.store(this.sab, HDR.NODE_COUNT, currentCount - 1)
+
+    // Free the node
     this.freeNode(ptr)
 
     // Signal structural change
@@ -1563,6 +1575,11 @@ export class SiliconSynapse implements ISiliconLinker {
     sourceId: number,
     flags: number
   ): NodePtr {
+    // Check safe zone before allocating
+    if (!this.checkSafeZone(baseTick)) {
+      return NULL_PTR
+    }
+
     // Allocate node first
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
@@ -1597,6 +1614,13 @@ export class SiliconSynapse implements ISiliconLinker {
     sourceId: number,
     flags: number
   ): NodePtr {
+    // Check safe zone using afterPtr's baseTick (insertion point)
+    const afterOffset = this.nodeOffset(afterPtr)
+    const targetTick = this.sab[afterOffset + NODE.BASE_TICK]
+    if (!this.checkSafeZone(targetTick)) {
+      return NULL_PTR
+    }
+
     // Allocate node first
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
@@ -1623,6 +1647,13 @@ export class SiliconSynapse implements ISiliconLinker {
    */
   deleteNode(ptr: NodePtr): boolean {
     if (ptr === NULL_PTR) return true
+
+    // Check safe zone before deleting
+    const offset = this.nodeOffset(ptr)
+    const targetTick = this.sab[offset + NODE.BASE_TICK]
+    if (!this.checkSafeZone(targetTick)) {
+      return false
+    }
 
     // Queue DELETE command
     this.ringBuffer.write(CMD.DELETE, ptr, 0)
