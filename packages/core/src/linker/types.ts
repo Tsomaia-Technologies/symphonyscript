@@ -75,25 +75,8 @@ export interface EditResult {
 // RFC-045-04: Error classes removed - using error codes via Atomics.store instead
 // See ERROR constant in constants.ts for error code definitions
 
-/**
- * Synapse connection data for snapshot/restore (RFC-045).
- */
-export interface SynapseData {
-  sourceId: number
-  targetId: number
-  weight: number
-  jitter: number
-}
-
-/**
- * Brain snapshot containing all neural connections (RFC-045).
- *
- * @deprecated For zero-allocation, use BrainSnapshotArrays.
- * This interface uses SynapseData[] which allocates on every snapshot.
- */
-export interface BrainSnapshot {
-  synapses: SynapseData[]
-}
+// RFC-045-04 ISSUE-024: SynapseData and BrainSnapshot DELETED
+// Use BrainSnapshotArrays for zero-allocation snapshot/restore operations
 
 /**
  * Brain snapshot using TypedArrays (RFC-045-04 zero-allocation).

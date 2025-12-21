@@ -30,7 +30,7 @@ import {
   KNUTH_HASH_CONST,
   getReverseIndexOffset
 } from './constants'
-import type { NodePtr, SynapsePtr, BrainSnapshot, BrainSnapshotArrays } from './types'
+import type { NodePtr, SynapsePtr, BrainSnapshotArrays } from './types'
 import { LocalAllocator } from './local-allocator'
 import { RingBuffer } from './ring-buffer'
 import { SynapseAllocator } from './synapse-allocator'
@@ -77,7 +77,8 @@ export const PATCH_TYPE = {
 export type PatchType = 'pitch' | 'velocity' | 'duration' | 'baseTick' | 'muted'
 
 // Re-export snapshot types for convenience (RFC-045)
-export type { BrainSnapshot, BrainSnapshotArrays, SynapseData } from './types'
+// ISSUE-024: BrainSnapshot and SynapseData deleted - use BrainSnapshotArrays only
+export type { BrainSnapshotArrays } from './types'
 
 /**
  * Bridge configuration options.
@@ -572,16 +573,14 @@ export class SiliconBridge {
   }
 
   /**
-   * Insert a note immediately (bypasses debounce).
-   * Convenience wrapper for _insertImmediateInternal with OPCODE.NOTE.
+   * Insert a note immediately (bypasses debounce). TEST-ONLY.
    *
-   * @deprecated Use insertAsync() for production code. This method is
-   * retained only for test compatibility where synchronous semantics
-   * are required for deterministic assertions.
+   * ISSUE-024: Renamed from insertNoteImmediate to _insertNoteImmediate
+   * to remove from public API. Use insertAsync() for production code.
    *
-   * @internal
+   * @internal Test-only synchronous insert for deterministic assertions.
    */
-  insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
+  _insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
     return this._insertImmediateInternal(
       OPCODE.NOTE,
       note.pitch,
@@ -943,24 +942,14 @@ export class SiliconBridge {
    * @param outSourceIds - Pre-allocated output array (REQUIRED for zero-allocation)
    * @returns Number of notes loaded (when outSourceIds provided), or array (legacy mode)
    *
-   * @remarks
-   * **Zero-allocation path (preferred):** Pass a pre-allocated Int32Array.
-   * Returns the number of notes loaded.
+   * ISSUE-024: outSourceIds is now REQUIRED (legacy allocating path deleted).
    *
-   * **Legacy path (test compatibility):** Omit outSourceIds parameter.
-   * Allocates and returns a number[] array.
-   *
-   * @deprecated The legacy path (without outSourceIds) allocates.
-   * Use loadNotesFromArrays() for true zero-allocation hot paths.
+   * @param notes - Array of notes to load
+   * @param outSourceIds - Pre-allocated Int32Array to receive source IDs
+   * @returns Number of notes loaded
    */
-  loadClip(notes: EditorNoteData[], outSourceIds?: Int32Array): number | number[] {
-    // Zero-allocation path (preferred)
-    if (outSourceIds !== undefined) {
-      return this._loadClipZeroAlloc(notes, outSourceIds)
-    }
-
-    // Legacy allocating path (for test compatibility)
-    return this._loadClipLegacy(notes)
+  loadClip(notes: EditorNoteData[], outSourceIds: Int32Array): number {
+    return this._loadClipZeroAlloc(notes, outSourceIds)
   }
 
   /**
@@ -968,15 +957,21 @@ export class SiliconBridge {
    * @internal
    */
   private _loadClipZeroAlloc(notes: EditorNoteData[], outSourceIds: Int32Array): number {
-    let loaded = 0
+    // Pre-generate sourceIds in forward order to maintain notes[i] ↔ outSourceIds[i] mapping
+    const noteCount = notes.length
+    let idx = 0
+    while (idx < noteCount && idx < outSourceIds.length) {
+      outSourceIds[idx] = this._advanceSourceId()
+      idx = idx + 1
+    }
 
-    // Insert in reverse order to maintain sorted chain
-    let i = notes.length - 1
+    // Insert in reverse order to maintain sorted chain, but use pre-generated sourceIds
+    let i = noteCount - 1
     while (i >= 0) {
       const note = notes[i]
-      const sourceId = this._advanceSourceId()
+      const sourceId = i < outSourceIds.length ? outSourceIds[i] : this._advanceSourceId()
 
-      const ptr = this.insertAsync(
+      this.insertAsync(
         OPCODE.NOTE,
         note.pitch,
         note.velocity,
@@ -987,12 +982,9 @@ export class SiliconBridge {
         undefined
       )
 
-      if (ptr >= 0 && loaded < outSourceIds.length) {
-        outSourceIds[loaded] = sourceId
-        loaded = loaded + 1
-      }
       i = i - 1
     }
+    const loaded = Math.min(noteCount, outSourceIds.length)
 
     // Process all commands at once
     this.linker.processCommands()
@@ -1010,54 +1002,7 @@ export class SiliconBridge {
     return loaded
   }
 
-  /**
-   * Legacy allocating loadClip implementation.
-   * @internal
-   * @deprecated Allocates - use zero-allocation path with outSourceIds
-   */
-  private _loadClipLegacy(notes: EditorNoteData[]): number[] {
-    const sourceIds: number[] = []
-
-    // Insert in reverse order to maintain sorted chain
-    let i = notes.length - 1
-    while (i >= 0) {
-      const note = notes[i]
-      const sourceId = this.generateSourceId(note.source)
-
-      // Use insertAsync to allocate and queue
-      const ptr = this.insertAsync(
-        OPCODE.NOTE,
-        note.pitch,
-        note.velocity,
-        note.duration,
-        note.baseTick,
-        note.muted ?? false,
-        sourceId,
-        undefined // always head insert for sorted loading
-      )
-
-      if (ptr >= 0) {
-        sourceIds[i] = sourceId
-      }
-      i = i - 1
-    }
-
-    // Process all commands at once
-    this.linker.processCommands()
-
-    // Register all mappings after processing
-    let j = 0
-    while (j < notes.length) {
-      const note = notes[j]
-      const ptr = this.linker.idTableLookup(sourceIds[j])
-      if (ptr !== NULL_PTR) {
-        this.registerMapping(sourceIds[j], ptr, note.source)
-      }
-      j = j + 1
-    }
-
-    return sourceIds
-  }
+  // ISSUE-024: _loadClipLegacy() DELETED - use loadClip(notes, outSourceIds) instead
 
   /**
    * Clear all notes and mappings.
@@ -1624,48 +1569,7 @@ export class SiliconBridge {
     return count
   }
 
-  /**
-   * Restore synapses from BrainSnapshot. COLD PATH.
-   * RFC-045-04 Compliant: Zero allocations, error code handling.
-   *
-   * @param snapshot - Brain snapshot containing synapse connections
-   * @returns Number of synapses successfully restored
-   */
-  restore(snapshot: BrainSnapshot): number {
-    let restored = 0
-    const synapses = snapshot.synapses
-    const count = synapses.length
-    let i = 0
-
-    while (i < count) {
-      const syn = synapses[i]
-
-      // 1. Resolve Pointers Once (avoid double lookup)
-      const sourcePtr = this.getNodePtr(syn.sourceId)
-      const targetPtr = this.getNodePtr(syn.targetId)
-
-      // 2. Direct Validation
-      if (sourcePtr !== undefined && targetPtr !== undefined) {
-        // 3. Direct Low-Level Write (Zero-Overhead)
-        // Returns offset (positive) or error (negative)
-        const result = this.synapseAllocator.connect(
-          sourcePtr,
-          targetPtr,
-          syn.weight,
-          syn.jitter
-        )
-
-        // 4. Validate Success
-        if (result >= 0) {
-          restored = restored + 1
-        }
-      }
-
-      i = i + 1
-    }
-
-    return restored
-  }
+  // ISSUE-024: restore(BrainSnapshot) DELETED - use restoreFromArrays() instead
 
   /**
    * Restore synapses from parallel TypedArrays. COLD PATH.

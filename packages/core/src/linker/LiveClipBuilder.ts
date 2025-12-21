@@ -13,7 +13,7 @@
 import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
 import type { NodePtr } from './types'
 import type { NoteDuration, TimeSignatureString, NoteName } from '../types/primitives'
-import type { HumanizeSettings, QuantizeSettings } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
+import type { HumanizeSettings, QuantizeSettings } from './legacy-types'
 import type { GrooveTemplate } from '../groove/types'
 import { parseDuration } from '../util/duration'
 import { LiveNoteCursor, LiveNoteData } from './cursors/LiveNoteCursor'
@@ -80,7 +80,9 @@ export class LiveClipBuilder {
   private _stackMaxTick: number = 0
 
   // Counter-based sourceId generation (deterministic, zero-alloc)
-  private nextSourceId: number = 1
+  // CRITICAL: nextSourceId must be static to prevent collision between builders
+  private static nextSourceIdGlobal: number = 1
+  private nextSourceId: number
   private callSiteCounter: number = 0
 
   // Sync read state for hoisted callback (zero-allocation pattern)
@@ -92,6 +94,10 @@ export class LiveClipBuilder {
   constructor(bridge: SiliconBridge, name: string = 'Untitled Clip') {
     this.bridge = bridge
     this.name = name
+
+    // Initialize from global counter to ensure unique sourceIds across all builders
+    this.nextSourceId = LiveClipBuilder.nextSourceIdGlobal
+    LiveClipBuilder.nextSourceIdGlobal = LiveClipBuilder.nextSourceIdGlobal + 1000 // Reserve 1000 IDs per builder
 
     // Pre-allocate bitmaps for sourceId tracking
     this.touchedBitmap = new Int32Array(BITMAP_SIZE_I32)
@@ -445,7 +451,9 @@ export class LiveClipBuilder {
     // Each call site generates a unique, reproducible sourceId based on
     // execution order within the builder
     this.callSiteCounter = this.callSiteCounter + 1
-    return (this.nextSourceId + this.callSiteCounter + offset) & 0x7fffffff
+    // CRITICAL: Keep sourceId in valid range [1, MAX_SOURCE_IDS-1] for bitmap ops
+    const rawId = this.nextSourceId + this.callSiteCounter + offset
+    return ((rawId - 1) % (MAX_SOURCE_IDS - 1)) + 1
   }
 
   /**
@@ -473,7 +481,11 @@ export class LiveClipBuilder {
   private applyQuantize(tick: number): number {
     if (!this._quantizeEnabled) return tick
 
-    const gridTicks = this.resolveDuration(this._quantize.grid)
+    // Guard: if grid is undefined, skip quantization (invalid config)
+    const grid = this._quantize.grid
+    if (grid === undefined) return tick
+
+    const gridTicks = this.resolveDuration(grid)
     const strength = this._quantize.strength ?? 1
 
     const nearestGrid = Math.round(tick / gridTicks) * gridTicks
@@ -507,7 +519,7 @@ export class LiveClipBuilder {
     transformedTick = this.applySwing(transformedTick)
 
     let transformedDuration = duration
-    if (this._quantizeEnabled && this._quantize.duration) {
+    if (this._quantizeEnabled && this._quantize.duration && this._quantize.grid !== undefined) {
       const gridTicks = this.resolveDuration(this._quantize.grid)
       transformedDuration = Math.max(gridTicks, Math.round(duration / gridTicks) * gridTicks)
     }
@@ -638,6 +650,7 @@ export class LiveClipBuilder {
   // ===========================================================================
 
   static clearCache(): void {
-    // No-op: Cache eliminated for zero-allocation compliance
+    // Reset global sourceId counter to prevent test interference
+    LiveClipBuilder.nextSourceIdGlobal = 1
   }
 }

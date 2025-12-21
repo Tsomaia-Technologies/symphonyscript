@@ -23,20 +23,7 @@ const CURSOR_ERR_CHAIN_LOOP = -1
 // Types
 // =============================================================================
 
-/**
- * Result of synaptic resolution.
- */
-export interface SynapseResolutionResult {
-  /** Target node pointer (next clip start), or NULL_PTR if no valid synapse */
-  targetPtr: number
-  /** Jitter to apply to timing (in ticks) */
-  jitter: number
-  /** Weight of the winning synapse (for plasticity feedback) */
-  weight: number
-  /** Pointer to the winning synapse (for reward updates) */
-  synapsePtr: number
-}
-
+// ISSUE-024: SynapseResolutionResult DELETED - use SynapseResolutionCallback instead
 // RFC-045-04: SynapseCandidate interface removed - using SoA TypedArrays instead
 
 // =============================================================================
@@ -86,13 +73,7 @@ export class SynapticCursor {
   /** Pre-allocated candidate synapsePtr array */
   private readonly candSynapsePtrs: Int32Array
 
-  /** RFC-045-04: Pre-allocated result object (caller must not hold reference across calls) */
-  private readonly _result: SynapseResolutionResult = {
-    targetPtr: 0,
-    jitter: 0,
-    weight: 0,
-    synapsePtr: 0
-  }
+  // ISSUE-024: _result DELETED - use resolveSynapseWithCallback() instead
 
   /** PRNG state for deterministic stochastic selection */
   private prngState: number
@@ -189,8 +170,10 @@ export class SynapticCursor {
     this.plasticityCallback = cb
   }
 
+  // ISSUE-024: resolveSynapse() DELETED - use resolveSynapseWithCallback() instead
+
   /**
-   * Resolve synaptic connection when cursor reaches end of chain.
+   * Resolve synaptic connection with zero-allocation callback (RFC-045-04).
    *
    * This is the core neural branching logic (RFC-045 Section 4.1).
    * Called when `node.NEXT_PTR == NULL_PTR` to find the next target.
@@ -200,76 +183,7 @@ export class SynapticCursor {
    * 2. Hash SOURCE_PTR to find synapse head slot
    * 3. Collect all candidates (follow META_NEXT chain)
    * 4. Stochastic selection (weighted random)
-   * 5. Apply jitter and return target
-   *
-   * @deprecated Use resolveSynapseWithCallback() for safety.
-   * This method returns a reference to an internal object that is
-   * reused across calls. Caller MUST NOT cache the returned object.
-   *
-   * @param sourcePtr - The source node pointer (end of current clip)
-   * @returns Resolution result with target, jitter, and metadata
-   */
-  resolveSynapse(sourcePtr: number): SynapseResolutionResult {
-    // 1. Quota Check
-    if (!this.canFireSynapse()) {
-      // Quota exceeded - cursor dies (song ends)
-      this._result.targetPtr = NULL_PTR
-      this._result.jitter = 0
-      this._result.weight = 0
-      this._result.synapsePtr = NULL_PTR
-      return this._result
-    }
-
-    // Increment quota counter
-    this.synapsesFiredThisBlock = this.synapsesFiredThisBlock + 1
-
-    // 2. Hash Lookup
-    const headSlot = this.findHeadSlot(sourcePtr)
-    if (headSlot === -1) {
-      // No synapse found - cursor dies (song ends)
-      this._result.targetPtr = NULL_PTR
-      this._result.jitter = 0
-      this._result.weight = 0
-      this._result.synapsePtr = NULL_PTR
-      return this._result
-    }
-
-    // 3. Collect Candidates (traverse META_NEXT chain)
-    const candidateCount = this.collectCandidates(headSlot)
-    if (candidateCount <= 0) {
-      // All candidates were tombstones OR chain loop error - cursor dies
-      this._result.targetPtr = NULL_PTR
-      this._result.jitter = 0
-      this._result.weight = 0
-      this._result.synapsePtr = NULL_PTR
-      return this._result
-    }
-
-    // 4. Stochastic Selection (returns winning index into SoA arrays)
-    const winnerIdx = this.selectWinner(candidateCount)
-
-    // 5. Apply Jitter and Update State
-    this.pendingJitter = this.candJitters[winnerIdx]
-    this.currentPtr = this.candTargetPtrs[winnerIdx]
-
-    // RFC-045-03: Invoke plasticity callback for automatic reward (Hebbian learning)
-    if (this.plasticityCallback !== null) {
-      this.plasticityCallback(this.candSynapsePtrs[winnerIdx])
-    }
-
-    // RFC-045-04: Populate pre-allocated result (caller must not hold reference across calls)
-    this._result.targetPtr = this.candTargetPtrs[winnerIdx]
-    this._result.jitter = this.candJitters[winnerIdx]
-    this._result.weight = this.candWeights[winnerIdx]
-    this._result.synapsePtr = this.candSynapsePtrs[winnerIdx]
-    return this._result
-  }
-
-  /**
-   * Resolve synaptic connection with zero-allocation callback (RFC-045-04).
-   *
-   * Safer alternative to resolveSynapse() that passes primitives to a callback
-   * instead of returning a reused object reference. Eliminates aliasing risk.
+   * 5. Apply jitter and invoke callback
    *
    * @param sourcePtr - The source node pointer (end of current clip)
    * @param cb - Callback receiving resolution result as primitives

@@ -30,7 +30,7 @@ function createTestBridge(): SiliconBridge {
   })
   return new SiliconBridge(linker, {
     attributeDebounceTicks: 1,
-    structuralDebounceMs: 1
+    structuralDebounceTicks: 1
   })
 }
 
@@ -41,7 +41,7 @@ function createTestEnvironment() {
   })
   const bridge = new SiliconBridge(linker, {
     attributeDebounceTicks: 1,
-    structuralDebounceMs: 1
+    structuralDebounceTicks: 1
   })
   const consumer = new MockConsumer(linker.getSAB(), 24)
   consumer.reset()
@@ -235,7 +235,7 @@ describe('LiveClipBuilder - Mirroring Logic', () => {
     const { bridge, consumer } = createTestEnvironment()
 
     // Insert a note
-    const sourceId = bridge.insertNoteImmediate({
+    const sourceId = bridge._insertNoteImmediate({
       pitch: 60,
       velocity: 100,
       duration: 480,
@@ -331,7 +331,7 @@ describe('LiveClipBuilder - Tombstone Pattern', () => {
     const bridge = createTestBridge()
 
     // Start with 1 note
-    const id1 = bridge.insertNoteImmediate({
+    const id1 = bridge._insertNoteImmediate({
       pitch: 60,
       velocity: 100,
       duration: 480,
@@ -661,7 +661,7 @@ describe('LiveClipBuilder - Performance', () => {
     })
     const bridge = new SiliconBridge(linker, {
       attributeDebounceTicks: 1,
-      structuralDebounceMs: 1
+      structuralDebounceTicks: 1
     })
 
     const iterations = 1000
@@ -669,7 +669,7 @@ describe('LiveClipBuilder - Performance', () => {
 
     // Directly test bridge operations (no stack parsing)
     for (let i = 0; i < iterations; i++) {
-      const id = bridge.insertNoteImmediate({
+      const id = bridge._insertNoteImmediate({
         pitch: 60 + (i % 12),
         velocity: 100,
         duration: 480,

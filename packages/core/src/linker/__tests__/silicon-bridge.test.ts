@@ -65,6 +65,22 @@ function readNoteData(bridge: SiliconBridge, sourceId: number): EditorNoteData |
   return success ? result : undefined
 }
 
+/**
+ * ISSUE-024: Test helper to wrap zero-alloc loadClip with allocation for test convenience.
+ * Returns source IDs as a regular array for easier test assertions.
+ */
+function testLoadClip(bridge: SiliconBridge, notes: EditorNoteData[]): number[] {
+  const outSourceIds = new Int32Array(notes.length)
+  const count = bridge.loadClip(notes, outSourceIds)
+  const result: number[] = []
+  let i = 0
+  while (i < count) {
+    result[i] = outSourceIds[i]
+    i = i + 1
+  }
+  return result
+}
+
 // =============================================================================
 // Source ID Generation Tests
 // =============================================================================
@@ -114,7 +130,7 @@ describe('SiliconBridge - Source ID Generation', () => {
 
     const source: SourceLocation = { file: 'test.ss', line: 10, column: 5 }
     // Insert a note with source location to trigger registerMapping
-    const sourceId = bridge.insertNoteImmediate({
+    const sourceId = bridge._insertNoteImmediate({
       pitch: 60,
       velocity: 100,
       duration: 480,
@@ -146,7 +162,7 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
     const bridge = createTestBridge()
 
     const note = createTestNote()
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
 
     const ptr = bridge.getNodePtr(sourceId)
 
@@ -158,7 +174,7 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
     const bridge = createTestBridge()
 
     const note = createTestNote()
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
     const ptr = bridge.getNodePtr(sourceId)!
 
     const retrievedId = bridge.getSourceId(ptr)
@@ -170,7 +186,7 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
     const bridge = createTestBridge()
 
     const note = createTestNote()
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
     const ptr = bridge.getNodePtr(sourceId)!
 
     bridge.deleteNoteImmediate(sourceId)
@@ -182,9 +198,9 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
   test('traverseSourceIds visits all registered IDs', () => {
     const bridge = createTestBridge()
 
-    const id1 = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
-    const id2 = bridge.insertNoteImmediate(createTestNote({ baseTick: 480 }))
-    const id3 = bridge.insertNoteImmediate(createTestNote({ baseTick: 960 }))
+    const id1 = bridge._insertNoteImmediate(createTestNote({ baseTick: 0 }))
+    const id2 = bridge._insertNoteImmediate(createTestNote({ baseTick: 480 }))
+    const id3 = bridge._insertNoteImmediate(createTestNote({ baseTick: 960 }))
 
     const ids: number[] = []
     bridge.traverseSourceIds((id) => ids.push(id))
@@ -200,10 +216,10 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
 
     expect(bridge.getMappingCount()).toBe(0)
 
-    bridge.insertNoteImmediate(createTestNote())
+    bridge._insertNoteImmediate(createTestNote())
     expect(bridge.getMappingCount()).toBe(1)
 
-    bridge.insertNoteImmediate(createTestNote({ baseTick: 480 }))
+    bridge._insertNoteImmediate(createTestNote({ baseTick: 480 }))
     expect(bridge.getMappingCount()).toBe(2)
   })
 })
@@ -213,11 +229,11 @@ describe('SiliconBridge - Bidirectional Mapping', () => {
 // =============================================================================
 
 describe('SiliconBridge - Immediate Operations', () => {
-  test('insertNoteImmediate creates node in linker', () => {
+  test('_insertNoteImmediate creates node in linker', () => {
     const bridge = createTestBridge()
 
     const note = createTestNote({ pitch: 64, velocity: 80, duration: 240, baseTick: 100 })
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
 
     const readNote = readNoteData(bridge, sourceId)
 
@@ -228,12 +244,12 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(readNote!.baseTick).toBe(100)
   })
 
-  test('insertNoteImmediate with afterSourceId inserts after specified node', () => {
+  test('_insertNoteImmediate with afterSourceId inserts after specified node', () => {
     const bridge = createTestBridge()
 
-    const id1 = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
-    const id2 = bridge.insertNoteImmediate(createTestNote({ baseTick: 960 }), id1)
-    const id3 = bridge.insertNoteImmediate(createTestNote({ baseTick: 480 }), id1)
+    const id1 = bridge._insertNoteImmediate(createTestNote({ baseTick: 0 }))
+    const id2 = bridge._insertNoteImmediate(createTestNote({ baseTick: 960 }), id1)
+    const id3 = bridge._insertNoteImmediate(createTestNote({ baseTick: 480 }), id1)
 
     // Verify chain order via iteration
     const notes = collectNotes(bridge)
@@ -246,18 +262,18 @@ describe('SiliconBridge - Immediate Operations', () => {
     expect(ticks).toEqual([0, 480, 960])
   })
 
-  test('insertNoteImmediate with invalid afterSourceId returns error', () => {
+  test('_insertNoteImmediate with invalid afterSourceId returns error', () => {
     const bridge = createTestBridge()
 
-    // RFC-045-05: insertNoteImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
-    const result = bridge.insertNoteImmediate(createTestNote(), 99999)
+    // RFC-045-05: _insertNoteImmediate now returns BRIDGE_ERR.NOT_FOUND instead of throwing
+    const result = bridge._insertNoteImmediate(createTestNote(), 99999)
     expect(result).toBe(BRIDGE_ERR.NOT_FOUND)
   })
 
   test('deleteNoteImmediate removes node from linker', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
     bridge.deleteNoteImmediate(sourceId)
 
     expect(readNoteData(bridge, sourceId)).toBeUndefined()
@@ -274,7 +290,7 @@ describe('SiliconBridge - Immediate Operations', () => {
   test('patchDirect updates pitch', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
     bridge.patchDirect(sourceId, 'pitch', 72)
 
     expect(readNoteData(bridge, sourceId)!.pitch).toBe(72)
@@ -283,7 +299,7 @@ describe('SiliconBridge - Immediate Operations', () => {
   test('patchDirect updates velocity', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ velocity: 100 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ velocity: 100 }))
     bridge.patchDirect(sourceId, 'velocity', 64)
 
     expect(readNoteData(bridge, sourceId)!.velocity).toBe(64)
@@ -292,7 +308,7 @@ describe('SiliconBridge - Immediate Operations', () => {
   test('patchDirect updates duration', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ duration: 480 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ duration: 480 }))
     bridge.patchDirect(sourceId, 'duration', 240)
 
     expect(readNoteData(bridge, sourceId)!.duration).toBe(240)
@@ -301,7 +317,7 @@ describe('SiliconBridge - Immediate Operations', () => {
   test('patchDirect updates baseTick', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ baseTick: 0 }))
     bridge.patchDirect(sourceId, 'baseTick', 960)
 
     expect(readNoteData(bridge, sourceId)!.baseTick).toBe(960)
@@ -310,7 +326,7 @@ describe('SiliconBridge - Immediate Operations', () => {
   test('patchDirect updates muted state', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ muted: false }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ muted: false }))
     expect(readNoteData(bridge, sourceId)!.muted).toBe(false)
 
     bridge.patchDirect(sourceId, 'muted', true)
@@ -337,7 +353,7 @@ describe('SiliconBridge - Debounced Operations', () => {
   test('patchDebounced queues patch', async () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
     bridge.patchDebounced(sourceId, 'pitch', 72)
 
     // Before flush, original value should remain
@@ -347,7 +363,7 @@ describe('SiliconBridge - Debounced Operations', () => {
   test('patchDebounced coalesces multiple patches to same field', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
 
     // Queue multiple patches to same field
     bridge.patchDebounced(sourceId, 'pitch', 72)
@@ -367,7 +383,7 @@ describe('SiliconBridge - Debounced Operations', () => {
   test('patchDebounced does not coalesce different fields', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
 
     bridge.patchDebounced(sourceId, 'pitch', 72)
     bridge.patchDebounced(sourceId, 'velocity', 80)
@@ -385,7 +401,7 @@ describe('SiliconBridge - Debounced Operations', () => {
   test('flushPatches applies all pending patches', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
 
     bridge.patchDebounced(sourceId, 'pitch', 72)
     bridge.patchDebounced(sourceId, 'velocity', 80)
@@ -408,7 +424,7 @@ describe('SiliconBridge - Debounced Operations', () => {
       }
     })
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
     bridge.patchDirect(sourceId, 'pitch', 72)
 
     expect(patches.length).toBe(1)
@@ -434,7 +450,7 @@ describe('SiliconBridge - Structural Debounce', () => {
   test('deleteNoteDebounced queues delete', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
     bridge.deleteNoteDebounced(sourceId)
 
     expect(bridge.getPendingStructuralCount()).toBe(1)
@@ -468,7 +484,7 @@ describe('SiliconBridge - Structural Debounce', () => {
 
     expect(bridge.hasPending()).toBe(false)
 
-    bridge.patchDebounced(bridge.insertNoteImmediate(createTestNote()), 'pitch', 72)
+    bridge.patchDebounced(bridge._insertNoteImmediate(createTestNote()), 'pitch', 72)
     expect(bridge.hasPending()).toBe(true)
 
     bridge.flushPatches()
@@ -490,7 +506,7 @@ describe('SiliconBridge - Batch Operations', () => {
       createTestNote({ baseTick: 960, pitch: 67 })
     ]
 
-    const sourceIds = bridge.loadClip(notes)
+    const sourceIds = testLoadClip(bridge,notes)
 
     expect(sourceIds.length).toBe(3)
     expect(bridge.getMappingCount()).toBe(3)
@@ -505,7 +521,7 @@ describe('SiliconBridge - Batch Operations', () => {
       createTestNote({ baseTick: 960, pitch: 67 })
     ]
 
-    const sourceIds = bridge.loadClip(notes)
+    const sourceIds = testLoadClip(bridge,notes)
 
     // Verify each sourceId maps to correct note
     expect(readNoteData(bridge, sourceIds[0])!.pitch).toBe(60)
@@ -522,7 +538,7 @@ describe('SiliconBridge - Batch Operations', () => {
       createTestNote({ baseTick: 960, pitch: 67 })
     ]
 
-    bridge.loadClip(notes)
+    testLoadClip(bridge,notes)
 
     // Iterate and verify order
     const iterated = collectNotes(bridge)
@@ -534,7 +550,7 @@ describe('SiliconBridge - Batch Operations', () => {
   test('clear removes all notes and mappings', () => {
     const bridge = createTestBridge()
 
-    bridge.loadClip([
+    testLoadClip(bridge,[
       createTestNote({ baseTick: 0 }),
       createTestNote({ baseTick: 480 }),
       createTestNote({ baseTick: 960 })
@@ -553,7 +569,7 @@ describe('SiliconBridge - Batch Operations', () => {
   test('clear cancels pending operations', () => {
     const bridge = createTestBridge()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
     bridge.patchDebounced(sourceId, 'pitch', 72)
     const note = createTestNote()
     bridge.insertNoteDebounced(note.pitch, note.velocity, note.duration, note.baseTick, note.muted ?? false)
@@ -587,7 +603,7 @@ describe('SiliconBridge - Read Operations', () => {
       baseTick: 100,
       muted: true
     })
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
 
     const readNote = readNoteData(bridge, sourceId)
 
@@ -602,7 +618,7 @@ describe('SiliconBridge - Read Operations', () => {
   test('traverseNotes yields all notes in chain order', () => {
     const bridge = createTestBridge()
 
-    bridge.loadClip([
+    testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 480, pitch: 64 }),
       createTestNote({ baseTick: 960, pitch: 67 })
@@ -619,7 +635,7 @@ describe('SiliconBridge - Read Operations', () => {
   test('traverseNotes includes sourceId with each note', () => {
     const bridge = createTestBridge()
 
-    const sourceIds = bridge.loadClip([createTestNote({ baseTick: 0 })])
+    const sourceIds = testLoadClip(bridge,[createTestNote({ baseTick: 0 })])
 
     const notes = collectNotes(bridge)
 
@@ -679,7 +695,7 @@ describe('SiliconBridge - Factory Function', () => {
       attributeDebounceTicks: 5
     })
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
     bridge.patchDebounced(sourceId, 'pitch', 72)
 
     // RFC-045-06: Advance ticks past custom debounce threshold (5 ticks)
@@ -703,7 +719,7 @@ describe('SiliconBridge - Integration', () => {
     })
 
     // Load clip
-    const sourceIds = bridge.loadClip([
+    const sourceIds = testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 480, pitch: 64 }),
       createTestNote({ baseTick: 960, pitch: 67 })
@@ -737,7 +753,7 @@ describe('SiliconBridge - Integration', () => {
       attributeDebounceTicks: 5
     })
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
 
     // Rapid-fire patches
     for (let i = 0; i < 100; i++) {
@@ -766,7 +782,7 @@ describe('SiliconBridge - Integration', () => {
     const source: SourceLocation = { file: 'test.ss', line: 10, column: 5 }
     const note = createTestNote({ source })
 
-    const sourceId = bridge.insertNoteImmediate(note)
+    const sourceId = bridge._insertNoteImmediate(note)
 
     // Patch the note
     bridge.patchDirect(sourceId, 'pitch', 72)

@@ -129,4 +129,16 @@ export {
 } from './cursors'
 
 // RFC-045: Neural Playback Cursors
-export { SynapticCursor, type SynapseResolutionResult } from './cursors'
+// ISSUE-024: SynapseResolutionResult DELETED - use SynapseResolutionCallback instead
+export { SynapticCursor } from './cursors'
+
+// RFC-045-04: Zero-allocation snapshot types
+export type { BrainSnapshotArrays } from './silicon-bridge'
+
+// ISSUE-024: Legacy types migrated from symphonyscript-legacy
+export type {
+  HumanizeSettings,
+  QuantizeSettings,
+  AutomationTarget,
+  VelocityPoint
+} from './legacy-types'

@@ -79,7 +79,7 @@ function createLiveEnvironment() {
 
   const bridge = new SiliconBridge(linker, {
     attributeDebounceTicks: 1, // Fast debounce for tests
-    structuralDebounceMs: 1
+    structuralDebounceTicks: 1
   })
 
   const consumer = new ConsumerWrapper(linker.getSAB())
@@ -91,6 +91,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * ISSUE-024: Test helper to wrap zero-alloc loadClip with allocation for test convenience.
+ * Returns source IDs as a regular array for easier test assertions.
+ */
+function testLoadClip(bridge: SiliconBridge, notes: EditorNoteData[]): number[] {
+  const outSourceIds = new Int32Array(notes.length)
+  const count = bridge.loadClip(notes, outSourceIds)
+  const result: number[] = []
+  let i = 0
+  while (i < count) {
+    result[i] = outSourceIds[i]
+    i = i + 1
+  }
+  return result
+}
+
 // =============================================================================
 // End-to-End Flow Tests
 // =============================================================================
@@ -100,7 +116,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Editor inserts note via bridge
-    const sourceId = bridge.insertNoteImmediate(
+    const sourceId = bridge._insertNoteImmediate(
       createTestNote({ pitch: 64, velocity: 80, baseTick: 0, duration: 480 })
     )
 
@@ -121,7 +137,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Insert then delete
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ baseTick: 0 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ baseTick: 0 }))
     bridge.deleteNoteImmediate(sourceId)
 
     // Consumer advances
@@ -135,7 +151,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Insert note
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
 
     // Patch pitch before consumer advances
     bridge.patchDirect(sourceId, 'pitch', 72)
@@ -152,7 +168,7 @@ describe('E2E Live Coding - Full Flow', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Insert unmuted note
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ muted: false }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ muted: false }))
 
     // Mute it
     bridge.patchDirect(sourceId, 'muted', true)
@@ -174,7 +190,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Load initial clip - notes are prepended so load in reverse order
-    const sourceIds = bridge.loadClip([
+    const sourceIds = testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 960, pitch: 64 })
     ])
@@ -187,7 +203,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
 
     // Insert new note at tick 720 AFTER the note at tick 0
     // This ensures proper chain ordering
-    bridge.insertNoteImmediate(createTestNote({ baseTick: 720, pitch: 67 }), sourceIds[0])
+    bridge._insertNoteImmediate(createTestNote({ baseTick: 720, pitch: 67 }), sourceIds[0])
 
     // Continue playback - should see both new note and note at 960
     consumer.advance(960) // Now at tick 1440
@@ -204,7 +220,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Load clip with notes at tick 0 and 960
-    const sourceIds = bridge.loadClip([
+    const sourceIds = testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 960, pitch: 64 })
     ])
@@ -227,7 +243,7 @@ describe('E2E Live Coding - Real-Time Edits', () => {
   test('rapid pitch edits are coalesced via debounce', () => {
     const { bridge, consumer, linker } = createLiveEnvironment()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ pitch: 60 }))
 
     // Simulate rapid typing/scrubbing
     for (let i = 0; i < 50; i++) {
@@ -287,7 +303,7 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     const source: SourceLocation = { file: 'melody.ss', line: 15, column: 8 }
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ source }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ source }))
 
     // Edit the note
     bridge.patchDirect(sourceId, 'pitch', 72)
@@ -320,9 +336,9 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Insert notes without source locations (using auto-generated IDs)
-    const sourceId1 = bridge.insertNoteImmediate(createTestNote({ baseTick: 0, pitch: 60 }))
-    const sourceId2 = bridge.insertNoteImmediate(createTestNote({ baseTick: 480, pitch: 64 }), sourceId1)
-    const sourceId3 = bridge.insertNoteImmediate(createTestNote({ baseTick: 960, pitch: 67 }), sourceId2)
+    const sourceId1 = bridge._insertNoteImmediate(createTestNote({ baseTick: 0, pitch: 60 }))
+    const sourceId2 = bridge._insertNoteImmediate(createTestNote({ baseTick: 480, pitch: 64 }), sourceId1)
+    const sourceId3 = bridge._insertNoteImmediate(createTestNote({ baseTick: 960, pitch: 67 }), sourceId2)
 
     // Consumer collects events
     consumer.advance(1440)
@@ -343,7 +359,7 @@ describe('E2E Live Coding - Source Location Tracking', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     const source: SourceLocation = { file: 'test.ss', line: 5, column: 3 }
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ source }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ source }))
 
     // Consumer advances and receives event
     consumer.advance(960)
@@ -384,7 +400,7 @@ describe('E2E Live Coding - Clip Operations', () => {
       createTestNote({ baseTick: 960, pitch: 67 }) // G
     ]
 
-    bridge.loadClip(notes)
+    testLoadClip(bridge,notes)
 
     // Play through entire clip
     consumer.advance(1440)
@@ -398,7 +414,7 @@ describe('E2E Live Coding - Clip Operations', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Load clip
-    bridge.loadClip([
+    testLoadClip(bridge,[
       createTestNote({ baseTick: 0 }),
       createTestNote({ baseTick: 480 }),
       createTestNote({ baseTick: 960 })
@@ -423,14 +439,14 @@ describe('E2E Live Coding - Clip Operations', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Initial clip
-    bridge.loadClip([createTestNote({ baseTick: 0, pitch: 60 })])
+    testLoadClip(bridge,[createTestNote({ baseTick: 0, pitch: 60 })])
 
     // Advance partially
     consumer.advance(240)
 
     // Clear and reload with different notes
     bridge.clear()
-    bridge.loadClip([
+    testLoadClip(bridge,[
       createTestNote({ baseTick: 480, pitch: 72 }),
       createTestNote({ baseTick: 960, pitch: 74 })
     ])
@@ -455,7 +471,7 @@ describe('E2E Live Coding - Performance', () => {
   test('immediate patch latency is negligible', () => {
     const { bridge } = createLiveEnvironment()
 
-    const sourceId = bridge.insertNoteImmediate(createTestNote())
+    const sourceId = bridge._insertNoteImmediate(createTestNote())
 
     const iterations = 1000
     const start = performance.now()
@@ -482,7 +498,7 @@ describe('E2E Live Coding - Performance', () => {
     }
 
     const loadStart = performance.now()
-    bridge.loadClip(notes)
+    testLoadClip(bridge,notes)
     const loadTime = performance.now() - loadStart
 
     // Load should be fast
@@ -546,7 +562,7 @@ describe('E2E Live Coding - Edge Cases', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Chord: all notes at tick 0
-    bridge.loadClip([
+    testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 0, pitch: 64 }),
       createTestNote({ baseTick: 0, pitch: 67 })
@@ -569,7 +585,7 @@ describe('E2E Live Coding - Edge Cases', () => {
     for (let i = 0; i < 10; i++) {
       notes.push(createTestNote({ baseTick: i * 100, pitch: 60 + i }))
     }
-    const sourceIds = bridge.loadClip(notes)
+    const sourceIds = testLoadClip(bridge,notes)
 
     // Advance to tick 550 (notes at 0,100,200,300,400,500 fire = 6 notes)
     // Consumer uses tickRate of 24, so we end up just past 500
@@ -592,7 +608,7 @@ describe('E2E Live Coding - Edge Cases', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Note at tick 0
-    const sourceId = bridge.insertNoteImmediate(createTestNote({ baseTick: 0, pitch: 60 }))
+    const sourceId = bridge._insertNoteImmediate(createTestNote({ baseTick: 0, pitch: 60 }))
 
     // Advance to tick 240 - note should have fired
     consumer.advance(240)
@@ -611,7 +627,7 @@ describe('E2E Live Coding - Edge Cases', () => {
     const { bridge, consumer } = createLiveEnvironment()
 
     // Note with 10 beat duration (4800 ticks at 480 PPQ)
-    bridge.insertNoteImmediate(createTestNote({ baseTick: 0, duration: 4800 }))
+    bridge._insertNoteImmediate(createTestNote({ baseTick: 0, duration: 4800 }))
 
     consumer.advance(4800)
     const events = consumer.getCollectedEvents()
@@ -634,7 +650,7 @@ describe('E2E Live Coding - Stress Test', () => {
     const TICK_STEP = 64
 
     // Initial clip
-    const initialIds = bridge.loadClip([
+    const initialIds = testLoadClip(bridge,[
       createTestNote({ baseTick: 0, pitch: 60 }),
       createTestNote({ baseTick: 480, pitch: 64 }),
       createTestNote({ baseTick: 960, pitch: 67 }),

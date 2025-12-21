@@ -7,7 +7,7 @@
 import type { SiliconBridge } from '../silicon-bridge'
 import type { NoteDuration, TimeSignatureString } from '../../types/primitives'
 import type { GrooveTemplate } from '../../groove/types'
-import type { HumanizeSettings, QuantizeSettings } from '../../../../../../symphonyscript-legacy/src/legacy/clip/types'
+import type { HumanizeSettings, QuantizeSettings } from '../legacy-types'
 import { parseDuration } from '../../util/duration'
 
 // =============================================================================

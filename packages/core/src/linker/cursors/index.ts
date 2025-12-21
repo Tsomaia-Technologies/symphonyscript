@@ -8,4 +8,5 @@ export { LiveChordCursor, type LiveChordData } from './LiveChordCursor'
 export { LiveDrumHitCursor, type LiveDrumHitData } from './LiveDrumHitCursor'
 
 // RFC-045: Neural Playback Cursors
-export { SynapticCursor, type SynapseResolutionResult } from './SynapticCursor'
+// ISSUE-024: SynapseResolutionResult DELETED - use SynapseResolutionCallback instead
+export { SynapticCursor } from './SynapticCursor'
