@@ -11,6 +11,12 @@ import type { Opcode } from './constants'
 export type NodePtr = number
 
 /**
+ * Synapse pointer type (byte offset into Synapse Table).
+ * Used for typed references to synaptic connections in the Silicon Brain.
+ */
+export type SynapsePtr = number
+
+/**
  * Silicon Linker configuration options.
  */
 export interface LinkerConfig {
@@ -112,6 +118,24 @@ export class CommandQueueOverflowError extends Error {
         `Head=${head}, Tail=${tail}, Capacity=${capacity}`
     )
     this.name = 'CommandQueueOverflowError'
+  }
+}
+
+/**
+ * Error thrown when the Synapse Table is exhausted (RFC-045).
+ * This indicates the neural connection graph has reached maximum capacity.
+ * Consider increasing SYNAPSE_TABLE.MAX_CAPACITY or pruning unused synapses.
+ */
+export class SynapseTableFullError extends Error {
+  constructor(
+    public readonly usedSlots: number,
+    public readonly capacity: number
+  ) {
+    super(
+      `Silicon Linker: Synapse table full. ` +
+        `Used=${usedSlots}, Capacity=${capacity}`
+    )
+    this.name = 'SynapseTableFullError'
   }
 }
 

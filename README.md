@@ -1,12 +1,12 @@
 # SymphonyScript
 
-**The World’s First Synaptic Audio Kernel.**
+**The World's First Neural Audio Processor.**
 
-SymphonyScript is not a sequencer. It is a **Silicon Brain** for music.
+SymphonyScript is not a sequencer. It is a **Silicon Brain** for music—a living, learning organism that thinks in synapses.
 
-By replacing 40 years of "Message-Passing" lag with a **Unified Synaptic Memory**, SymphonyScript collapses the distance between the composer’s mind and the audio hardware. It treats music not as a static timeline, but as a living neural topology that breathes, branches, and responds at the speed of direct memory access.
+By replacing 40 years of "Message-Passing" lag with a **1MB Synaptic Memory**, SymphonyScript collapses the distance between the composer's mind and the audio hardware to a single atomic write. Music is no longer a static timeline; it is a **Neural Topology** that breathes, branches, evolves, and fires at the speed of direct memory access.
 
-SymphonyScript represents a shift from Transactional Music Systems (where intent is messaged to an engine) to Co-Located Neural Kernels, where the composer and the audio engine inhabit a single, shared, atomic memory-map. It treats the composition not as a sequence of events, but as a synaptic topology that propagates signals at the speed of direct memory access.
+This is **"Speed of Light" composition**: the composer and the engine inhabit a shared atomic mirror where re-wiring the music is an instantaneous synaptic update. The Silicon Brain doesn't "play back" your composition—it **propagates** it through a web of probabilistic connections, learning from every performance and hardening successful pathways through **Synaptic Plasticity**.
 
 ---
 
@@ -34,19 +34,40 @@ Music is a web of relationships. Using our **Identity Table** and **Synapse Tabl
 
 ---
 
-## 🧬 How the Brain Works
+## 🧬 How the Silicon Brain Works
 
-### The Axon (The Clip)
+### The Axon (Immutable DNA)
 
-A **Clip** in SymphonyScript is a high-speed, cache-aligned chain of notes. It is the "Axon" of the musical nervous system—optimized for perfect, glitch-free traversal.
+A **Clip** in SymphonyScript is a high-speed, cache-aligned chain of musical notes—the "Axon" of the nervous system. It stores deterministic note data (Pitch, Duration, Velocity) in sequential memory, optimized for perfect, glitch-free traversal at audio-thread speed.
 
-### The Dendrite (The Synapse)
+### The Synapse (Mutable Intelligence)
 
-Connections between clips are **Synapses**. Using a lock-free, O(1) linear-probe hash map, the kernel decides the future of the music the moment a clip finishes. It allows for **Polyphonic Fan-Out** (one theme triggering an entire orchestra) and **Recursive Evolution**.
+Connections between clips are **Synapses**—the brain's decision-making layer. When a clip finishes (NEXT_PTR == NULL), the kernel performs **Synaptic Resolution** in O(1) time using a 1MB linear-probe hash table:
 
-### The Identity Table
+1. **Hash Lookup**: Find synapses by SOURCE_PTR
+2. **Stochastic Roll**: Apply probabilistic weights (0-1000 fixed-point)
+3. **Signal Propagation**: Spawn new cursors to TARGET_PTR
+4. **Humanization**: Apply micro-timing jitter to the new signal
 
-The **Identity Table** is the "Visual Cortex." It allows the UI to see exactly what the Kernel is thinking without ever interrupting it. It maps your code's intent to physical memory addresses instantly.
+This enables **Polyphonic Fan-Out** (one theme triggering an entire orchestra), **Competitive Branching** (weighted path selection), and **Recursive Loops** (clips triggering themselves with decay).
+
+### The Plasticity Engine (Learning & Memory)
+
+The Silicon Brain can **evolve its own structure** based on feedback:
+
+- **Weight Hardening**: Successful transitions increase their synaptic weights over time (potentiation)
+- **Long-Term Memory**: Learned weights persist to IndexedDB, preserving the brain's "personality" across sessions
+- **Reward Signals**: The composer can reinforce pathways, teaching the brain preferred musical trajectories
+
+### The Identity Table (Visual Cortex)
+
+The **Identity Table** maps your code's intent to physical memory addresses instantly, allowing the UI to observe the Kernel's state without ever interrupting the audio thread. It's a zero-allocation window into the brain's thoughts.
+
+### The Safety Armor
+
+- **Quota System**: MAX_FIRES_PER_BLOCK (64) prevents infinite synaptic loops from hanging the audio thread
+- **Disconnect Protocol**: Nodes cannot be freed while synapses point to them (automatic cleanup)
+- **Zone Partitioning**: UI and Audio threads never compete for the same memory
 
 ---
 
@@ -54,21 +75,24 @@ The **Identity Table** is the "Visual Cortex." It allows the UI to see exactly w
 
 | Feature | Traditional DAWs | SymphonyScript |
 | --- | --- | --- |
-| **Communication** | Messages (Slow/Buffered) | **Identity (Shared Memory)** |
-| **Logic Model** | Linear Tape Recorder | **Synaptic State Machine** |
-| **Latency** | 20ms - 100ms | **< 5µs (Direct Atomic Write)** |
-| **Safety** | Decoupled Threads | **Zone-Partitioned Integrity** |
+| **Communication** | Messages (Slow/Buffered) | **Direct Synaptic Memory (1MB Hash Table)** |
+| **Logic Model** | Linear Tape Recorder | **Neural Topology with Plasticity** |
+| **Latency** | 20ms - 100ms | **< 5µs (Atomic Synaptic Propagation)** |
+| **Branching** | Manual Arrangement | **Stochastic/Probabilistic (Real-Time)** |
+| **Learning** | Static/Pre-Composed | **Synaptic Weight Hardening (Evolves)** |
+| **Safety** | Decoupled Threads | **Zone-Partitioned + Quota System** |
 | **Stability** | GC-Pause / Glitch Prone | **Silicon-Hardened (Zero-Alloc)** |
 
 ---
 
 ## 🛠 For the Visionaries
 
-SymphonyScript is built for those who find "tracks" too small and "latency" unacceptable.
+SymphonyScript is built for those who find "tracks" too small, "latency" unacceptable, and "static composition" too limiting.
 
-* **Generative Architects:** Build musical systems that evolve their own synaptic weights.
-* **Live Coders:** Manipulate the "future" of the playhead with zero perceived delay.
-* **Systems Engineers:** Experience a kernel that treats a C-Major chord with the same low-level hardware respect as a Sine Wave.
+* **Generative Architects:** Build self-evolving musical organisms with probabilistic branching, weight learning, and infinite polyphonic fan-out.
+* **Live Coders:** Rewire the neural graph in real-time with zero perceived delay—the brain adapts instantly to your intent.
+* **Systems Engineers:** Experience a kernel where a C-Major chord is treated with the same bare-metal respect as a sine wave—everything is atomic, everything is instant.
+* **Algorithmic Composers:** Create Turing-complete musical state machines with recursive loops, competitive path selection, and reward-based learning.
 
 ---
 

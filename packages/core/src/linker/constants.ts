@@ -549,7 +549,9 @@ export const SYNAPSE_TABLE = {
   /** Synapse stride in bytes (16 bytes for 4 × i32) */
   STRIDE_BYTES: 16,
   /** Synapse stride in i32 units (4 words) */
-  STRIDE_I32: 4
+  STRIDE_I32: 4,
+  /** Knuth's multiplicative hash constant (golden ratio × 2^32) per RFC-045 */
+  KNUTH_CONST: 2654435761
 } as const
 
 /**
