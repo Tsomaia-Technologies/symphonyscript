@@ -627,4 +627,149 @@ describe('RFC-043 Phase 2: Structural Splicing Integration', () => {
       expect(consumer.getEvents().length).toBeGreaterThan(10)
     })
   })
+
+  // ===========================================================================
+  // 10. RFC-044: Ring Buffer Saturation (Decree 044-10)
+  // ===========================================================================
+  describe('10. RFC-044: Ring Buffer Saturation', () => {
+    it('should drain 90% full command ring without data loss or corruption', () => {
+      // Use larger capacity for realistic stress testing
+      const { linker, consumer, buffer } = createTestPair({
+        nodeCapacity: 1024, // Need sufficient Zone B capacity
+        tickRate: 48
+      })
+
+      // Import bridge for insertAsync access
+      const { SiliconBridge } = require('../silicon-bridge')
+      const bridge = new SiliconBridge(linker)
+
+      const sab = new Int32Array(buffer)
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+
+      // Fill to 90% of Zone B capacity (Zone B = nodeCapacity / 2)
+      // This tests high-water mark resilience while respecting heap limits
+      const zoneBCapacity = Math.floor(nodeCapacity / 2)
+      const targetCommandCount = Math.floor(zoneBCapacity * 0.9)
+
+      // Track inserted notes for verification
+      const insertedNotes: Array<{ pitch: number; tick: number; sourceId: number }> = []
+
+      // Queue commands via insertAsync (RFC-044 async path)
+      // Insert in REVERSE order so they end up in correct temporal order
+      // (insertAsync with no afterSourceId inserts at head, which reverses the order)
+      for (let i = targetCommandCount - 1; i >= 0; i--) {
+        const pitch = 60 + (i % 24) // C4 to B5 range
+        const tick = i * 10 // Spread notes across time
+        const sourceId = 10000 + i
+
+        bridge.insertAsync(
+          OPCODE.NOTE,
+          pitch,
+          100, // velocity
+          480, // duration
+          tick,
+          false, // muted
+          sourceId
+        )
+
+        insertedNotes.unshift({ pitch, tick, sourceId }) // unshift to maintain forward order in array
+      }
+
+      // Verify Ring Buffer is at target saturation
+      const tailBeforeDrain = sab[HDR.RB_TAIL]
+      expect(tailBeforeDrain).toBe(targetCommandCount)
+
+      // Verify NO nodes are in chain yet (eventual consistency)
+      expect(sab[HDR.NODE_COUNT]).toBe(0)
+
+      // Worker drains Ring Buffer (simulates multiple process() cycles)
+      let totalProcessed = 0
+      while (sab[HDR.RB_HEAD] !== sab[HDR.RB_TAIL]) {
+        const processed = linker.processCommands()
+        totalProcessed += processed
+        if (processed === 0) break // Safety: prevent infinite loop
+      }
+
+      // Verify ALL commands were processed
+      expect(totalProcessed).toBe(targetCommandCount)
+
+      // Verify Ring Buffer is empty
+      expect(sab[HDR.RB_HEAD]).toBe(sab[HDR.RB_TAIL])
+
+      // Verify ALL nodes are now in chain
+      expect(sab[HDR.NODE_COUNT]).toBe(targetCommandCount)
+
+      // Verify heap integrity: traverse chain and count nodes
+      let chainLength = 0
+      let currentPtr = sab[HDR.HEAD_PTR]
+      while (currentPtr !== NULL_PTR && chainLength < targetCommandCount + 10) {
+        chainLength++
+        const offset = currentPtr / 4
+        currentPtr = sab[offset + 3] // NODE.NEXT_PTR offset
+      }
+
+      expect(chainLength).toBe(targetCommandCount)
+
+      // Verify no data corruption: check first and last notes
+      consumer.runUntilTick(targetCommandCount * 10 + 1000)
+      const events = consumer.getEvents()
+
+      // Should have played all notes
+      expect(events.length).toBe(targetCommandCount)
+
+      // Verify first note data integrity
+      expect(events[0].pitch).toBe(insertedNotes[0].pitch)
+      expect(events[0].tick).toBe(insertedNotes[0].tick)
+
+      // Verify last note data integrity
+      const lastEvent = events[events.length - 1]
+      const lastInserted = insertedNotes[insertedNotes.length - 1]
+      expect(lastEvent.pitch).toBe(lastInserted.pitch)
+      expect(lastEvent.tick).toBe(lastInserted.tick)
+    })
+
+    it('should handle rapid async insertions without queue overflow', () => {
+      const { linker, consumer, buffer } = createTestPair({
+        nodeCapacity: 512,
+        tickRate: 24
+      })
+
+      const { SiliconBridge } = require('../silicon-bridge')
+      const bridge = new SiliconBridge(linker)
+
+      const sab = new Int32Array(buffer)
+      const nodeCapacity = sab[HDR.NODE_CAPACITY]
+
+      // Insert at 70% of Zone B capacity in rapid succession
+      const zoneBCapacity = Math.floor(nodeCapacity / 2)
+      const insertCount = Math.floor(zoneBCapacity * 0.7)
+
+      // Insert in reverse order so they end up in correct temporal order
+      for (let i = insertCount - 1; i >= 0; i--) {
+        bridge.insertAsync(
+          OPCODE.NOTE,
+          60 + (i % 12),
+          100,
+          480,
+          i * 5,
+          false,
+          20000 + i
+        )
+      }
+
+      // Verify commands were queued
+      expect(sab[HDR.RB_TAIL]).toBe(insertCount)
+
+      // Drain and verify
+      while (sab[HDR.RB_HEAD] !== sab[HDR.RB_TAIL]) {
+        linker.processCommands()
+      }
+
+      expect(sab[HDR.NODE_COUNT]).toBe(insertCount)
+
+      // Play all notes and verify count
+      consumer.runUntilTick(insertCount * 5 + 500)
+      expect(consumer.getEvents().length).toBe(insertCount)
+    })
+  })
 })
