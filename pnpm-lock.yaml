@@ -66,6 +66,16 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/builder:
+    dependencies:
+      '@symphonyscript/core':
+        specifier: file:../core
+        version: link:../core
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.5.29(@swc/helpers@0.5.17))(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.2)
+
   packages/core:
     devDependencies:
       tsup:
