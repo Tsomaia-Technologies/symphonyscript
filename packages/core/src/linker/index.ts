@@ -61,15 +61,7 @@ export type {
   ISiliconLinker
 } from './types'
 
-// Error classes
-export {
-  HeapExhaustedError,
-  SafeZoneViolationError,
-  InvalidPointerError,
-  KernelPanicError,
-  CommandQueueOverflowError,
-  SynapseTableFullError
-} from './types'
+// RFC-045-04: Error classes removed - using error codes via ERROR constant instead
 
 // Initialization
 export {
