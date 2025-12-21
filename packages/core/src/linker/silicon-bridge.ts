@@ -395,13 +395,17 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Insert a MIDI event immediately (synchronous via command ring).
+   * @internal Test-only synchronous insert.
+   *
+   * DO NOT USE IN PRODUCTION. This method processes commands synchronously
+   * which blocks the main thread. For production, use insertAsync() and
+   * allow the Worker to process commands asynchronously.
    *
    * RFC-045-FINAL: Routes through command ring + processCommands for immediate effect.
    *
    * @returns The SOURCE_ID assigned to the new node, or BRIDGE_ERR.NOT_FOUND if afterSourceId not found
    */
-  insertImmediate(
+  _insertImmediateInternal(
     opcode: number,
     pitch: number,
     velocity: number,
@@ -485,20 +489,25 @@ export class SiliconBridge {
 
   /**
    * Insert a note immediately (bypasses debounce).
-   * Convenience wrapper for insertImmediate with OPCODE.NOTE.
+   * Convenience wrapper for _insertImmediateInternal with OPCODE.NOTE.
    *
-   * @deprecated Use insertImmediate directly for better clarity
+   * @deprecated Use insertAsync() for production code. This method is
+   * retained only for test compatibility where synchronous semantics
+   * are required for deterministic assertions.
+   *
+   * @internal
    */
   insertNoteImmediate(note: EditorNoteData, afterSourceId?: number): number {
-    return this.insertImmediate(
+    return this._insertImmediateInternal(
       OPCODE.NOTE,
       note.pitch,
       note.velocity,
       note.duration,
       note.baseTick,
-      note.muted,
+      note.muted ?? false,
       note.source,
-      afterSourceId
+      afterSourceId,
+      undefined
     )
   }
 

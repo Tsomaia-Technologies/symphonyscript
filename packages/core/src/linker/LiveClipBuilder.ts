@@ -349,7 +349,7 @@ export class LiveClipBuilder {
         afterSourceIdPtr = this.lastSourceId
       }
 
-      this.bridge.insertImmediate(
+      this.bridge._insertImmediateInternal(
         OPCODE.CC,
         controller,
         value,
@@ -541,7 +541,7 @@ export class LiveClipBuilder {
         afterSourceIdPtr = this.lastSourceId
       }
 
-      this.bridge.insertImmediate(
+      this.bridge._insertImmediateInternal(
         OPCODE.NOTE,
         pitch,
         velocity,

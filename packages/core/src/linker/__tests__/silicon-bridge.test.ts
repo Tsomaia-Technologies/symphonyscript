@@ -957,8 +957,8 @@ describe('RFC-044: Async Path & Resilience', () => {
       const linker = bridge['linker'] as SiliconSynapse
       const sab = new Int32Array(linker.getSAB())
 
-      // Allocate in Zone A (via immediate path)
-      bridge.insertImmediate(
+      // Allocate in Zone A (via immediate path - @internal method for tests)
+      bridge._insertImmediateInternal(
         OPCODE.NOTE,
         60, // pitch
         100, // velocity
