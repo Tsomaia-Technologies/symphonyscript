@@ -92,6 +92,30 @@ export class KernelPanicError extends Error {
 }
 
 /**
+ * Error thrown when command ring buffer is full (RFC-044).
+ * This indicates the Main Thread is producing commands faster than the Worker
+ * can consume them. The system should back-pressure or throttle edits.
+ *
+ * @remarks
+ * This is a critical flow-control signal. If this error occurs frequently,
+ * consider increasing COMMAND.DEFAULT_RING_SIZE_BYTES or implementing
+ * batching/throttling in the UI layer.
+ */
+export class CommandQueueOverflowError extends Error {
+  constructor(
+    public readonly head: number,
+    public readonly tail: number,
+    public readonly capacity: number
+  ) {
+    super(
+      `Silicon Linker: Command queue overflow. ` +
+        `Head=${head}, Tail=${tail}, Capacity=${capacity}`
+    )
+    this.name = 'CommandQueueOverflowError'
+  }
+}
+
+/**
  * Silicon Linker interface.
  * Acts as MMU for the SharedArrayBuffer, handling all memory operations.
  */

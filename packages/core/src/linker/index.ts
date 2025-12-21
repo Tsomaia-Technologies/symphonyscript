@@ -38,7 +38,12 @@ export {
   // Memory calculation
   calculateSABSize,
   HEAP_START_OFFSET,
-  HEAP_START_I32
+  HEAP_START_I32,
+  // RFC-044: Command Ring & Zone Partitioning
+  COMMAND,
+  DEFAULT_RING_CAPACITY,
+  getZoneSplitIndex,
+  getRingBufferOffset
 } from './constants'
 
 // Types from constants
@@ -56,7 +61,9 @@ export type {
 export {
   HeapExhaustedError,
   SafeZoneViolationError,
-  InvalidPointerError
+  InvalidPointerError,
+  KernelPanicError,
+  CommandQueueOverflowError
 } from './types'
 
 // Initialization
@@ -72,6 +79,10 @@ export {
 // Low-level components (for advanced use)
 export { FreeList } from './free-list'
 export { AttributePatcher } from './patch'
+
+// RFC-044: Command Ring Architecture
+export { LocalAllocator } from './local-allocator'
+export { RingBuffer } from './ring-buffer'
 
 // Testing utilities
 export { MockConsumer } from './mock-consumer'
