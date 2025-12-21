@@ -102,9 +102,7 @@ export type {
   PatchType,
   SiliconBridgeOptions,
   // RFC-045: Synapse Graph types
-  SynapseOptions,
-  SynapseSnapshot,
-  BrainSnapshot
+  SynapseOptions
 } from './silicon-bridge'
 
 // Live Mirror pattern (RFC-043 Phase 4)

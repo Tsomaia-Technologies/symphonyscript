@@ -13,7 +13,9 @@ import {
   getSynapseTableOffset,
   HDR
 } from '../constants'
-import { KernelPanicError } from '../types'
+
+// RFC-045-04: Error indicator for collectCandidates
+const CURSOR_ERR_CHAIN_LOOP = -1
 
 // =============================================================================
 // Types
@@ -33,16 +35,7 @@ export interface SynapseResolutionResult {
   synapsePtr: number
 }
 
-/**
- * Candidate synapse during stochastic selection.
- * Uses stack-based array to avoid allocations during resolution.
- */
-interface SynapseCandidate {
-  targetPtr: number
-  weight: number
-  jitter: number
-  synapsePtr: number
-}
+// RFC-045-04: SynapseCandidate interface removed - using SoA TypedArrays instead
 
 // =============================================================================
 // SynapticCursor
@@ -81,8 +74,23 @@ export class SynapticCursor {
   /** Counter for synapses fired this block (quota enforcement) */
   private synapsesFiredThisBlock: number = 0
 
-  /** Pre-allocated candidate array for stochastic selection (max 64 candidates) */
-  private readonly candidates: SynapseCandidate[] = []
+  // RFC-045-04: SoA (Struct of Arrays) for zero-allocation candidate storage
+  /** Pre-allocated candidate targetPtr array (max 64 candidates) */
+  private readonly candTargetPtrs: Int32Array
+  /** Pre-allocated candidate weight array */
+  private readonly candWeights: Int32Array
+  /** Pre-allocated candidate jitter array */
+  private readonly candJitters: Int32Array
+  /** Pre-allocated candidate synapsePtr array */
+  private readonly candSynapsePtrs: Int32Array
+
+  /** RFC-045-04: Pre-allocated result object (caller must not hold reference across calls) */
+  private readonly _result: SynapseResolutionResult = {
+    targetPtr: 0,
+    jitter: 0,
+    weight: 0,
+    synapsePtr: 0
+  }
 
   /** PRNG state for deterministic stochastic selection */
   private prngState: number
@@ -104,10 +112,11 @@ export class SynapticCursor {
     // Initialize PRNG state (xorshift32 has fixpoint at 0 - ensure non-zero seed)
     this.prngState = (prngSeed >>> 0) || 1
 
-    // Pre-allocate candidate slots (max 64 per RFC-045 quota)
-    for (let i = 0; i < SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK; i++) {
-      this.candidates.push({ targetPtr: 0, weight: 0, jitter: 0, synapsePtr: 0 })
-    }
+    // RFC-045-04: Pre-allocate SoA candidate arrays (max 64 per RFC-045 quota)
+    this.candTargetPtrs = new Int32Array(SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK)
+    this.candWeights = new Int32Array(SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK)
+    this.candJitters = new Int32Array(SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK)
+    this.candSynapsePtrs = new Int32Array(SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK)
   }
 
   // ===========================================================================
@@ -183,12 +192,11 @@ export class SynapticCursor {
     // 1. Quota Check
     if (!this.canFireSynapse()) {
       // Quota exceeded - cursor dies (song ends)
-      return {
-        targetPtr: NULL_PTR,
-        jitter: 0,
-        weight: 0,
-        synapsePtr: NULL_PTR
-      }
+      this._result.targetPtr = NULL_PTR
+      this._result.jitter = 0
+      this._result.weight = 0
+      this._result.synapsePtr = NULL_PTR
+      return this._result
     }
 
     // Increment quota counter
@@ -198,42 +206,40 @@ export class SynapticCursor {
     const headSlot = this.findHeadSlot(sourcePtr)
     if (headSlot === -1) {
       // No synapse found - cursor dies (song ends)
-      return {
-        targetPtr: NULL_PTR,
-        jitter: 0,
-        weight: 0,
-        synapsePtr: NULL_PTR
-      }
+      this._result.targetPtr = NULL_PTR
+      this._result.jitter = 0
+      this._result.weight = 0
+      this._result.synapsePtr = NULL_PTR
+      return this._result
     }
 
     // 3. Collect Candidates (traverse META_NEXT chain)
     const candidateCount = this.collectCandidates(headSlot)
-    if (candidateCount === 0) {
-      // All candidates were tombstones - cursor dies
-      return {
-        targetPtr: NULL_PTR,
-        jitter: 0,
-        weight: 0,
-        synapsePtr: NULL_PTR
-      }
+    if (candidateCount <= 0) {
+      // All candidates were tombstones OR chain loop error - cursor dies
+      this._result.targetPtr = NULL_PTR
+      this._result.jitter = 0
+      this._result.weight = 0
+      this._result.synapsePtr = NULL_PTR
+      return this._result
     }
 
-    // 4. Stochastic Selection
-    const winner = this.selectWinner(candidateCount)
+    // 4. Stochastic Selection (returns winning index into SoA arrays)
+    const winnerIdx = this.selectWinner(candidateCount)
 
     // 5. Apply Jitter and Update State
-    this.pendingJitter = winner.jitter
-    this.currentPtr = winner.targetPtr
+    this.pendingJitter = this.candJitters[winnerIdx]
+    this.currentPtr = this.candTargetPtrs[winnerIdx]
 
     // Placeholder for plasticity hook (RFC-045-04)
-    // this._triggerRewardUpdate(winner.synapsePtr)
+    // this._triggerRewardUpdate(this.candSynapsePtrs[winnerIdx])
 
-    return {
-      targetPtr: winner.targetPtr,
-      jitter: winner.jitter,
-      weight: winner.weight,
-      synapsePtr: winner.synapsePtr
-    }
+    // RFC-045-04: Populate pre-allocated result (caller must not hold reference across calls)
+    this._result.targetPtr = this.candTargetPtrs[winnerIdx]
+    this._result.jitter = this.candJitters[winnerIdx]
+    this._result.weight = this.candWeights[winnerIdx]
+    this._result.synapsePtr = this.candSynapsePtrs[winnerIdx]
+    return this._result
   }
 
   // ===========================================================================
@@ -287,10 +293,10 @@ export class SynapticCursor {
    *
    * Traverses the META_NEXT linked list, skipping tombstones
    * (TARGET_PTR == NULL_PTR), and populates the pre-allocated
-   * candidates array.
+   * SoA candidate arrays.
    *
    * @param headSlot - Starting slot for the chain
-   * @returns Number of valid candidates collected
+   * @returns Number of valid candidates collected, or CURSOR_ERR_CHAIN_LOOP on error
    */
   private collectCandidates(headSlot: number): number {
     let count = 0
@@ -301,8 +307,9 @@ export class SynapticCursor {
     const MAX_CHAIN_LENGTH = 1000
 
     while (currentSlot !== -1 && count < SYNAPSE_QUOTA.MAX_FIRES_PER_BLOCK) {
-      if (++iterations > MAX_CHAIN_LENGTH) {
-        throw new KernelPanicError('SynapticCursor: Infinite loop in synapse chain')
+      iterations = iterations + 1
+      if (iterations > MAX_CHAIN_LENGTH) {
+        return CURSOR_ERR_CHAIN_LOOP // RFC-045-04: Return error instead of throwing
       }
 
       const offset = this.offsetForSlot(currentSlot)
@@ -318,13 +325,12 @@ export class SynapticCursor {
         const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
         const jitter = (weightData >>> SYN_PACK.JITTER_SHIFT) & SYN_PACK.JITTER_MASK
 
-        // Store candidate (reuse pre-allocated slot)
-        const candidate = this.candidates[count]
-        candidate.targetPtr = targetPtr
-        candidate.weight = weight
-        candidate.jitter = jitter
-        candidate.synapsePtr = this.ptrFromSlot(currentSlot)
-        count++
+        // RFC-045-04: Store candidate in SoA arrays (zero-allocation)
+        this.candTargetPtrs[count] = targetPtr
+        this.candWeights[count] = weight
+        this.candJitters[count] = jitter
+        this.candSynapsePtrs[count] = this.ptrFromSlot(currentSlot)
+        count = count + 1
       }
 
       // Move to next in chain
@@ -346,24 +352,28 @@ export class SynapticCursor {
    * Uses a deterministic PRNG for reproducible results.
    * Weights are treated as relative probabilities.
    *
-   * @param candidateCount - Number of valid candidates in array
-   * @returns The winning candidate
+   * RFC-045-04: Returns index into SoA arrays instead of object reference.
+   *
+   * @param candidateCount - Number of valid candidates in SoA arrays
+   * @returns Index of the winning candidate
    */
-  private selectWinner(candidateCount: number): SynapseCandidate {
+  private selectWinner(candidateCount: number): number {
     // Single candidate - no randomness needed
     if (candidateCount === 1) {
-      return this.candidates[0]
+      return 0
     }
 
-    // Calculate total weight
+    // Calculate total weight from SoA array
     let totalWeight = 0
-    for (let i = 0; i < candidateCount; i++) {
-      totalWeight += this.candidates[i].weight
+    let i = 0
+    while (i < candidateCount) {
+      totalWeight = totalWeight + this.candWeights[i]
+      i = i + 1
     }
 
     // Edge case: all weights are zero - pick first candidate
     if (totalWeight === 0) {
-      return this.candidates[0]
+      return 0
     }
 
     // Roll using PRNG (0 to totalWeight - 1)
@@ -371,15 +381,17 @@ export class SynapticCursor {
 
     // Select winner by weight accumulation
     let accumulated = 0
-    for (let i = 0; i < candidateCount; i++) {
-      accumulated += this.candidates[i].weight
+    i = 0
+    while (i < candidateCount) {
+      accumulated = accumulated + this.candWeights[i]
       if (roll < accumulated) {
-        return this.candidates[i]
+        return i
       }
+      i = i + 1
     }
 
     // Fallback to last candidate (should never reach here)
-    return this.candidates[candidateCount - 1]
+    return candidateCount - 1
   }
 
   /**

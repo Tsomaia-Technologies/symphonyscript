@@ -13,7 +13,7 @@ import {
   HEAP_START_OFFSET
 } from './constants'
 import type { NodePtr } from './types'
-import { InvalidPointerError } from './types'
+// RFC-045-04: InvalidPointerError no longer thrown - using boolean returns
 
 /**
  * Attribute patcher for immediate, sub-millisecond node updates.
@@ -54,10 +54,11 @@ export class AttributePatcher {
 
   /**
    * Validate that a pointer is within the heap bounds and properly aligned.
+   * RFC-045-04: Returns false instead of throwing.
    */
-  private validatePtr(ptr: NodePtr): void {
+  private validatePtr(ptr: NodePtr): boolean {
     if (ptr === NULL_PTR) {
-      throw new InvalidPointerError(ptr)
+      return false
     }
 
     const i32Index = this.ptrToI32Index(ptr)
@@ -68,8 +69,9 @@ export class AttributePatcher {
       nodeIndex >= this.nodeCapacity ||
       (i32Index - this.heapStartI32) % NODE_SIZE_I32 !== 0
     ) {
-      throw new InvalidPointerError(ptr)
+      return false
     }
+    return true
   }
 
   /**
@@ -82,12 +84,14 @@ export class AttributePatcher {
 
   /**
    * Patch the pitch attribute (bits 16-23 of PACKED_A).
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param pitch - New pitch value (0-127)
+   * @returns true on success, false on invalid pointer
    */
-  patchPitch(ptr: NodePtr, pitch: number): void {
-    this.validatePtr(ptr)
+  patchPitch(ptr: NodePtr, pitch: number): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Clamp pitch to valid MIDI range
@@ -100,16 +104,19 @@ export class AttributePatcher {
     const packed = Atomics.load(this.sab, offset + NODE.PACKED_A)
     const newPacked = (packed & ~PACKED.PITCH_MASK) | (pitch << PACKED.PITCH_SHIFT)
     Atomics.store(this.sab, offset + NODE.PACKED_A, newPacked)
+    return true
   }
 
   /**
    * Patch the velocity attribute (bits 8-15 of PACKED_A).
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param velocity - New velocity value (0-127)
+   * @returns true on success, false on invalid pointer
    */
-  patchVelocity(ptr: NodePtr, velocity: number): void {
-    this.validatePtr(ptr)
+  patchVelocity(ptr: NodePtr, velocity: number): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Clamp velocity to valid MIDI range
@@ -123,16 +130,19 @@ export class AttributePatcher {
     const newPacked =
       (packed & ~PACKED.VELOCITY_MASK) | (velocity << PACKED.VELOCITY_SHIFT)
     Atomics.store(this.sab, offset + NODE.PACKED_A, newPacked)
+    return true
   }
 
   /**
    * Patch the duration attribute.
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param duration - New duration in ticks
+   * @returns true on success, false on invalid pointer
    */
-  patchDuration(ptr: NodePtr, duration: number): void {
-    this.validatePtr(ptr)
+  patchDuration(ptr: NodePtr, duration: number): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Ensure duration is non-negative integer
@@ -143,16 +153,19 @@ export class AttributePatcher {
 
     // Direct write to DURATION field
     Atomics.store(this.sab, offset + NODE.DURATION, duration)
+    return true
   }
 
   /**
    * Patch the base tick attribute.
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param baseTick - New base tick (grid-aligned timing)
+   * @returns true on success, false on invalid pointer
    */
-  patchBaseTick(ptr: NodePtr, baseTick: number): void {
-    this.validatePtr(ptr)
+  patchBaseTick(ptr: NodePtr, baseTick: number): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Ensure baseTick is non-negative integer
@@ -163,16 +176,19 @@ export class AttributePatcher {
 
     // Direct write to BASE_TICK field
     Atomics.store(this.sab, offset + NODE.BASE_TICK, baseTick)
+    return true
   }
 
   /**
    * Set or clear the MUTED flag.
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param muted - Whether the node should be muted
+   * @returns true on success, false on invalid pointer
    */
-  patchMuted(ptr: NodePtr, muted: boolean): void {
-    this.validatePtr(ptr)
+  patchMuted(ptr: NodePtr, muted: boolean): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Bump SEQ for ABA protection
@@ -184,16 +200,19 @@ export class AttributePatcher {
       ? packed | FLAG.MUTED
       : packed & ~FLAG.MUTED
     Atomics.store(this.sab, offset + NODE.PACKED_A, newPacked)
+    return true
   }
 
   /**
    * Patch the source ID (editor location hash).
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param sourceId - New source ID
+   * @returns true on success, false on invalid pointer
    */
-  patchSourceId(ptr: NodePtr, sourceId: number): void {
-    this.validatePtr(ptr)
+  patchSourceId(ptr: NodePtr, sourceId: number): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Bump SEQ for ABA protection
@@ -201,14 +220,17 @@ export class AttributePatcher {
 
     // Direct write to SOURCE_ID field
     Atomics.store(this.sab, offset + NODE.SOURCE_ID, sourceId | 0)
+    return true
   }
 
   /**
    * Patch multiple attributes at once (batch update).
    * More efficient than individual patches when changing multiple fields.
+   * RFC-045-04: Returns boolean instead of throwing.
    *
    * @param ptr - Node byte pointer
    * @param updates - Object with optional pitch, velocity, duration, baseTick, muted
+   * @returns true on success, false on invalid pointer
    */
   patchMultiple(
     ptr: NodePtr,
@@ -220,8 +242,8 @@ export class AttributePatcher {
       muted?: boolean
       sourceId?: number
     }
-  ): void {
-    this.validatePtr(ptr)
+  ): boolean {
+    if (!this.validatePtr(ptr)) return false
     const offset = this.nodeOffset(ptr)
 
     // Single SEQ bump for all updates
@@ -273,6 +295,7 @@ export class AttributePatcher {
     if (updates.sourceId !== undefined) {
       Atomics.store(this.sab, offset + NODE.SOURCE_ID, updates.sourceId | 0)
     }
+    return true
   }
 
 }

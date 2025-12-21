@@ -9,7 +9,13 @@ import {
   DEFAULT_RING_CAPACITY,
   getRingBufferOffset
 } from './constants'
-import { CommandQueueOverflowError } from './types'
+
+// RFC-045-04: Zero-allocation error codes
+export const RING_ERR = {
+  OK: 0,
+  FULL: -1,
+  NOT_INITIALIZED: -2
+} as const
 
 /**
  * Ring Buffer Controller for Command Ring (RFC-044).
@@ -56,6 +62,9 @@ export class RingBuffer {
    * This ensures the Worker can safely access the ring buffer even if the Main Thread
    * hasn't instantiated RingBuffer yet.
    */
+  /** Initialization error code (0 = OK) */
+  readonly initError: number
+
   constructor(sab: Int32Array) {
     this.sab = sab
 
@@ -66,35 +75,36 @@ export class RingBuffer {
     const dataStartBytes = Atomics.load(this.sab, HDR.COMMAND_RING_PTR)
     this.dataStartI32 = dataStartBytes / 4
 
-    // Validate that header was properly initialized
+    // RFC-045-04: Set error code instead of throwing
     if (this.capacity === 0 || dataStartBytes === 0) {
-      throw new Error(
-        'RingBuffer: SAB not properly initialized. ' +
-          'Ensure createLinkerSAB() was called before instantiating RingBuffer.'
-      )
+      this.initError = RING_ERR.NOT_INITIALIZED
+    } else {
+      this.initError = RING_ERR.OK
     }
   }
 
   /**
    * Write a command to the ring buffer (Main Thread / Producer).
    *
+   * RFC-045-04: Returns error code instead of throwing.
+   *
    * @param opcode - Command opcode (INSERT, DELETE, PATCH, CLEAR)
    * @param param1 - First parameter (e.g., node pointer)
    * @param param2 - Second parameter (e.g., prev pointer)
-   * @throws {CommandQueueOverflowError} if buffer is full
+   * @returns RING_ERR.OK on success, RING_ERR.FULL if buffer is full
    *
    * @remarks
    * This method uses atomic operations to ensure thread-safe communication.
    * The Worker must process commands fast enough to prevent overflow.
    */
-  write(opcode: number, param1: number, param2: number): void {
+  write(opcode: number, param1: number, param2: number): number {
     const head = Atomics.load(this.sab, HDR.RB_HEAD)
     const tail = Atomics.load(this.sab, HDR.RB_TAIL)
 
     // Check if buffer is full: (tail + 1) % capacity === head
     const nextTail = (tail + 1) % this.capacity
     if (nextTail === head) {
-      throw new CommandQueueOverflowError(head, tail, this.capacity)
+      return RING_ERR.FULL
     }
 
     // Calculate write position in data region
@@ -108,6 +118,8 @@ export class RingBuffer {
 
     // Advance tail atomically (release semantics)
     Atomics.store(this.sab, HDR.RB_TAIL, nextTail)
+
+    return RING_ERR.OK
   }
 
   /**

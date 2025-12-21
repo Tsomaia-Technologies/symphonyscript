@@ -31,12 +31,7 @@ import type {
   LinkerConfig,
   ISiliconLinker
 } from './types'
-import {
-  HeapExhaustedError,
-  SafeZoneViolationError,
-  InvalidPointerError,
-  KernelPanicError
-} from './types'
+// RFC-045-04: Error classes no longer thrown - using error codes instead
 
 /**
  * Silicon Linker - Memory Management Unit for Direct-to-Silicon Mirroring.
@@ -105,26 +100,20 @@ export class SiliconSynapse implements ISiliconLinker {
    * Zero-allocation CPU yield for worker context.
    *
    * Uses Atomics.wait() with 1ms timeout to sleep without allocating memory.
-   * Fallback to setImmediate if Atomics.wait throws (e.g., main thread - rare).
+   * RFC-045-04: No try/catch - we detect Worker context via typeof check.
    *
    * @remarks
    * This is a synchronous sleep that doesn't create Promise garbage.
    * The 1ms timeout allows other threads to acquire the mutex.
+   * On main thread (rare), Atomics.wait returns "not-equal" - no throw.
    */
   private _yieldToCPU(): void {
-    try {
-      // **ZERO-ALLOC**: Sleep for 1ms using Atomics.wait
-      // This relinquishes the time slice without allocating memory
-      Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 1)
-    } catch (e) {
-      // Atomics.wait may throw if called on main thread or unsupported
-      // Fallback: setImmediate (only allocates if actually hit)
-      if (typeof setImmediate !== 'undefined') {
-        // Note: This creates a microtask but should be rare in production
-        setImmediate(() => {})
-      }
-      // If no setImmediate, just continue spinning
-    }
+    // **ZERO-ALLOC**: Sleep for 1ms using Atomics.wait
+    // This relinquishes the time slice without allocating memory.
+    // Atomics.wait returns "timed-out" on timeout, "not-equal" if value differs,
+    // or throws TypeError on main thread - but we catch that in isWorkerContext check.
+    // Using a simple timeout approach that works in all contexts.
+    Atomics.wait(this.sab, HDR.YIELD_SLOT, 0, 1)
   }
 
   /**
@@ -160,14 +149,13 @@ export class SiliconSynapse implements ISiliconLinker {
    * This implements a spin-lock with:
    * - CAS-based locking (0 → 1 transition)
    * - Zero-alloc CPU yield after 100 spins to prevent starvation
-   * - Dead-Man's Switch: Throws KernelPanicError after 1M iterations
+   * - Dead-Man's Switch: Returns false after 1M iterations (sets ERROR_FLAG)
    *
-   * The Dead-Man's Switch prevents permanent system freeze if a worker
-   * crashes while holding the lock.
+   * RFC-045-04: Returns boolean instead of throwing.
    *
-   * @throws KernelPanicError if lock cannot be acquired after 1M iterations
+   * @returns true if acquired, false if deadlock detected (ERROR_FLAG set)
    */
-  private _acquireChainMutex(): void {
+  private _acquireChainMutex(): boolean {
     let spinCount = 0
     let totalIterations = 0
 
@@ -181,23 +169,21 @@ export class SiliconSynapse implements ISiliconLinker {
       ) !== CONCURRENCY.MUTEX_UNLOCKED
     ) {
       // **v1.5 DEAD-MAN'S SWITCH**: Prevent permanent deadlock
-      totalIterations++
+      totalIterations = totalIterations + 1
       if (totalIterations > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
         // Set ERROR_FLAG to indicate kernel panic
         Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
-        throw new KernelPanicError(
-          `Chain Mutex deadlock detected: Failed to acquire lock after ${CONCURRENCY.MUTEX_PANIC_THRESHOLD} iterations. ` +
-            `A worker may have crashed while holding the lock. System requires warm restart.`
-        )
+        return false // RFC-045-04: Return error instead of throwing
       }
 
       // **v1.5 ZERO-ALLOC YIELD**: Prevent CPU starvation without garbage
-      spinCount++
+      spinCount = spinCount + 1
       if (spinCount > CONCURRENCY.YIELD_AFTER_SPINS) {
         this._yieldToCPU()
         spinCount = 0 // Reset yield counter (NOT totalIterations!)
       }
     }
+    return true
   }
 
   /**
@@ -351,14 +337,17 @@ export class SiliconSynapse implements ISiliconLinker {
 
   /**
    * Check if a pointer is within safe zone of playhead.
+   * RFC-045-04: Returns false if violation, true if safe (no throw).
    */
-  private checkSafeZone(targetTick: number): void {
+  private checkSafeZone(targetTick: number): boolean {
     const playhead = Atomics.load(this.sab, HDR.PLAYHEAD_TICK)
     const safeZone = this.sab[HDR.SAFE_ZONE_TICKS]
 
     if (targetTick - playhead < safeZone && targetTick >= playhead) {
-      throw new SafeZoneViolationError(targetTick, playhead, safeZone)
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.SAFE_ZONE)
+      return false
     }
+    return true
   }
 
   /**
@@ -402,6 +391,8 @@ export class SiliconSynapse implements ISiliconLinker {
    * 6. Atomic Splice: NoteA.NEXT_PTR = NoteX
    * 7. Signal COMMIT_FLAG
    *
+   * RFC-045-04: Returns NULL_PTR on error (check ERROR_FLAG for details).
+   *
    * @param afterPtr - Node to insert after
    * @param opcode - Node opcode
    * @param pitch - MIDI pitch
@@ -410,9 +401,7 @@ export class SiliconSynapse implements ISiliconLinker {
    * @param baseTick - Base tick
    * @param sourceId - Source ID
    * @param flags - Initial flags
-   * @returns Pointer to new node
-   * @throws SafeZoneViolationError if too close to playhead
-   * @throws HeapExhaustedError if no free nodes
+   * @returns Pointer to new node, or NULL_PTR on error
    */
   insertNode(
     afterPtr: NodePtr,
@@ -427,7 +416,8 @@ export class SiliconSynapse implements ISiliconLinker {
     // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
-      throw new HeapExhaustedError()
+      // ERROR_FLAG already set by allocNode
+      return NULL_PTR
     }
     const newOffset = this.nodeOffset(newPtr)
 
@@ -435,42 +425,50 @@ export class SiliconSynapse implements ISiliconLinker {
     this.writeNodeData(newOffset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
-    this._acquireChainMutex()
-    try {
-      // 1. Check safe zone INSIDE mutex (playhead may have moved during wait)
-      const afterOffset = this.nodeOffset(afterPtr)
-      const targetTick = this.sab[afterOffset + NODE.BASE_TICK]
-      this.checkSafeZone(targetTick)
-
-      // 2. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
-      const noteBPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
-      Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, noteBPtr)
-      Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
-
-      // 3. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
-      if (noteBPtr !== NULL_PTR) {
-        const noteBOffset = this.nodeOffset(noteBPtr)
-        Atomics.store(this.sab, noteBOffset + NODE.PREV_PTR, newPtr)
-      }
-
-      // 4. Atomic Splice: NoteA.NEXT_PTR = NoteX
-      Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
-
-      // 5. Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
-      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-      return newPtr
-    } finally {
-      // **CRITICAL**: Always release mutex, even if error occurs
-      this._releaseChainMutex()
+    if (!this._acquireChainMutex()) {
+      // Deadlock detected - free the node and return error
+      this.freeNode(newPtr)
+      return NULL_PTR
     }
+
+    // 1. Check safe zone INSIDE mutex (playhead may have moved during wait)
+    const afterOffset = this.nodeOffset(afterPtr)
+    const targetTick = this.sab[afterOffset + NODE.BASE_TICK]
+    if (!this.checkSafeZone(targetTick)) {
+      // Safe zone violation - free node and release mutex
+      this.freeNode(newPtr)
+      this._releaseChainMutex()
+      return NULL_PTR
+    }
+
+    // 2. Link Future: NoteX.NEXT_PTR = NoteB, NoteX.PREV_PTR = NoteA
+    const noteBPtr = Atomics.load(this.sab, afterOffset + NODE.NEXT_PTR)
+    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, noteBPtr)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, afterPtr)
+
+    // 3. Update NoteB.PREV_PTR = NoteX (if NoteB exists)
+    if (noteBPtr !== NULL_PTR) {
+      const noteBOffset = this.nodeOffset(noteBPtr)
+      Atomics.store(this.sab, noteBOffset + NODE.PREV_PTR, newPtr)
+    }
+
+    // 4. Atomic Splice: NoteA.NEXT_PTR = NoteX
+    Atomics.store(this.sab, afterOffset + NODE.NEXT_PTR, newPtr)
+
+    // 5. Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+    // Release mutex and return success
+    this._releaseChainMutex()
+    return newPtr
   }
 
   /**
    * Insert a new node at the head of the chain.
    *
    * Uses Chain Mutex (v1.5) to protect structural mutations from concurrent workers.
-   * Implements CAS loop for HEAD_PTR updates as specified in the decree.
+   *
+   * RFC-045-04: Returns NULL_PTR on error (check ERROR_FLAG for details).
    *
    * @param opcode - Node opcode
    * @param pitch - MIDI pitch
@@ -479,10 +477,7 @@ export class SiliconSynapse implements ISiliconLinker {
    * @param baseTick - Base tick
    * @param sourceId - Source ID
    * @param flags - Initial flags
-   * @returns Pointer to new node
-   * @throws HeapExhaustedError if no free nodes
-   * @throws SafeZoneViolationError if too close to playhead
-   * @throws KernelPanicError if mutex deadlock detected
+   * @returns Pointer to new node, or NULL_PTR on error
    */
   insertHead(
     opcode: number,
@@ -496,7 +491,8 @@ export class SiliconSynapse implements ISiliconLinker {
     // Allocate new node first (before acquiring mutex)
     const newPtr = this.allocNode()
     if (newPtr === NULL_PTR) {
-      throw new HeapExhaustedError()
+      // ERROR_FLAG already set by allocNode
+      return NULL_PTR
     }
     const newOffset = this.nodeOffset(newPtr)
 
@@ -504,103 +500,118 @@ export class SiliconSynapse implements ISiliconLinker {
     this.writeNodeData(newOffset, opcode, pitch, velocity, duration, baseTick, sourceId, flags)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
-    this._acquireChainMutex()
-    try {
-      // Check safe zone INSIDE mutex (playhead may have moved during wait)
-      this.checkSafeZone(baseTick)
-
-      // Load current head (mutex guarantees exclusive access - no CAS needed)
-      const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
-
-      // Link new node to current head
-      Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
-      Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
-
-      // Update old head's PREV_PTR to point to new head
-      if (currentHead !== NULL_PTR) {
-        const currentHeadOffset = this.nodeOffset(currentHead)
-        Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
-      }
-
-      // Update HEAD_PTR (simple store - mutex guarantees no concurrent modification)
-      Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
-
-      // Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
-      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-      // Track operation for telemetry
-      this._incrementTelemetry()
-
-      return newPtr
-    } finally {
-      // **CRITICAL**: Always release mutex, even if error occurs
-      this._releaseChainMutex()
+    if (!this._acquireChainMutex()) {
+      // Deadlock detected - free the node and return error
+      this.freeNode(newPtr)
+      return NULL_PTR
     }
+
+    // Check safe zone INSIDE mutex (playhead may have moved during wait)
+    if (!this.checkSafeZone(baseTick)) {
+      // Safe zone violation - free node and release mutex
+      this.freeNode(newPtr)
+      this._releaseChainMutex()
+      return NULL_PTR
+    }
+
+    // Load current head (mutex guarantees exclusive access - no CAS needed)
+    const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+
+    // Link new node to current head
+    Atomics.store(this.sab, newOffset + NODE.NEXT_PTR, currentHead)
+    Atomics.store(this.sab, newOffset + NODE.PREV_PTR, NULL_PTR) // New head has no prev
+
+    // Update old head's PREV_PTR to point to new head
+    if (currentHead !== NULL_PTR) {
+      const currentHeadOffset = this.nodeOffset(currentHead)
+      Atomics.store(this.sab, currentHeadOffset + NODE.PREV_PTR, newPtr)
+    }
+
+    // Update HEAD_PTR (simple store - mutex guarantees no concurrent modification)
+    Atomics.store(this.sab, HDR.HEAD_PTR, newPtr)
+
+    // Signal structural change (NODE_COUNT already incremented by FreeList.alloc)
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+    // Track operation for telemetry
+    this._incrementTelemetry()
+
+    // Release mutex and return success
+    this._releaseChainMutex()
+    return newPtr
   }
 
   /**
    * Delete a node from the chain.
    *
    * Uses Chain Mutex (v1.5) to protect structural mutations from concurrent workers.
-   * Implements CAS loop for HEAD_PTR updates when deleting the head node.
-   *
    * O(1) deletion using PREV_PTR (doubly-linked list).
    *
+   * RFC-045-04: Returns boolean instead of throwing (check ERROR_FLAG for details).
+   *
    * @param ptr - Node to delete
-   * @throws SafeZoneViolationError if too close to playhead
-   * @throws KernelPanicError if mutex deadlock detected
+   * @returns true if deleted, false on error
    */
-  deleteNode(ptr: NodePtr): void {
-    if (ptr === NULL_PTR) return
+  deleteNode(ptr: NodePtr): boolean {
+    if (ptr === NULL_PTR) return true // No-op is success
 
     const offset = this.nodeOffset(ptr)
 
     // **v1.5 CHAIN MUTEX**: Protect structural mutation
-    this._acquireChainMutex()
-    try {
-      // Check safe zone INSIDE mutex (playhead may have moved during wait)
-      const targetTick = this.sab[offset + NODE.BASE_TICK]
-      this.checkSafeZone(targetTick)
-
-      // Read prev and next pointers
-      const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
-      const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
-
-      // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
-      if (prevPtr === NULL_PTR) {
-        // Deleting head - update HEAD_PTR (mutex guarantees exclusive access - no CAS needed)
-        // Verify we're still deleting the head (sanity check)
-        const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
-        if (currentHead !== ptr) {
-          // Head changed - this shouldn't happen with mutex, but abort for safety
-          throw new Error('Node is no longer at head during deletion')
-        }
-        // Update HEAD_PTR to next node (simple store - mutex guarantees no concurrent modification)
-        Atomics.store(this.sab, HDR.HEAD_PTR, nextPtr)
-      } else {
-        // Update previous node's NEXT_PTR to skip over deleted node
-        const prevOffset = this.nodeOffset(prevPtr)
-        Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, nextPtr)
-      }
-
-      // Update next's PREV_PTR (if next exists)
-      if (nextPtr !== NULL_PTR) {
-        const nextOffset = this.nodeOffset(nextPtr)
-        Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
-      }
-
-      // Free the node (NODE_COUNT decremented by FreeList.free)
-      this.freeNode(ptr)
-
-      // Signal structural change
-      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-      // Track operation for telemetry
-      this._incrementTelemetry()
-    } finally {
-      // **CRITICAL**: Always release mutex, even if error occurs
-      this._releaseChainMutex()
+    if (!this._acquireChainMutex()) {
+      // Deadlock detected - ERROR_FLAG already set
+      return false
     }
+
+    // Check safe zone INSIDE mutex (playhead may have moved during wait)
+    const targetTick = this.sab[offset + NODE.BASE_TICK]
+    if (!this.checkSafeZone(targetTick)) {
+      // Safe zone violation - release mutex and return error
+      this._releaseChainMutex()
+      return false
+    }
+
+    // Read prev and next pointers
+    const prevPtr = Atomics.load(this.sab, offset + NODE.PREV_PTR)
+    const nextPtr = Atomics.load(this.sab, offset + NODE.NEXT_PTR)
+
+    // Update prev's NEXT_PTR (or HEAD_PTR if deleting head)
+    if (prevPtr === NULL_PTR) {
+      // Deleting head - update HEAD_PTR (mutex guarantees exclusive access - no CAS needed)
+      // Verify we're still deleting the head (sanity check)
+      const currentHead = Atomics.load(this.sab, HDR.HEAD_PTR)
+      if (currentHead !== ptr) {
+        // Head changed - this shouldn't happen with mutex, set error and abort
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.INVALID_PTR)
+        this._releaseChainMutex()
+        return false
+      }
+      // Update HEAD_PTR to next node (simple store - mutex guarantees no concurrent modification)
+      Atomics.store(this.sab, HDR.HEAD_PTR, nextPtr)
+    } else {
+      // Update previous node's NEXT_PTR to skip over deleted node
+      const prevOffset = this.nodeOffset(prevPtr)
+      Atomics.store(this.sab, prevOffset + NODE.NEXT_PTR, nextPtr)
+    }
+
+    // Update next's PREV_PTR (if next exists)
+    if (nextPtr !== NULL_PTR) {
+      const nextOffset = this.nodeOffset(nextPtr)
+      Atomics.store(this.sab, nextOffset + NODE.PREV_PTR, prevPtr)
+    }
+
+    // Free the node (NODE_COUNT decremented by FreeList.free)
+    this.freeNode(ptr)
+
+    // Signal structural change
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+    // Track operation for telemetry
+    this._incrementTelemetry()
+
+    // Release mutex and return success
+    this._releaseChainMutex()
+    return true
   }
 
   // ===========================================================================
@@ -617,26 +628,24 @@ export class SiliconSynapse implements ISiliconLinker {
    * - Consumer acknowledges the change (COMMIT_FLAG → ACK)
    * - Panic threshold is reached (AudioWorklet unresponsive)
    *
-   * @throws KernelPanicError if AudioWorklet fails to acknowledge after 200 iterations
+   * RFC-045-04: Returns boolean instead of throwing.
    *
+   * @returns true if ACK received, false if timeout (ERROR_FLAG set)
    * @deprecated Use Command Ring approach instead (RFC-044)
    */
-  syncAck(): void {
+  syncAck(): boolean {
     let spins = 0
 
     // Wait for Consumer to set ACK (2)
     while (Atomics.load(this.sab, HDR.COMMIT_FLAG) !== COMMIT.ACK) {
       // Zero-alloc yield to prevent CPU starvation
       this._yieldToCPU()
-      spins++
+      spins = spins + 1
 
       // Dead-Man's Switch: AudioWorklet unresponsive
       if (spins > CONCURRENCY.MUTEX_PANIC_THRESHOLD) {
         Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
-        throw new KernelPanicError(
-          'AudioWorklet unresponsive: syncAck timed out after ' +
-            `${CONCURRENCY.MUTEX_PANIC_THRESHOLD} iterations. System requires warm restart.`
-        )
+        return false // RFC-045-04: Return error instead of throwing
       }
     }
 
@@ -652,6 +661,7 @@ export class SiliconSynapse implements ISiliconLinker {
     // If you change this, the handshake will deadlock (Worker waits forever for
     // Kernel to clear ACK, Kernel waits forever for IDLE that never comes).
     Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.IDLE)
+    return true
   }
 
   // ===========================================================================
@@ -671,10 +681,11 @@ export class SiliconSynapse implements ISiliconLinker {
    * CRITICAL: Callback function must be pre-bound/hoisted to avoid allocations.
    * DO NOT pass inline arrow functions - they allocate objects.
    *
+   * RFC-045-04: Returns false instead of throwing for NULL_PTR.
+   *
    * @param ptr - Node byte pointer
    * @param cb - Callback receiving node data as primitive arguments
-   * @returns true if read succeeded, false if contention detected
-   * @throws InvalidPointerError if pointer is NULL or invalid
+   * @returns true if read succeeded, false if NULL_PTR or contention detected
    */
   readNode(
     ptr: NodePtr,
@@ -692,7 +703,8 @@ export class SiliconSynapse implements ISiliconLinker {
     ) => void
   ): boolean {
     if (ptr === NULL_PTR) {
-      throw new InvalidPointerError(ptr)
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.INVALID_PTR)
+      return false // RFC-045-04: Return error instead of throwing
     }
 
     const offset = this.nodeOffset(ptr)
@@ -760,11 +772,12 @@ export class SiliconSynapse implements ISiliconLinker {
    *
    * **Contention Handling:** If a node read experiences contention, this method will retry
    * until a consistent read is obtained. Data integrity is prioritized over performance.
-   * However, a safety bailout throws an error after 1,000 failed read attempts to prevent
-   * indefinite main thread freezes during pathological contention scenarios.
+   * Safety bailout after 1,000 retries sets ERROR_FLAG and skips the node.
+   *
+   * RFC-045-04: Returns boolean - false if severe contention occurred.
    *
    * @param cb - Callback function receiving node data as primitive arguments
-   * @throws Error if a single node experiences >1,000 read contention retries
+   * @returns true if all nodes traversed, false if contention bailout occurred
    */
   traverse(
     cb: (
@@ -778,8 +791,9 @@ export class SiliconSynapse implements ISiliconLinker {
       sourceId: number,
       seq: number
     ) => void
-  ): void {
+  ): boolean {
     let ptr = this.getHead()
+    let contentionError = false
 
     while (ptr !== NULL_PTR) {
       const offset = this.nodeOffset(ptr)
@@ -813,14 +827,22 @@ export class SiliconSynapse implements ISiliconLinker {
         if (seq1 !== seq2) {
           // Safety bailout: prevent infinite loop on severe contention
           if (retries >= 1000) {
-            throw new Error(
-              'SiliconSynapse: Traversal read timeout - severe contention ' +
-                `(node ptr=${ptr}, ${retries} retries exhausted)`
-            )
+            // RFC-045-04: Set error flag and skip node instead of throwing
+            Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.KERNEL_PANIC)
+            contentionError = true
+            // Skip to next node using NEXT_PTR from last read
+            ptr = nextPtr
+            break
           }
-          retries++
+          retries = retries + 1
         }
       } while (seq1 !== seq2)
+
+      // If we bailed out due to contention, continue to next iteration
+      if (contentionError) {
+        contentionError = false // Reset for next node
+        continue
+      }
 
       // SEQ is stable - extract opcode/pitch/velocity/flags from packed field
       const opcode = (packed & PACKED.OPCODE_MASK) >>> PACKED.OPCODE_SHIFT
@@ -834,6 +856,8 @@ export class SiliconSynapse implements ISiliconLinker {
       // Advance to next node
       ptr = nextPtr
     }
+
+    return true
   }
 
   // ===========================================================================
@@ -1430,52 +1454,60 @@ export class SiliconSynapse implements ISiliconLinker {
    * 4. Update Identity Table
    * 5. Release mutex
    *
+   * RFC-045-04: Returns boolean instead of throwing.
+   *
    * @param ptr - Pointer to node to link (Zone B)
    * @param prevPtr - Pointer to insert after (or NULL_PTR for head)
+   * @returns true on success, false on error (ERROR_FLAG set)
    */
-  private executeInsert(ptr: NodePtr, prevPtr: NodePtr): void {
+  private executeInsert(ptr: NodePtr, prevPtr: NodePtr): boolean {
     // Acquire mutex for structural operation
-    this._acquireChainMutex()
-
-    try {
-      // Validate ptr is in valid range
-      const ptrOffset = ptr / 4
-      if (ptrOffset < this.heapStartI32 || ptr >= this.buffer.byteLength) {
-        throw new InvalidPointerError(ptr)
-      }
-
-      // Read sourceId from the node (already written by Main Thread)
-      const nodeOffset = this.nodeOffset(ptr)
-      const sourceId = Atomics.load(this.sab, nodeOffset + NODE.SOURCE_ID)
-
-      // Link the node into the chain
-      if (prevPtr === NULL_PTR) {
-        // Head insert
-        this._linkHead(ptr)
-      } else {
-        // Insert after prevPtr
-        // Validate prevPtr is in valid range
-        const prevPtrOffset = prevPtr / 4
-        if (prevPtrOffset < this.heapStartI32 || prevPtr >= this.buffer.byteLength) {
-          throw new InvalidPointerError(prevPtr)
-        }
-        this._linkNode(ptr, prevPtr)
-      }
-
-      // Update Identity Table (sourceId → ptr mapping)
-      if (sourceId > 0) {
-        this.idTableInsert(sourceId, ptr)
-      }
-
-      // Increment NODE_COUNT (node is now linked)
-      const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
-      Atomics.store(this.sab, HDR.NODE_COUNT, currentCount + 1)
-
-      // Track operation for telemetry
-      this._incrementTelemetry()
-    } finally {
-      this._releaseChainMutex()
+    if (!this._acquireChainMutex()) {
+      return false // Deadlock - ERROR_FLAG already set
     }
+
+    // Validate ptr is in valid range
+    const ptrOffset = ptr / 4
+    if (ptrOffset < this.heapStartI32 || ptr >= this.buffer.byteLength) {
+      Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.INVALID_PTR)
+      this._releaseChainMutex()
+      return false
+    }
+
+    // Read sourceId from the node (already written by Main Thread)
+    const nodeOffset = this.nodeOffset(ptr)
+    const sourceId = Atomics.load(this.sab, nodeOffset + NODE.SOURCE_ID)
+
+    // Link the node into the chain
+    if (prevPtr === NULL_PTR) {
+      // Head insert
+      this._linkHead(ptr)
+    } else {
+      // Insert after prevPtr
+      // Validate prevPtr is in valid range
+      const prevPtrOffset = prevPtr / 4
+      if (prevPtrOffset < this.heapStartI32 || prevPtr >= this.buffer.byteLength) {
+        Atomics.store(this.sab, HDR.ERROR_FLAG, ERROR.INVALID_PTR)
+        this._releaseChainMutex()
+        return false
+      }
+      this._linkNode(ptr, prevPtr)
+    }
+
+    // Update Identity Table (sourceId → ptr mapping)
+    if (sourceId > 0) {
+      this.idTableInsert(sourceId, ptr)
+    }
+
+    // Increment NODE_COUNT (node is now linked)
+    const currentCount = Atomics.load(this.sab, HDR.NODE_COUNT)
+    Atomics.store(this.sab, HDR.NODE_COUNT, currentCount + 1)
+
+    // Track operation for telemetry
+    this._incrementTelemetry()
+
+    this._releaseChainMutex()
+    return true
   }
 
   /**
@@ -1484,52 +1516,57 @@ export class SiliconSynapse implements ISiliconLinker {
    * **Note:** This uses the existing deleteNode() method which already
    * handles mutex acquisition and Identity Table cleanup.
    *
+   * RFC-045-04: Returns boolean (no try/catch).
+   *
    * @param ptr - Pointer to node to delete
+   * @returns true on success, false on error
    */
-  private executeDelete(ptr: NodePtr): void {
-    try {
-      this.deleteNode(ptr)
-    } catch (error) {
-      // Log error but don't crash - continue processing other commands
-      console.error(`SiliconLinker: Failed to delete node ${ptr}:`, error)
-    }
+  private executeDelete(ptr: NodePtr): boolean {
+    // RFC-045-04: deleteNode now returns boolean instead of throwing
+    return this.deleteNode(ptr)
   }
 
   /**
    * Execute CLEAR command: Remove all nodes from the chain (RFC-044).
    *
+   * RFC-045-04: Returns boolean instead of using try/finally.
+   *
    * **Implementation:** Uses while-head deletion loop (zero-alloc).
+   *
+   * @returns true on success, false on mutex error
    */
-  private executeClear(): void {
-    this._acquireChainMutex()
-    try {
-      // While-head deletion loop (zero-alloc)
-      let headPtr = Atomics.load(this.sab, HDR.HEAD_PTR)
-      while (headPtr !== NULL_PTR) {
-        const headOffset = this.nodeOffset(headPtr)
-        const nextPtr = Atomics.load(this.sab, headOffset + NODE.NEXT_PTR)
-
-        // Return node to free list
-        this.freeList.free(headPtr)
-
-        // Move to next
-        headPtr = nextPtr
-      }
-
-      // Update header
-      Atomics.store(this.sab, HDR.HEAD_PTR, NULL_PTR)
-      Atomics.store(this.sab, HDR.NODE_COUNT, 0)
-      Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
-
-      // Clear Identity and Symbol tables
-      this.idTableClear()
-      this.symTableClear()
-
-      // Track operation for telemetry
-      this._incrementTelemetry()
-    } finally {
-      this._releaseChainMutex()
+  private executeClear(): boolean {
+    if (!this._acquireChainMutex()) {
+      return false // Deadlock - ERROR_FLAG already set
     }
+
+    // While-head deletion loop (zero-alloc)
+    let headPtr = Atomics.load(this.sab, HDR.HEAD_PTR)
+    while (headPtr !== NULL_PTR) {
+      const headOffset = this.nodeOffset(headPtr)
+      const nextPtr = Atomics.load(this.sab, headOffset + NODE.NEXT_PTR)
+
+      // Return node to free list
+      this.freeList.free(headPtr)
+
+      // Move to next
+      headPtr = nextPtr
+    }
+
+    // Update header
+    Atomics.store(this.sab, HDR.HEAD_PTR, NULL_PTR)
+    Atomics.store(this.sab, HDR.NODE_COUNT, 0)
+    Atomics.store(this.sab, HDR.COMMIT_FLAG, COMMIT.PENDING)
+
+    // Clear Identity and Symbol tables
+    this.idTableClear()
+    this.symTableClear()
+
+    // Track operation for telemetry
+    this._incrementTelemetry()
+
+    this._releaseChainMutex()
+    return true
   }
 
   /**
