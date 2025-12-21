@@ -181,8 +181,63 @@ export class SiliconBridge {
   private nextSourceId: number = SOURCE_ID.MIN
 
   // =========================================================================
-  // Pre-Bound Callback Handlers (allocated once at construction)
+  // Pre-Bound Callback Handlers (RFC-045-04: bound once at construction)
   // =========================================================================
+
+  // Bound handler references (assigned in constructor)
+  private handleReadNoteNode: (
+    ptr: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    nextPtr: number,
+    sourceId: number,
+    flags: number,
+    seq: number
+  ) => void
+
+  private handleTraverseNode: (
+    ptr: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    flags: number,
+    sourceId: number,
+    seq: number
+  ) => void
+
+  private handleGetSourceIdNode: (
+    ptr: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    nextPtr: number,
+    sourceId: number,
+    flags: number,
+    seq: number
+  ) => void
+
+  private handleGetSourceLocationLookup: (fileHash: number, line: number, column: number) => void
+
+  private handleTraverseSourceIdsNode: (
+    ptr: number,
+    opcode: number,
+    pitch: number,
+    velocity: number,
+    duration: number,
+    baseTick: number,
+    flags: number,
+    sourceId: number,
+    seq: number
+  ) => void
+
+  private handleSnapshotEntry: (slot: number, sourcePtr: number, targetPtr: number, weightData: number) => void
 
   // Traverse callback state
   private traverseNotesCallback:
@@ -258,6 +313,14 @@ export class SiliconBridge {
       this.firedRing[i] = NULL_PTR
       i = i + 1
     }
+
+    // RFC-045-04: Pre-bind handlers once at construction (avoids per-call closures)
+    this.handleReadNoteNode = this._handleReadNoteNode.bind(this)
+    this.handleTraverseNode = this._handleTraverseNode.bind(this)
+    this.handleGetSourceIdNode = this._handleGetSourceIdNode.bind(this)
+    this.handleGetSourceLocationLookup = this._handleGetSourceLocationLookup.bind(this)
+    this.handleTraverseSourceIdsNode = this._handleTraverseSourceIdsNode.bind(this)
+    this.handleSnapshotEntry = this._handleSnapshotEntry.bind(this)
   }
 
   // ===========================================================================
@@ -1020,9 +1083,10 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Hoisted readNode callback handler (zero-allocation).
+   * Prototype method for readNode callback (bound in constructor).
+   * @internal
    */
-  private handleReadNoteNode = (
+  private _handleReadNoteNode(
     _ptr: number,
     _opcode: number,
     pitch: number,
@@ -1033,7 +1097,7 @@ export class SiliconBridge {
     _sourceId: number,
     flags: number,
     _seq: number
-  ): void => {
+  ): void {
     if (this.readNoteCallback !== null) {
       this.readNoteCallback(pitch, velocity, duration, baseTick, (flags & 0x02) !== 0)
     }
@@ -1063,9 +1127,10 @@ export class SiliconBridge {
   }
 
   /**
-   * Hoisted traverse callback handler (zero-allocation).
+   * Prototype method for traverse callback (bound in constructor).
+   * @internal
    */
-  private handleTraverseNode = (
+  private _handleTraverseNode(
     _ptr: number,
     _opcode: number,
     pitch: number,
@@ -1075,16 +1140,17 @@ export class SiliconBridge {
     flags: number,
     sourceId: number,
     _seq: number
-  ): void => {
+  ): void {
     if (sourceId !== 0 && this.traverseNotesCallback !== null) {
       this.traverseNotesCallback(sourceId, pitch, velocity, duration, baseTick, (flags & 0x02) !== 0)
     }
   }
 
   /**
-   * Hoisted getSourceId callback handler (zero-allocation).
+   * Prototype method for getSourceId callback (bound in constructor).
+   * @internal
    */
-  private handleGetSourceIdNode = (
+  private _handleGetSourceIdNode(
     _ptr: number,
     _opcode: number,
     _pitch: number,
@@ -1095,7 +1161,7 @@ export class SiliconBridge {
     sourceId: number,
     flags: number,
     _seq: number
-  ): void => {
+  ): void {
     this._getSourceIdIsActive = (flags & 0x01) !== 0
     if (this._getSourceIdIsActive) {
       this._getSourceIdResult = sourceId
@@ -1103,18 +1169,20 @@ export class SiliconBridge {
   }
 
   /**
-   * Hoisted getSourceLocation callback handler (zero-allocation).
+   * Prototype method for getSourceLocation callback (bound in constructor).
+   * @internal
    */
-  private handleGetSourceLocationLookup = (_fileHash: number, line: number, column: number): void => {
+  private _handleGetSourceLocationLookup(_fileHash: number, line: number, column: number): void {
     if (this.getSourceLocationCallback !== null) {
       this.getSourceLocationCallback(line, column)
     }
   }
 
   /**
-   * Hoisted traverseSourceIds callback handler (zero-allocation).
+   * Prototype method for traverseSourceIds callback (bound in constructor).
+   * @internal
    */
-  private handleTraverseSourceIdsNode = (
+  private _handleTraverseSourceIdsNode(
     _ptr: number,
     _opcode: number,
     _pitch: number,
@@ -1124,7 +1192,7 @@ export class SiliconBridge {
     _flags: number,
     sourceId: number,
     _seq: number
-  ): void => {
+  ): void {
     if (sourceId > 0 && this.traverseSourceIdsCallback !== null) {
       this.traverseSourceIdsCallback(sourceId)
     }
@@ -1394,14 +1462,15 @@ export class SiliconBridge {
   // ===========================================================================
 
   /**
-   * Hoisted snapshot entry handler (zero-allocation).
+   * Prototype method for snapshot entry callback (bound in constructor).
+   * @internal
    */
-  private handleSnapshotEntry = (
+  private _handleSnapshotEntry(
     _slot: number,
     sourcePtr: number,
     targetPtr: number,
     weightData: number
-  ): void => {
+  ): void {
     if (this.snapshotOnSynapse === null) return
 
     const weight = (weightData >>> SYN_PACK.WEIGHT_SHIFT) & SYN_PACK.WEIGHT_MASK
