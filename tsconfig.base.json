@@ -24,12 +24,15 @@
     "paths": {
       "@symphonyscript/core": ["packages/core/src/index.ts"],
       "@symphonyscript/core/*": ["packages/core/src/*"],
-      "@symphonyscript/runtime-webaudio": ["packages/runtime-webaudio/src/index.ts"],
+      "@symphonyscript/runtime-webaudio": [
+        "packages/runtime-webaudio/src/index.ts"
+      ],
       "@symphonyscript/runtime-webaudio/*": ["packages/runtime-webaudio/src/*"],
       "@symphonyscript/live": ["packages/live/src/index.ts"],
       "@symphonyscript/live/*": ["packages/live/src/*"],
       "@symphonyscript/node": ["packages/node/src/index.ts"],
-      "@symphonyscript/node/*": ["packages/node/src/*"]
+      "@symphonyscript/node/*": ["packages/node/src/*"],
+      "@symphonyscript/legacy": ["packages/legacy/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist", "**/dist"]

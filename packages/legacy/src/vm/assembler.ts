@@ -4,8 +4,8 @@
 
 import type { ClipNode, ClipOperation, NoteOp } from '../../../../../symphonyscript-legacy/src/legacy/clip/types'
 import type { AssemblerOptions } from './types'
-import { noteToMidi } from '../util/midi'
-import { parseDuration } from '../util/duration'
+import { noteToMidi } from '@symphonyscript/core/util/midi'
+import { parseDuration } from '@symphonyscript/core/util/duration'
 import {
   SBC_MAGIC,
   SBC_VERSION,
@@ -508,7 +508,7 @@ function tieKey(noteOp: NoteOp): string {
 /**
  * Convert duration notation to ticks.
  */
-function durationToTicks(duration: import('../types/primitives').NoteDuration, ppq: number): number {
+function durationToTicks(duration: import('@symphonyscript/core/types/primitives').NoteDuration, ppq: number): number {
   const beats = parseDuration(duration)
   return Math.round(beats * ppq)
 }

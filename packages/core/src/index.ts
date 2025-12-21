@@ -50,9 +50,9 @@ export type { EffectType, BaseEffectParams, DelayParams, ReverbParams, Distortio
 // Instrument types (InstrumentConfig, SynthConfig, SamplerConfig, AudioRouting, SidechainConfig) are already exported from './instrument/index' above
 
 // --- RuntimeBackend Interface ---
-export type { RuntimeBackend } from './runtime/types'
+export type { RuntimeBackend } from '../../legacy/src/runtime/types'
 
 // --- VM Module (RFC-038: Symphony Bytecode) ---
-export { assembleToBytecode, BytecodeVM, SBCConsumer } from './vm/index'
-export { SBC_MAGIC, SBC_VERSION, REG, REGION, OP, STATE, EVENT_TYPE, EVENT_SIZE, DEFAULT_PPQ, DEFAULT_BPM } from './vm/index'
-export type { VMEvent, VMNoteEvent, VMControlEvent, VMBendEvent, AssemblerOptions } from './vm/index'
+export { assembleToBytecode, BytecodeVM, SBCConsumer } from '../../legacy/src/vm/index'
+export { SBC_MAGIC, SBC_VERSION, REG, REGION, OP, STATE, EVENT_TYPE, EVENT_SIZE, DEFAULT_PPQ, DEFAULT_BPM } from '../../legacy/src/vm/index'
+export type { VMEvent, VMNoteEvent, VMControlEvent, VMBendEvent, AssemblerOptions } from '../../legacy/src/vm/index'
