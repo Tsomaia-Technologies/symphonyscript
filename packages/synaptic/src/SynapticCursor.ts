@@ -12,9 +12,10 @@ import {
   NULL_PTR,
   getSynapseTableOffset,
   HDR,
-  KNUTH_HASH_CONST
-} from 'packages/kernel/src/constants'
-import type { PlasticityCallback, SynapseResolutionCallback } from 'packages/kernel/src/types'
+  KNUTH_HASH_CONST,
+  PlasticityCallback,
+  SynapseResolutionCallback,
+} from '@symphonyscript/kernel'
 
 // RFC-045-04: Error indicator for collectCandidates
 const CURSOR_ERR_CHAIN_LOOP = -1
