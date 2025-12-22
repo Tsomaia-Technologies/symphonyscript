@@ -3,20 +3,20 @@
 // =============================================================================
 // Comprehensive tests for LiveMelodyBuilder, LiveDrumBuilder, and cursors.
 
-import { LiveClipBuilder } from '../LiveClipBuilder'
-import { LiveMelodyBuilder } from '../LiveMelodyBuilder'
-import { LiveDrumBuilder } from '../LiveDrumBuilder'
-import { LiveKeyboardBuilder } from '../LiveKeyboardBuilder'
-import { LiveStringsBuilder } from '../LiveStringsBuilder'
-import { LiveWindBuilder } from '../LiveWindBuilder'
-import { LiveMelodyNoteCursor } from '../cursors/LiveMelodyNoteCursor'
-import { LiveChordCursor } from '../cursors/LiveChordCursor'
-import { LiveDrumHitCursor } from '../cursors/LiveDrumHitCursor'
-import { LiveSession } from '../LiveSession'
-import { Clip } from '../Clip'
-import { SiliconBridge } from '../silicon-bridge'
-import { SiliconSynapse } from '../silicon-synapse'
-import { MockConsumer } from '../mock-consumer'
+import { LiveClipBuilder } from '../../../core/src/linker/LiveClipBuilder'
+import { LiveMelodyBuilder } from '../../../core/src/linker/LiveMelodyBuilder'
+import { LiveDrumBuilder } from '../../../core/src/linker/LiveDrumBuilder'
+import { LiveKeyboardBuilder } from '../../../core/src/linker/LiveKeyboardBuilder'
+import { LiveStringsBuilder } from '../../../core/src/linker/LiveStringsBuilder'
+import { LiveWindBuilder } from '../../../core/src/linker/LiveWindBuilder'
+import { LiveMelodyNoteCursor } from '../../../core/src/linker/cursors/LiveMelodyNoteCursor'
+import { LiveChordCursor } from '../../../core/src/linker/cursors/LiveChordCursor'
+import { LiveDrumHitCursor } from '../../../core/src/linker/cursors/LiveDrumHitCursor'
+import { LiveSession } from '../../../core/src/linker/LiveSession'
+import { Clip } from '../../../core/src/linker/Clip'
+import { SiliconBridge } from '../../../kernel/src/silicon-bridge'
+import { SiliconSynapse } from '../../../kernel/src/silicon-synapse'
+import { MockConsumer } from '../../../kernel/src/mock-consumer'
 
 // =============================================================================
 // Global Cleanup

@@ -93,8 +93,8 @@ describe('Music OS - End-to-End Integration', () => {
         // =========================================================================
 
         // Get the bridge (internal for verification only)
-        const introBuilder = intro.getBuilder()
-        const verseBuilder = verse.getBuilder()
+        const introBuilder = intro.getNode()
+        const verseBuilder = verse.getNode()
 
         // Access bridge via builder (hacky but necessary for verification)
         const bridge = (introBuilder as any).bridge
@@ -186,12 +186,12 @@ describe('Music OS - End-to-End Integration', () => {
         verse.play(chorus)
 
         // Verify connections exist
-        const bridge = (intro.getBuilder() as any).bridge
+        const bridge = (intro.getNode() as any).bridge
 
-        const introExit = intro.getBuilder().getExitId()
-        const verseEntry = verse.getBuilder().getEntryId()
-        const verseExit = verse.getBuilder().getExitId()
-        const chorusEntry = chorus.getBuilder().getEntryId()
+        const introExit = intro.getNode().getExitId()
+        const verseEntry = verse.getNode().getEntryId()
+        const verseExit = verse.getNode().getExitId()
+        const chorusEntry = chorus.getNode().getEntryId()
 
         expect(synapseExists(bridge, introExit, verseEntry)).toBe(true)
         expect(synapseExists(bridge, verseExit, chorusEntry)).toBe(true)

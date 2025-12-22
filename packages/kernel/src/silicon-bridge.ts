@@ -940,9 +940,9 @@ export class SiliconBridge {
    *
    * @param notes - Array of EditorNoteData objects
    * @param outSourceIds - Pre-allocated output array (REQUIRED for zero-allocation)
-   * @returns Number of notes loaded (when outSourceIds provided), or array (legacy mode)
+   * @returns Number of notes loaded (when outSourceIds provided), or array (kernel mode)
    *
-   * ISSUE-024: outSourceIds is now REQUIRED (legacy allocating path deleted).
+   * ISSUE-024: outSourceIds is now REQUIRED (kernel allocating path deleted).
    *
    * @param notes - Array of notes to load
    * @param outSourceIds - Pre-allocated Int32Array to receive source IDs

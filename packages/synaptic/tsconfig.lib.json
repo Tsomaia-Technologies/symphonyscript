@@ -14,7 +14,7 @@
   ],
   "references": [
     {
-      "path": "../core"
+      "path": "../kernel"
     }
   ]
 }

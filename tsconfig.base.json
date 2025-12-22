@@ -22,6 +22,7 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
+      "@symphonyscript/kernel": ["packages/kernel/src/index.ts"],
       "@symphonyscript/core": ["packages/core/src/index.ts"],
       "@symphonyscript/core/*": ["packages/core/src/*"],
       "@symphonyscript/runtime-webaudio": [

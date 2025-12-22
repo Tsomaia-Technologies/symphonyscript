@@ -5,7 +5,7 @@
 // Extends LiveMelodyBuilder with wind-specific operations.
 
 import { LiveMelodyBuilder } from './LiveMelodyBuilder'
-import type { SiliconBridge } from './silicon-bridge'
+import type { SiliconBridge } from '../../../kernel/src/silicon-bridge'
 
 // =============================================================================
 // LiveWindBuilder

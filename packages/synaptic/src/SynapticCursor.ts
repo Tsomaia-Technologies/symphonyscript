@@ -13,8 +13,8 @@ import {
   getSynapseTableOffset,
   HDR,
   KNUTH_HASH_CONST
-} from '../constants'
-import type { PlasticityCallback, SynapseResolutionCallback } from '../types'
+} from 'packages/kernel/src/constants'
+import type { PlasticityCallback, SynapseResolutionCallback } from 'packages/kernel/src/types'
 
 // RFC-045-04: Error indicator for collectCandidates
 const CURSOR_ERR_CHAIN_LOOP = -1

@@ -3,7 +3,7 @@
 // =============================================================================
 // Session management for Live Mirror pattern. Holds active SiliconBridge.
 
-import type { SiliconBridge } from './silicon-bridge'
+import type { SiliconBridge } from '../../../kernel/src/silicon-bridge'
 
 // =============================================================================
 // Module-level State

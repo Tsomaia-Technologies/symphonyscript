@@ -3,9 +3,10 @@
 // =============================================================================
 // High-level DSL factory for composing music.
 
-import { SynapticClipBuilder } from './SynapticClipBuilder'
-import { SynapticMelodyBuilder } from './SynapticMelodyBuilder'
+import { SynapticClip } from './SynapticClip'
+import { SynapticMelody } from './SynapticMelody'
 import { SiliconSynapse, SiliconBridge } from '@symphonyscript/core/linker'
+
 
 // =============================================================================
 // Session Singleton
@@ -60,21 +61,21 @@ function getOrCreateBridge(): SiliconBridge {
 export const Clip = {
     /**
      * Create a melody clip builder.
-     * Returns SynapticMelodyBuilder with fluent DSL (degree, chord, key, scale, etc.).
+     * Returns SynapticMelody with fluent DSL (degree, chord, key, scale, etc.).
      * @param name - Clip name (for identification)
      */
-    melody(name: string): SynapticMelodyBuilder {
+    melody(name: string): SynapticMelody {
         const bridge = getOrCreateBridge()
-        return new SynapticMelodyBuilder(bridge)
+        return new SynapticMelody(bridge)
     },
 
     /**
      * Create a generic clip builder.
-     * Returns SynapticClipBuilder with fluent DSL (note, rest, play).
+     * Returns SynapticClip with fluent DSL (note, rest, play).
      * @param name - Clip name (for identification)
      */
-    clip(name: string): SynapticClipBuilder {
+    clip(name: string): SynapticClip {
         const bridge = getOrCreateBridge()
-        return new SynapticClipBuilder(bridge)
+        return new SynapticClip(bridge)
     }
 }

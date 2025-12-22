@@ -29,7 +29,7 @@ import {
   getZoneSplitIndex,
   HEAP_START_OFFSET,
   NODE_SIZE_BYTES
-} from '../index'
+} from '@symphonyscript/core/linker'
 
 // =============================================================================
 // Helper Functions

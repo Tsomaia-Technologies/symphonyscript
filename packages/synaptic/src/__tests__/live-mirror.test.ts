@@ -3,12 +3,12 @@
 // =============================================================================
 // Tests for LiveClipBuilder, LiveSession, and Clip factory.
 
-import { LiveClipBuilder } from '../LiveClipBuilder'
-import { LiveSession, executeUserScript } from '../LiveSession'
-import { Clip } from '../Clip'
-import { SiliconBridge, createSiliconBridge } from '../silicon-bridge'
-import { SiliconSynapse } from '../silicon-synapse'
-import { MockConsumer } from '../mock-consumer'
+import { LiveClipBuilder } from '../../../core/src/linker/LiveClipBuilder'
+import { LiveSession, executeUserScript } from '../../../core/src/linker/LiveSession'
+import { Clip } from '../../../core/src/linker/Clip'
+import { SiliconBridge, createSiliconBridge } from '../../../kernel/src/silicon-bridge'
+import { SiliconSynapse } from '../../../kernel/src/silicon-synapse'
+import { MockConsumer } from '../../../kernel/src/mock-consumer'
 
 // =============================================================================
 // Global Cleanup
@@ -61,8 +61,8 @@ function readNoteData(bridge: SiliconBridge, sourceId: number): { pitch: number;
 // Helper to collect notes from traverseNotes into an array for test assertions
 function collectNotes(
   bridge: SiliconBridge
-): Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> {
-  const notes: Array<{ sourceId: number; note: import('../silicon-bridge').EditorNoteData }> = []
+): Array<{ sourceId: number; note: import('../../../kernel/src/silicon-bridge').EditorNoteData }> {
+  const notes: Array<{ sourceId: number; note: import('../../../kernel/src/silicon-bridge').EditorNoteData }> = []
   bridge.traverseNotes((sourceId, pitch, velocity, duration, baseTick, muted) => {
     notes.push({
       sourceId,

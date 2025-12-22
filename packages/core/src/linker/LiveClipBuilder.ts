@@ -10,16 +10,16 @@
 // - No setInterval (use tick-based cleanup)
 // - No for...of (use index-based while loops)
 
-import type { SiliconBridge, SourceLocation, EditorNoteData } from './silicon-bridge'
-import type { NodePtr } from './types'
+import type { SiliconBridge, SourceLocation, EditorNoteData } from '../../../kernel/src/silicon-bridge'
+import type { NodePtr } from '../../../kernel/src/types'
 import type { NoteDuration, TimeSignatureString, NoteName } from '../types/primitives'
 import type { HumanizeSettings, QuantizeSettings } from './legacy-types'
 import type { GrooveTemplate } from '../groove/types'
 import { parseDuration } from '../util/duration'
 import { LiveNoteCursor, LiveNoteData } from './cursors/LiveNoteCursor'
 import { noteToMidi } from '../util/midi'
-import { OPCODE } from './constants'
-import { writeGrooveTemplate } from './init'
+import { OPCODE } from '../../../kernel/src/constants'
+import { writeGrooveTemplate } from '../../../kernel/src/init'
 
 // =============================================================================
 // Constants

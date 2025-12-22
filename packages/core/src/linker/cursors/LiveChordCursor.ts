@@ -5,7 +5,7 @@
 // Extends LiveMelodyNoteCursor with chord-specific modifiers.
 
 import { LiveMelodyNoteCursor, LiveMelodyNoteData } from './LiveMelodyNoteCursor'
-import type { SiliconBridge } from '../silicon-bridge'
+import type { SiliconBridge } from '../../../../kernel/src/silicon-bridge'
 import { noteToMidi, midiToNote } from '../../util/midi'
 import type { NoteName } from '../../types/primitives'
 

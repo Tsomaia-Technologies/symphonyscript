@@ -1,0 +1,28 @@
+{
+  "name": "kernel",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/kernel/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/packages/kernel",
+        "main": "packages/kernel/src/index.ts",
+        "tsConfig": "packages/kernel/tsconfig.lib.json",
+        "assets": ["packages/kernel/*.md"],
+        "format": ["cjs"],
+        "generatePackageJson": true
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "packages/kernel/jest.config.cts"
+      }
+    }
+  }
+}

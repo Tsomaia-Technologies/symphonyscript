@@ -10,7 +10,6 @@ import {
   COMMIT,
   NULL_PTR,
   PACKED,
-  SEQ,
   FLAG,
   HEAP_START_OFFSET
 } from './constants'

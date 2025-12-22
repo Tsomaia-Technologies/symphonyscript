@@ -66,24 +66,14 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/builder:
-    dependencies:
-      '@symphonyscript/core':
-        specifier: file:../core
-        version: link:../core
-    devDependencies:
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(@swc/core@1.5.29(@swc/helpers@0.5.17))(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.2)
-
   packages/composer:
     dependencies:
-      '@symphonyscript/builder':
-        specifier: file:../builder
-        version: link:../builder
       '@symphonyscript/core':
         specifier: file:../core
         version: link:../core
+      '@symphonyscript/synaptic':
+        specifier: file:../synaptic
+        version: link:../synaptic
     devDependencies:
       tsup:
         specifier: ^8.5.1
@@ -217,6 +207,16 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/synaptic:
+    dependencies:
+      '@symphonyscript/core':
+        specifier: file:../core
+        version: link:../core
+    devDependencies:
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.5.29(@swc/helpers@0.5.17))(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.2)
 
 packages:
 

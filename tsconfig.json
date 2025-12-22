@@ -5,6 +5,28 @@
     "rootDir": ".",
     "composite": false
   },
-  "include": ["src/**/*", "packages/core/src/**/*", "packages/live/src/**/*", "packages/runtime-webaudio/src/**/*"],
-  "exclude": ["node_modules", "dist", "**/dist", "**/__tests__/**"]
+  "include": [
+    "src/**/*",
+    "packages/core/src/**/*",
+    "packages/live/src/**/*",
+    "packages/runtime-webaudio/src/**/*"
+  ],
+  "exclude": ["node_modules", "dist", "**/dist", "**/__tests__/**"],
+  "references": [
+    {
+      "path": "./packages/playground"
+    },
+    {
+      "path": "./packages/composer"
+    },
+    {
+      "path": "./packages/synaptic"
+    },
+    {
+      "path": "./packages/kernel"
+    },
+    {
+      "path": "./packages/legacy"
+    }
+  ]
 }

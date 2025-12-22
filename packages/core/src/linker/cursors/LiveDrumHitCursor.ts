@@ -5,7 +5,7 @@
 // Extends LiveNoteCursor with drum-specific methods.
 
 import { LiveNoteCursor, LiveNoteData } from './LiveNoteCursor'
-import type { SiliconBridge } from '../silicon-bridge'
+import type { SiliconBridge } from '../../../../kernel/src/silicon-bridge'
 import type { NoteDuration } from '../../types/primitives'
 
 // =============================================================================

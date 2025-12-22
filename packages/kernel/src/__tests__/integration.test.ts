@@ -12,9 +12,7 @@ import {
   COMMIT,
   NULL_PTR,
   writeGrooveTemplate,
-  HEAP_START_OFFSET,
-  NODE_SIZE_BYTES
-} from '../index'
+} from '../'
 import { getGrooveTemplateOffset } from '../constants'
 import { MockConsumer } from '../mock-consumer'
 

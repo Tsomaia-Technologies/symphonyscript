@@ -1,0 +1,28 @@
+{
+  "name": "synaptic",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/synaptic/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/packages/synaptic",
+        "main": "packages/synaptic/src/index.ts",
+        "tsConfig": "packages/synaptic/tsconfig.lib.json",
+        "assets": ["packages/synaptic/*.md"],
+        "format": ["cjs"],
+        "generatePackageJson": true
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "packages/synaptic/jest.config.cts"
+      }
+    }
+  }
+}

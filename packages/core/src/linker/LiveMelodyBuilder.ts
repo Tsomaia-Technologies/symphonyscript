@@ -5,7 +5,7 @@
 // Extends LiveClipBuilder with melody-specific operations.
 
 import { LiveClipBuilder } from './LiveClipBuilder'
-import type { SiliconBridge } from './silicon-bridge'
+import type { SiliconBridge } from '../../../kernel/src/silicon-bridge'
 import type {
   NoteDuration,
   NoteName,

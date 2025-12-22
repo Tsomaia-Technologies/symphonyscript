@@ -1,9 +1,9 @@
 // =============================================================================
-// SynapticBuilder Tests - Phase 1 Builder Package
+// SynapticNode Tests - Synaptic Package
 // =============================================================================
 
-import { SynapticBuilder } from '../SynapticBuilder'
-import { SiliconSynapse, SiliconBridge, NULL_PTR, NODE } from '@symphonyscript/core/linker'
+import { SynapticNode } from '../SynapticNode'
+import { SiliconSynapse, SiliconBridge, NULL_PTR, NODE } from '@symphonyscript/kernel'
 
 // =============================================================================
 // Test Helpers
@@ -114,36 +114,36 @@ function synapseExists(
 }
 
 // =============================================================================
-// SynapticBuilder Tests
+// SynapticNode Tests
 // =============================================================================
 
-describe('SynapticBuilder - Basic Construction', () => {
+describe('SynapticNode - Basic Construction', () => {
     test('constructs with SiliconBridge', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
-        expect(builder).toBeInstanceOf(SynapticBuilder)
+        expect(builder).toBeInstanceOf(SynapticNode)
     })
 
     test('getEntryId throws when no notes added', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         expect(() => builder.getEntryId()).toThrow('No entry ID')
     })
 
     test('getExitId throws when no notes added', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         expect(() => builder.getExitId()).toThrow('No exit ID')
     })
 })
 
-describe('SynapticBuilder - Adding Notes', () => {
+describe('SynapticNode - Adding Notes', () => {
     test('addNote sets entryId and exitId', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         builder.addNote(60, 100, 480, 0)
 
@@ -154,7 +154,7 @@ describe('SynapticBuilder - Adding Notes', () => {
 
     test('addNote creates linked list in SAB', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         builder.addNote(60, 100, 480, 0)
         builder.addNote(64, 110, 480, 480)
@@ -189,7 +189,7 @@ describe('SynapticBuilder - Adding Notes', () => {
 
     test('addNote chains multiple notes in order', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         builder.addNote(60, 100, 480, 0)     // Note 1
         builder.addNote(64, 110, 480, 480)   // Note 2
@@ -216,7 +216,7 @@ describe('SynapticBuilder - Adding Notes', () => {
 
     test('addNote handles muted parameter', () => {
         const bridge = createTestBridge()
-        const builder = new SynapticBuilder(bridge)
+        const builder = new SynapticNode(bridge)
 
         builder.addNote(60, 100, 480, 0, true)
 
@@ -232,15 +232,15 @@ describe('SynapticBuilder - Adding Notes', () => {
     })
 })
 
-describe('SynapticBuilder - Linking Builders', () => {
+describe('SynapticNode - Linking Builders', () => {
     test('linkTo creates synapse connection', () => {
         const bridge = createTestBridge()
 
-        const builderA = new SynapticBuilder(bridge)
+        const builderA = new SynapticNode(bridge)
         builderA.addNote(60, 100, 480, 0)
         builderA.addNote(64, 110, 480, 480)
 
-        const builderB = new SynapticBuilder(bridge)
+        const builderB = new SynapticNode(bridge)
         builderB.addNote(67, 120, 480, 960)
         builderB.addNote(72, 130, 480, 1440)
 
@@ -257,10 +257,10 @@ describe('SynapticBuilder - Linking Builders', () => {
     test('linkTo with weight and jitter parameters', () => {
         const bridge = createTestBridge()
 
-        const builderA = new SynapticBuilder(bridge)
+        const builderA = new SynapticNode(bridge)
         builderA.addNote(60, 100, 480, 0)
 
-        const builderB = new SynapticBuilder(bridge)
+        const builderB = new SynapticNode(bridge)
         builderB.addNote(64, 110, 480, 480)
 
         // Link with custom weight and jitter
@@ -274,8 +274,8 @@ describe('SynapticBuilder - Linking Builders', () => {
     test('linkTo throws when source has no notes', () => {
         const bridge = createTestBridge()
 
-        const builderA = new SynapticBuilder(bridge)
-        const builderB = new SynapticBuilder(bridge)
+        const builderA = new SynapticNode(bridge)
+        const builderB = new SynapticNode(bridge)
         builderB.addNote(60, 100, 480, 0)
 
         expect(() => builderA.linkTo(builderB)).toThrow('Cannot link: source builder has no exit')
@@ -284,26 +284,26 @@ describe('SynapticBuilder - Linking Builders', () => {
     test('linkTo throws when target has no notes', () => {
         const bridge = createTestBridge()
 
-        const builderA = new SynapticBuilder(bridge)
+        const builderA = new SynapticNode(bridge)
         builderA.addNote(60, 100, 480, 0)
 
-        const builderB = new SynapticBuilder(bridge)
+        const builderB = new SynapticNode(bridge)
 
         expect(() => builderA.linkTo(builderB)).toThrow('No entry ID')
     })
 })
 
-describe('SynapticBuilder - Complete Scenario', () => {
+describe('SynapticNode - Complete Scenario', () => {
     test('builderA adds 2 notes, builderB adds 2 notes, link A to B', () => {
         const bridge = createTestBridge()
 
         // Create builderA and add 2 notes
-        const builderA = new SynapticBuilder(bridge)
+        const builderA = new SynapticNode(bridge)
         builderA.addNote(60, 100, 480, 0, false)
         builderA.addNote(64, 110, 480, 480, false)
 
         // Create builderB and add 2 notes
-        const builderB = new SynapticBuilder(bridge)
+        const builderB = new SynapticNode(bridge)
         builderB.addNote(67, 120, 480, 960, false)
         builderB.addNote(72, 130, 480, 1440, false)
 

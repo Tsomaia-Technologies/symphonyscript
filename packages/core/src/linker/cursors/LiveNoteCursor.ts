@@ -4,7 +4,7 @@
 // Base cursor for modifying notes in the Live system.
 // Mirrors modifiers directly to SAB via SiliconBridge.
 
-import type { SiliconBridge } from '../silicon-bridge'
+import type { SiliconBridge } from '../../../../kernel/src/silicon-bridge'
 import type { NoteDuration, TimeSignatureString } from '../../types/primitives'
 import type { GrooveTemplate } from '../../groove/types'
 import type { HumanizeSettings, QuantizeSettings } from '../legacy-types'

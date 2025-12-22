@@ -23,7 +23,7 @@
         "test": "jest --config jest.config.js"
     },
     "dependencies": {
-        "@symphonyscript/builder": "file:../builder",
+        "@symphonyscript/synaptic": "file:../synaptic",
         "@symphonyscript/core": "file:../core"
     },
     "devDependencies": {
