@@ -26,9 +26,10 @@
           "{options.outputPath}"
         ],
         "options": {
-          "outputPath": "packages/kernel/dist",
+          "outputPath": "../../dist/packages/kernel",
           "main": "packages/kernel/src/index.ts",
           "tsConfig": "packages/kernel/tsconfig.build.json",
+          "declaration": true,
           "format": [
             "esm"
           ],

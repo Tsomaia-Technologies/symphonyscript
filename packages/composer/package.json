@@ -26,9 +26,10 @@
           "{options.outputPath}"
         ],
         "options": {
-          "outputPath": "packages/composer/dist",
+          "outputPath": "../../dist/packages/composer",
           "main": "packages/composer/src/index.ts",
           "tsConfig": "packages/kernel/tsconfig.build.json",
+          "declaration": true,
           "format": [
             "esm"
           ],
