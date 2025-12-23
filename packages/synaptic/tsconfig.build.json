@@ -2,11 +2,15 @@
   "extends": "../../tsconfig.build.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "../../dist/packages/kernel",
-    "tsBuildInfoFile": "../../dist/packages/kernel/.tsbuildinfo"
+    "outDir": "../../dist/packages/synaptic",
+    "tsBuildInfoFile": "../../dist/packages/synaptic/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [],
+  "references": [
+    {
+      "path": "../kernel/tsconfig.build.json"
+    }
+  ],
   "exclude": [
     "jest.config.ts",
     "jest.config.cts",

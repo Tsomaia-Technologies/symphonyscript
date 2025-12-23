@@ -2,8 +2,8 @@
   "extends": "../../tsconfig.build.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "../../dist/packages/kernel",
-    "tsBuildInfoFile": "../../dist/packages/kernel/.tsbuildinfo"
+    "outDir": "../../dist/packages/theory",
+    "tsBuildInfoFile": "../../dist/packages/theory/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
   "references": [],

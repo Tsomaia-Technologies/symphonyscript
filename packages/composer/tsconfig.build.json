@@ -1,11 +1,18 @@
 {
   "extends": "../../tsconfig.build.json",
   "compilerOptions": {
-    "outDir": "../../dist/packages/kernel",
-    "tsBuildInfoFile": "../../dist/packages/kernel/.tsbuildinfo"
+    "outDir": "../../dist/packages/composer",
+    "tsBuildInfoFile": "../../dist/packages/composer/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [],
+  "references": [
+    {
+      "path": "../synaptic/tsconfig.build.json"
+    },
+    {
+      "path": "../kernel/tsconfig.build.json"
+    }
+  ],
   "exclude": [
     "jest.config.ts",
     "jest.config.cts",
