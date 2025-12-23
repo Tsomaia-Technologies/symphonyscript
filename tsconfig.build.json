@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noUnusedLocals": false,
+    "incremental": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "baseUrl": "."
+  },
+  "exclude": ["node_modules", "dist", "**/test-output"]
+}

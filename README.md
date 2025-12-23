@@ -1,104 +1,99 @@
-# New Nx Repository
+# SymphonyScript
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+**The World's First Neural Audio Processor.**
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
+SymphonyScript is not a sequencer. It is a **Silicon Brain** for music—a living, learning organism that thinks in synapses.
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+By replacing 40 years of "Message-Passing" lag with a **1MB Synaptic Memory**, SymphonyScript collapses the distance between the composer's mind and the audio hardware to a single atomic write. Music is no longer a static timeline; it is a **Neural Topology** that breathes, branches, evolves, and fires at the speed of direct memory access.
 
-## Generate a library
+This is **"Speed of Light" composition**: the composer and the engine inhabit a shared atomic mirror where re-wiring the music is an instantaneous synaptic update. The Silicon Brain doesn't "play back" your composition—it **propagates** it through a web of probabilistic connections, learning from every performance and hardening successful pathways through **Synaptic Plasticity**.
 
-```sh
-npx nx g @nx/js:lib packages/pkg1 --publishable --importPath=@my-org/pkg1
-```
+---
 
-## Run tasks
+## 🏛 The 5 Pillars of Silicon Music
 
-To build the library use:
+### 1. Symbolic Axons (Code as Sheet Music)
 
-```sh
-npx nx build pkg1
-```
+Write music with the precision of a master engraver and the logic of a programmer. SymphonyScript translates high-level TypeScript into **Symbolic Axons**—dense, bare-metal structures that the kernel understands natively.
 
-To run any task with Nx use:
+### 2. Timeless Continuity (Live & Recorded Identity)
 
-```sh
-npx nx <target> <project-name>
-```
+In SymphonyScript, there is no "Export" button. Because the engine and the composer share the same memory, playing a composed masterpiece and improvising live code are the exact same operation. The engine doesn't "play back" music; it **inhabits** it.
 
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+### 3. The Shared Mirror (Safety through Physics)
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+We have eliminated the "Memory Wall" without inviting the "Race Condition." Through a **Partitioned Silicon Kernel**, the Composer and Performer inhabit the same atomic space, but they never collide. We use **Zone-Based Ownership** and **Atomic Versioning** to ensure the Performer always sees a perfect, immutable snapshot of the music, even as the Composer re-wires it. It is speed without the risk; a mirror that never cracks.
 
-## Versioning and releasing
+### 4. Universal Existence (Web-Native, C-Future)
 
-To version and release the library use
+The SymphonyScript architecture is a **Neural Protocol**. While born in high-performance TypeScript for the collaborative web, its memory map is designed for the metal. The same synaptic logic can be ported to C to power native VSTs or embedded hardware, keeping the "Brain" consistent across every platform.
 
-```
-npx nx release
-```
+### 5. Synaptic Topology (Unified Memory)
 
-Pass `--dry-run` to see what would happen without actually releasing the library.
+Music is a web of relationships. Using our **Identity Table** and **Synapse Table**, SymphonyScript moves beyond linear tracks. Every musical "Clip" is a neuron that can trigger others through synaptic weights, probabilities, and loops, creating a Turing-complete musical state machine.
 
-[Learn more about Nx release &raquo;](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+---
 
-## Keep TypeScript project references up to date
+## 🧬 How the Silicon Brain Works
 
-Nx automatically updates TypeScript [project references](https://www.typescriptlang.org/docs/handbook/project-references.html) in `tsconfig.json` files to ensure they remain accurate based on your project dependencies (`import` or `require` statements). This sync is automatically done when running tasks such as `build` or `typecheck`, which require updated references to function correctly.
+### The Axon (Immutable DNA)
 
-To manually trigger the process to sync the project graph dependencies information to the TypeScript project references, run the following command:
+A **Clip** in SymphonyScript is a high-speed, cache-aligned chain of musical notes—the "Axon" of the nervous system. It stores deterministic note data (Pitch, Duration, Velocity) in sequential memory, optimized for perfect, glitch-free traversal at audio-thread speed.
 
-```sh
-npx nx sync
-```
+### The Synapse (Mutable Intelligence)
 
-You can enforce that the TypeScript project references are always in the correct state when running in CI by adding a step to your CI job configuration that runs the following command:
+Connections between clips are **Synapses**—the brain's decision-making layer. When a clip finishes (NEXT_PTR == NULL), the kernel performs **Synaptic Resolution** in O(1) time using a 1MB linear-probe hash table:
 
-```sh
-npx nx sync:check
-```
+1. **Hash Lookup**: Find synapses by SOURCE_PTR
+2. **Stochastic Roll**: Apply probabilistic weights (0-1000 fixed-point)
+3. **Signal Propagation**: Spawn new cursors to TARGET_PTR
+4. **Humanization**: Apply micro-timing jitter to the new signal
 
-[Learn more about nx sync](https://nx.dev/reference/nx-commands#sync)
+This enables **Polyphonic Fan-Out** (one theme triggering an entire orchestra), **Competitive Branching** (weighted path selection), and **Recursive Loops** (clips triggering themselves with decay).
 
-## Nx Cloud
+### The Plasticity Engine (Learning & Memory)
 
-Nx Cloud ensures a [fast and scalable CI](https://nx.dev/ci/intro/why-nx-cloud?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) pipeline. It includes features such as:
+The Silicon Brain can **evolve its own structure** based on feedback:
 
-- [Remote caching](https://nx.dev/ci/features/remote-cache?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task distribution across multiple machines](https://nx.dev/ci/features/distribute-task-execution?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Automated e2e test splitting](https://nx.dev/ci/features/split-e2e-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task flakiness detection and rerunning](https://nx.dev/ci/features/flaky-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+- **Weight Hardening**: Successful transitions increase their synaptic weights over time (potentiation)
+- **Long-Term Memory**: Learned weights persist to IndexedDB, preserving the brain's "personality" across sessions
+- **Reward Signals**: The composer can reinforce pathways, teaching the brain preferred musical trajectories
 
-### Set up CI (non-Github Actions CI)
+### The Identity Table (Visual Cortex)
 
-**Note:** This is only required if your CI provider is not GitHub Actions.
+The **Identity Table** maps your code's intent to physical memory addresses instantly, allowing the UI to observe the Kernel's state without ever interrupting the audio thread. It's a zero-allocation window into the brain's thoughts.
 
-Use the following command to configure a CI workflow for your workspace:
+### The Safety Armor
 
-```sh
-npx nx g ci-workflow
-```
+- **Quota System**: MAX_FIRES_PER_BLOCK (64) prevents infinite synaptic loops from hanging the audio thread
+- **Disconnect Protocol**: Nodes cannot be freed while synapses point to them (automatic cleanup)
+- **Zone Partitioning**: UI and Audio threads never compete for the same memory
 
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+---
 
-## Install Nx Console
+## 🚀 Performance Physics
 
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
+| Feature | Traditional DAWs | SymphonyScript |
+| --- | --- | --- |
+| **Communication** | Messages (Slow/Buffered) | **Direct Synaptic Memory (1MB Hash Table)** |
+| **Logic Model** | Linear Tape Recorder | **Neural Topology with Plasticity** |
+| **Latency** | 20ms - 100ms | **< 5µs (Atomic Synaptic Propagation)** |
+| **Branching** | Manual Arrangement | **Stochastic/Probabilistic (Real-Time)** |
+| **Learning** | Static/Pre-Composed | **Synaptic Weight Hardening (Evolves)** |
+| **Safety** | Decoupled Threads | **Zone-Partitioned + Quota System** |
+| **Stability** | GC-Pause / Glitch Prone | **Silicon-Hardened (Zero-Alloc)** |
 
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+---
 
-## Useful links
+## 🛠 For the Visionaries
 
-Learn more:
+SymphonyScript is built for those who find "tracks" too small, "latency" unacceptable, and "static composition" too limiting.
 
-- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+* **Generative Architects:** Build self-evolving musical organisms with probabilistic branching, weight learning, and infinite polyphonic fan-out.
+* **Live Coders:** Rewire the neural graph in real-time with zero perceived delay—the brain adapts instantly to your intent.
+* **Systems Engineers:** Experience a kernel where a C-Major chord is treated with the same bare-metal respect as a sine wave—everything is atomic, everything is instant.
+* **Algorithmic Composers:** Create Turing-complete musical state machines with recursive loops, competitive path selection, and reward-based learning.
 
-And join the Nx community:
+---
 
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+**SymphonyScript: Don't just play music. Build a brain for it.**

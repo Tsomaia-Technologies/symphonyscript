@@ -1,21 +1,27 @@
 {
   "compilerOptions": {
-    "composite": true,
+    "composite": false,
     "declarationMap": true,
     "emitDeclarationOnly": true,
     "importHelpers": true,
     "isolatedModules": true,
     "lib": ["es2022"],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "skipLibCheck": true,
     "strict": true,
     "target": "es2022",
-    "customConditions": ["@org/source"]
+    "customConditions": ["@symphonyscript/source"],
+    "paths": {
+      "@symphonyscript/kernel": ["packages/kernel/src/index.ts"],
+      "@symphonyscript/synaptic": ["packages/synaptic/src/index.ts"],
+      "@symphonyscript/composer": ["packages/composer/src/index.ts"],
+      "@symphonyscript/theory": ["packages/theory/src/index.ts"]
+    }
   }
 }
