@@ -5,7 +5,7 @@
 // Run with: node packages/kernel/src/__tests__/benchmark-standalone.cjs
 // Or after build: node packages/kernel/benchmark-standalone.cjs
 
-const { SiliconSynapse, OPCODE, FLAG } = require('./dist/index.js');
+const { SiliconSynapse, OPCODE, FLAG } = require('../dist/index.js');
 
 // ANSI colors for output
 const GREEN = '\x1b[32m';
