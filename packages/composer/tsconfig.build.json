@@ -1,21 +1,9 @@
 {
-  "extends": "../../tsconfig.build.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "../../dist/packages/composer",
-    "tsBuildInfoFile": "../../dist/packages/composer/.tsbuildinfo"
-  },
-  "include": ["src/**/*.ts"],
-  "references": [
-    {
-      "path": "../synaptic/tsconfig.build.json"
-    },
-    {
-      "path": "../kernel/tsconfig.build.json"
-    }
-  ],
-  "exclude": [
-    "jest.config.ts",
-    "src/**/*.spec.ts",
-    "src/**/*.test.ts"
-  ]
+    "outDir": "./dist",
+    "composite": true,
+    "incremental": true,
+    "noUnusedLocals": true
+  }
 }

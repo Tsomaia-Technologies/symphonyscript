@@ -14,9 +14,9 @@ import { LiveChordCursor } from '../../../core/src/linker/cursors/LiveChordCurso
 import { LiveDrumHitCursor } from '../../../core/src/linker/cursors/LiveDrumHitCursor'
 import { LiveSession } from '../../../core/src/linker/LiveSession'
 import { Clip } from '../../../core/src/linker/Clip'
-import { SiliconBridge } from '../../../kernel/src/silicon-bridge'
-import { SiliconSynapse } from '../../../kernel/src/silicon-synapse'
-import { MockConsumer } from '../../../kernel/src/mock-consumer'
+import { SiliconBridge } from '../../../../kernel/src/silicon-bridge'
+import { SiliconSynapse } from '../../../../kernel/src/silicon-synapse'
+import { MockConsumer } from '../../../../kernel/src/mock-consumer'
 
 // =============================================================================
 // Global Cleanup

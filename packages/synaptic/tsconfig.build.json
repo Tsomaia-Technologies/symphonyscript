@@ -1,24 +1,9 @@
 {
-  "extends": "../../tsconfig.build.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "../..",
-    "outDir": "../../dist/packages/synaptic",
-    "tsBuildInfoFile": "../../dist/packages/synaptic/.tsbuildinfo"
-  },
-  "include": [
-    "src/**/*.ts",
-    "../kernel/src/**/*.ts"
-  ],
-  "references": [
-    {
-      "path": "../kernel/tsconfig.build.json"
-    }
-  ],
-  "exclude": [
-    "jest.config.ts",
-    "src/**/*.spec.ts",
-    "src/**/*.test.ts",
-    "../kernel/src/**/*.spec.ts",
-    "../kernel/src/**/*.test.ts"
-  ]
+    "outDir": "./dist",
+    "composite": true,
+    "incremental": true,
+    "noUnusedLocals": true
+  }
 }

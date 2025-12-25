@@ -20,6 +20,8 @@ export class SynapticNode {
     private bridge: SiliconBridge
     private entryId: number | undefined
     private exitId: number | undefined
+    private expressionId: number = 0
+    private cycle: number = Infinity
 
     /**
      * Create a new SynapticNode.
@@ -30,6 +32,22 @@ export class SynapticNode {
         this.bridge = bridge
         this.entryId = undefined
         this.exitId = undefined
+    }
+
+    /**
+     * Set the MPE Expression ID for subsequent notes.
+     * @param id - Expression ID (0-15)
+     */
+    setExpressionId(id: number): void {
+        this.expressionId = id & 0xF
+    }
+
+    /**
+     * Set the phase-locking cycle length.
+     * @param ticks - Cycle length in ticks (or Infinity)
+     */
+    setCycle(ticks: number): void {
+        this.cycle = ticks
     }
 
     /**
@@ -62,7 +80,8 @@ export class SynapticNode {
             baseTick,
             muted ?? false,
             sourceId,
-            this.exitId
+            this.exitId,
+            this.expressionId // RFC-047 Phase 3: Pass MPE ID
         )
 
         // Only update IDs if insertion succeeded (ptr >= 0)

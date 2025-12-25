@@ -1,27 +1,41 @@
 {
   "compilerOptions": {
-    "composite": false,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "declaration": true,
     "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "esModuleInterop": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "composite": true,
+    "incremental": true,
     "emitDeclarationOnly": true,
     "importHelpers": true,
     "isolatedModules": true,
-    "lib": ["es2022"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noUnusedLocals": false,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022",
-    "customConditions": ["@symphonyscript/source"],
+
+    "baseUrl": ".",
     "paths": {
+      "@symphonyscript/composer": ["packages/composer/src/index.ts"],
       "@symphonyscript/kernel": ["packages/kernel/src/index.ts"],
       "@symphonyscript/synaptic": ["packages/synaptic/src/index.ts"],
-      "@symphonyscript/composer": ["packages/composer/src/index.ts"],
       "@symphonyscript/theory": ["packages/theory/src/index.ts"]
     }
-  }
+  },
+  "exclude": ["node_modules", "dist", "**/dist"]
 }

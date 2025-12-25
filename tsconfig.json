@@ -1,19 +1,21 @@
 {
   "extends": "./tsconfig.base.json",
-  "compileOnSave": false,
-  "files": [],
-  "references": [
-    {
-      "path": "./packages/kernel"
-    },
-    {
-      "path": "./packages/synaptic"
-    },
-    {
-      "path": "./packages/composer"
-    },
-    {
-      "path": "./packages/theory"
-    }
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "composite": false
+  },
+  "include": [
+    "src/**/*",
+    "packages/composer/src/**/*",
+    "packages/kernel/src/**/*",
+    "packages/synaptic/src/**/*",
+    "packages/theory/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/dist",
+    "**/__tests__/**"
   ]
 }

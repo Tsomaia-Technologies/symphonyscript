@@ -9,7 +9,8 @@
 // - Support both MIDI numbers and string notation
 
 import type { SiliconBridge } from '@symphonyscript/kernel'
-import { SynapticNode } from '@symphonyscript/synaptic'
+import { SynapticNode, VoiceAllocator } from '@symphonyscript/synaptic'
+import type { HarmonyMask } from '@symphonyscript/theory'
 
 /**
  * Parse pitch input to MIDI number.
@@ -252,6 +253,54 @@ export class SynapticClip {
      */
     shift(ticks: number): this {
         this.pendingShift = ticks  // Store offset (one-shot)
+        return this
+    }
+
+    /**
+     * Play a theoretical harmony mask with polyphonic MPE voice allocation.
+     * 
+     * Uses pure integer arithmetic and bitwise masks from @symphonyscript/theory.
+     * ZERO ALLOCATION per call.
+     * 
+     * @param mask - 24-bit HarmonyMask integer
+     * @param root - MIDI root pitch
+     * @param duration - Duration in ticks (optional)
+     * @returns this for fluent chaining
+     */
+    harmony(mask: number, root: number, duration?: number): this {
+        const noteDuration = duration ?? this.defaultDuration
+        const baseTick = this.currentTick + this.pendingShift
+
+        // Use VoiceAllocator for polyphonic expansion
+        // It handles mapping intervals -> pitches and assigning MPE channels
+        VoiceAllocator.allocate(mask as unknown as HarmonyMask, root, (pitch, expressionId) => {
+            // Set explicit expression ID for this voice
+            this.builder.setExpressionId(expressionId)
+
+            this.builder.addNote(
+                pitch,
+                this.defaultVelocity,
+                noteDuration,
+                baseTick
+            )
+        })
+
+        // Restore context expression ID
+        this.builder.setExpressionId(this.currentExpressionId)
+
+        this.currentTick += noteDuration
+        this.pendingShift = 0  // One-shot
+        return this
+    }
+
+    /**
+     * Set the phase-locking cycle length for this clip.
+     * 
+     * @param ticks - Loop length in ticks. Use Infinity for linear time.
+     * @returns this for fluent chaining
+     */
+    cycle(ticks: number): this {
+        this.builder.setCycle(ticks)
         return this
     }
 }

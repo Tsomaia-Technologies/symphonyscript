@@ -6,6 +6,9 @@
 // Main class
 export { SiliconSynapse } from './silicon-synapse'
 
+// RFC-047 Phase 3: Scheduler
+export { getModulatedTime } from './scheduler'
+
 // Constants
 export {
   // Magic & Version
@@ -110,6 +113,6 @@ export type {
   // RFC-045: Synapse Graph types
   SynapseOptions,
 
-// RFC-045-04: Zero-allocation snapshot types
+  // RFC-045-04: Zero-allocation snapshot types
   BrainSnapshotArrays,
 } from './silicon-bridge'

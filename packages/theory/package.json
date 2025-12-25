@@ -1,58 +1,19 @@
 {
     "name": "@symphonyscript/theory",
     "version": "0.1.0",
-    "description": "SymphonyScript Theory - Musical Mathematics & Microtonal Primitives",
+    "description": "SymphonyScript - Music Theory",
     "license": "MIT",
     "author": "Tsomaia Technologies",
-    "main": "./dist/index.js",
-    "module": "./dist/index.mjs",
-    "types": "./dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.mjs",
-            "require": "./dist/index.js"
-        }
-    },
-    "files": [
-        "dist"
-    ],
-
-    "nx": {
-        "targets": {
-            "build": {
-                "executor": "@nx/esbuild:esbuild",
-                "outputs": [
-                    "{options.outputPath}"
-                ],
-                "options": {
-                    "outputPath": "../../dist/packages/theory",
-                    "main": "packages/theory/src/index.ts",
-                    "tsConfig": "packages/theory/tsconfig.build.json",
-                    "declaration": true,
-                    "format": [
-                        "esm"
-                    ],
-                    "declarationRootDir": "packages/theory/src"
-                }
-            },
-            "test": {
-                "executor": "@nx/jest:jest",
-                "outputs": [
-                    "{projectRoot}/test-output/jest/coverage"
-                ],
-                "options": {
-                    "jestConfig": "packages/theory/jest.config.ts"
-                }
-            }
-        }
-    },
-    "sideEffects": false,
+    "type": "module",
     "scripts": {
-        "build": "tsup src/index.ts --format esm,cjs --dts",
-        "test": "jest --config jest.config.ts"
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "watch": "tsc && vite build --watch",
+        "preview": "vite preview",
+        "test": "jest --config jest.config.js"
     },
     "devDependencies": {
-        "tsup": "^8.5.1"
+        "vite": "^7.3.0",
+        "typescript": "^5.3.3"
     }
 }
