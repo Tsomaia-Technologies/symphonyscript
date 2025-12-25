@@ -12,6 +12,9 @@ jest.mock('@symphonyscript/kernel', () => {
         SiliconBridge: jest.fn().mockImplementation(() => ({
             generateSourceId: jest.fn(() => 1),
             insertAsync: jest.fn(() => 1), // Returns valid ptr
+            getLinker: jest.fn(() => ({
+                processCommands: jest.fn()
+            })),
         })),
         createSiliconBridge: jest.fn()
     }
@@ -37,8 +40,8 @@ describe('SynapticClip.harmony', () => {
         // Check pitches: 60, 64, 67
         // Args: opcode, pitch, vel, dur, tick, muted, sourceId, afterId, expressionId
         expect(insertSpy).toHaveBeenCalledWith(1, 60, 100, 480, 0, false, 100, undefined, expect.any(Number))
-        expect(insertSpy).toHaveBeenCalledWith(1, 64, 100, 480, 0, false, 100, undefined, expect.any(Number))
-        expect(insertSpy).toHaveBeenCalledWith(1, 67, 100, 480, 0, false, 100, undefined, expect.any(Number))
+        expect(insertSpy).toHaveBeenCalledWith(1, 64, 100, 480, 0, false, 100, 100, expect.any(Number))
+        expect(insertSpy).toHaveBeenCalledWith(1, 67, 100, 480, 0, false, 100, 100, expect.any(Number))
     })
 
     test('advances cursor only once per harmony', () => {

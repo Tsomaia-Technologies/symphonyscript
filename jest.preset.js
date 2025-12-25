@@ -26,7 +26,7 @@ module.exports = {
 
     // 2. Automatically map your aliases (@symphonyscript/* -> packages/*/src)
     moduleNameMapper: pathsToModuleNameMapper(tsconfig.compilerOptions.paths, {
-        prefix: '<rootDir>/'
+        prefix: path.resolve(__dirname) + '/'
     }),
 
     // 3. Standard clean-up
