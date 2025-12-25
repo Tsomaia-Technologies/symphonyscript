@@ -8,6 +8,10 @@
     "watch:theory": "cd packages/theory && pnpm watch",
     "watch:synaptic": "cd packages/synaptic && pnpm watch",
     "watch:composer": "cd packages/composer && pnpm watch",
+    "test:kernel": "cd packages/kernel && pnpm test",
+    "test:theory": "cd packages/theory && pnpm test",
+    "test:synaptic": "cd packages/synaptic && pnpm test",
+    "test:composer": "cd packages/composer && pnpm test",
     "build:kernel": "cd packages/kernel && pnpm build",
     "build:theory": "cd packages/theory && pnpm build",
     "build:synaptic": "cd packages/synaptic && pnpm build",
@@ -18,6 +22,7 @@
   },
   "private": true,
   "devDependencies": {
+    "@swc/jest": "^0.2.39",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
     "@vitejs/plugin-react": "^5.1.2",
