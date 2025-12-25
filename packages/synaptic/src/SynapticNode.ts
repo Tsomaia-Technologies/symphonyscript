@@ -8,7 +8,7 @@
 // - Zero-allocation in addNote (no temporary arrays/objects)
 // - Blind implementation following exact method signatures
 
-import { SiliconBridge, getModulatedTime } from '@symphonyscript/kernel'
+import type { SiliconBridge } from '@symphonyscript/kernel'
 
 /**
  * SynapticNode - Clean low-level wrapper around SiliconBridge.
@@ -20,8 +20,6 @@ export class SynapticNode {
     private bridge: SiliconBridge
     private entryId: number | undefined
     private exitId: number | undefined
-    private expressionId: number
-    private cycle: number // Phase-locking cycle length (Infinity = none)
 
     /**
      * Create a new SynapticNode.
@@ -32,24 +30,6 @@ export class SynapticNode {
         this.bridge = bridge
         this.entryId = undefined
         this.exitId = undefined
-        this.expressionId = 0
-        this.cycle = Infinity
-    }
-
-    /**
-     * Set the MPE expression ID for subsequent notes.
-     * @param id - Expression ID (0-15)
-     */
-    setExpressionId(id: number): void {
-        this.expressionId = id
-    }
-
-    /**
-     * Set the phase-locking cycle length.
-     * @param ticks - Cycle length in ticks (Infinity to disable)
-     */
-    setCycle(ticks: number): void {
-        this.cycle = ticks
     }
 
     /**
@@ -74,19 +54,15 @@ export class SynapticNode {
         // This will chain notes together in the order they're added
         const sourceId = this.bridge.generateSourceId()
 
-        // Apply phase-locking modulation to baseTick
-        const modulatedTick = getModulatedTime(baseTick, this.cycle)
-
         const ptr = this.bridge.insertAsync(
             0x01, // OPCODE.NOTE
             pitch,
             velocity,
             duration,
-            modulatedTick,
+            baseTick,
             muted ?? false,
             sourceId,
-            this.exitId,
-            this.expressionId // RFC-047 Phase 3: Pass MPE ID
+            this.exitId
         )
 
         // Only update IDs if insertion succeeded (ptr >= 0)
