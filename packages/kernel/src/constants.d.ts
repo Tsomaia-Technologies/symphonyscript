@@ -77,7 +77,7 @@ export declare const KNUTH_HASH_CONST = 2654435761;
  * │ 112    │ 28        │ TELEMETRY_OPS_LOW  │ u32     │ Ops count LOW  │
  * │ 116    │ 29        │ TELEMETRY_OPS_HIGH │ u32     │ Ops count HIGH │
  * │ 120    │ 30        │ YIELD_SLOT         │ u32     │ Atomics.wait   │
- * │ 124    │ 31        │ RESERVED_31        │ u32     │ Future use     │
+ * │ 124    │ 31        │ PLAYBACK_OFFSET    │ u32     │ Latency (ms)   │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │ NODE HEAP (128+)                             nodeCapacity × 32 bytes│
  * ├─────────────────────────────────────────────────────────────────────┤
@@ -188,8 +188,8 @@ export declare const HDR: {
     readonly TELEMETRY_OPS_HIGH: 29;
     /** [v1.5] Dedicated slot for Atomics.wait() yield coordination */
     readonly YIELD_SLOT: 30;
-    /** Reserved for future expansion */
-    readonly RESERVED_31: 31;
+    /** [RFC-047 Phase 8 Task 4] Playback offset in milliseconds for latency compensation */
+    readonly PLAYBACK_OFFSET: 31;
     /** [RFC-044] [ATOMIC] Ring Buffer Read Index (Worker consumes from here) */
     readonly RB_HEAD: 32;
     /** [RFC-044] [ATOMIC] Ring Buffer Write Index (Main Thread produces here) */
@@ -667,7 +667,7 @@ export declare function getZoneSplitIndex(nodeCapacity: number): number;
  * Layout:
  * - Header + Registers + Command Ring Header: 144 bytes (36 × i32)
  * - Node Heap: nodeCapacity × 32 bytes
- * - Identity Table: nodeCapacity × 8 bytes (TID + NodePtr per entry)
+ * - Identity Table: nodeCapacity × 2 × 8 bytes (RFC-047-50: 2x capacity for load factor)
  * - Symbol Table: nodeCapacity × 8 bytes (fileHash + lineCol per entry)
  * - Groove Templates: 1024 bytes (fixed)
  * - Command Ring Buffer: 64KB (RFC-044)

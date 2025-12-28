@@ -487,20 +487,20 @@ export declare class SiliconSynapse implements ISiliconLinker {
      */
     private idTableSlotOffset;
     /**
-     * Insert a sourceId → NodePtr mapping into the Identity Table.
-     * Uses linear probing for collision resolution.
-     *
-     * **Atomic Strictness**: All slot reads/writes use Atomics for thread safety.
-     * **Load Factor Enforcement**: Sets ERROR_FLAG if load factor exceeds 75%.
-     *
-     * @param sourceId - Source ID (must be > 0)
-     * @param ptr - Node pointer
-     * @returns true if inserted, false if table full
-     */
+   * Insert a sourceId → NodePtr mapping into the Identity Table.
+   * Uses quadratic probing for collision resolution (RFC-047-50).
+   *
+   * **Atomic Strictness**: All slot reads/writes use Atomics for thread safety.
+   * **Load Factor Enforcement**: Sets ERROR_FLAG if load factor exceeds 75%.
+   *
+   * @param sourceId - Source ID (must be > 0)
+   * @param ptr - Node pointer
+   * @returns true if inserted, false if table full
+   */
     idTableInsert(sourceId: number, ptr: NodePtr): boolean;
     /**
      * Lookup a NodePtr by sourceId in the Identity Table.
-     * Uses linear probing for collision resolution.
+     * Uses quadratic probing for collision resolution (RFC-047-50).
      *
      * **Atomic Strictness**: All slot reads use Atomics for thread safety.
      *
@@ -511,6 +511,7 @@ export declare class SiliconSynapse implements ISiliconLinker {
     /**
      * Remove a sourceId from the Identity Table.
      * Marks the slot as a tombstone (TID = -1).
+     * Uses quadratic probing for collision resolution (RFC-047-50).
      *
      * **Atomic Strictness**: All slot reads/writes use Atomics for thread safety.
      *

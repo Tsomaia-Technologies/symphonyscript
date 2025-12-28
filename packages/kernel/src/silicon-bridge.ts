@@ -348,6 +348,28 @@ export class SiliconBridge {
     return this.linker.getSAB()
   }
 
+  /**
+   * Set playback offset for hardware latency compensation.
+   * 
+   * Writes value directly to SAB using Atomics.store for thread-safety.
+   * Value is stored in milliseconds and converted to ticks by Audio Worklet.
+   * 
+   * @param offsetMs - Hardware latency in milliseconds
+   */
+  setPlaybackOffset(offsetMs: number): void {
+    // Store as milliseconds (AudioWorklet will convert to ticks using PPQ/BPM)
+    Atomics.store(this.sab, HDR.PLAYBACK_OFFSET, offsetMs | 0)
+  }
+
+  /**
+   * Get current playback offset.
+   * 
+   * @returns Playback offset in milliseconds
+   */
+  getPlaybackOffset(): number {
+    return Atomics.load(this.sab, HDR.PLAYBACK_OFFSET)
+  }
+
   generateSourceId(source?: SourceLocation): number {
     if (!source) {
       return this._advanceSourceId()

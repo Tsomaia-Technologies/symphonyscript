@@ -17,7 +17,7 @@
     "build:synaptic": "cd packages/synaptic && pnpm build",
     "build:composer": "cd packages/composer && pnpm build",
     "compile:kernel:web": "cd packages/kernel && wasm-pack build --target web",
-    "build": "pnpm build:kernel && pnpm build:theory && pnpm build:synapticpnpm && build:composer",
+    "build": "pnpm build:kernel && pnpm build:theory && pnpm build:synaptic && pnpm build:composer",
     "test": "pnpm -r test"
   },
   "private": true,

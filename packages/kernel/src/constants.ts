@@ -92,7 +92,7 @@ export const KNUTH_HASH_CONST = 2654435761
  * │ 112    │ 28        │ TELEMETRY_OPS_LOW  │ u32     │ Ops count LOW  │
  * │ 116    │ 29        │ TELEMETRY_OPS_HIGH │ u32     │ Ops count HIGH │
  * │ 120    │ 30        │ YIELD_SLOT         │ u32     │ Atomics.wait   │
- * │ 124    │ 31        │ RESERVED_31        │ u32     │ Future use     │
+ * │ 124    │ 31        │ PLAYBACK_OFFSET    │ u32     │ Latency (ms)   │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │ NODE HEAP (128+)                             nodeCapacity × 32 bytes│
  * ├─────────────────────────────────────────────────────────────────────┤
@@ -215,8 +215,8 @@ export const HDR = {
   TELEMETRY_OPS_HIGH: 29,
   /** [v1.5] Dedicated slot for Atomics.wait() yield coordination */
   YIELD_SLOT: 30,
-  /** Reserved for future expansion */
-  RESERVED_31: 31,
+  /** [RFC-047 Phase 8 Task 4] Playback offset in milliseconds for latency compensation */
+  PLAYBACK_OFFSET: 31,
 
   // -------------------------------------------------------------------------
   // Command Ring Buffer Header (RFC-044)

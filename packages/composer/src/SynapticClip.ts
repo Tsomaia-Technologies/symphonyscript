@@ -13,6 +13,27 @@ import { SynapticNode, VoiceAllocator } from '@symphonyscript/synaptic'
 import type { HarmonyMask } from '@symphonyscript/theory'
 
 /**
+ * Hash a string voice name to a numeric expression ID.
+ * Uses the EXACT SAME algorithm as kernel's hashString (silicon-bridge.ts:389-396).
+ * 
+ * NOTE: Result is masked to 4 bits (0-15) for MPE routing.
+ * Different voice names may map to the same MPE channel due to hash collisions.
+ * 
+ * @param name - Voice name string
+ * @returns Numeric expression ID (0-15)
+ */
+function hashVoiceName(name: string): number {
+    let hash = 0
+    let i = 0
+    while (i < name.length) {
+        hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+        i = i + 1
+    }
+    // Mask to 4 bits for MPE channel range (0-15)
+    return (hash >>> 0) & 0xF
+}
+
+/**
  * Parse pitch input to MIDI number.
  * 
  * Supports:
@@ -79,6 +100,15 @@ export class SynapticClip {
     private pendingShift: number = 0  // RFC-047 Phase 2: Micro-timing offset
     private currentExpressionId: number = 0  // RFC-047 Phase 2: MPE routing
 
+    // RFC-047 Phase 8 Task 2: Groove template state
+    private grooveSwing: number = 0.5  // Default: no swing
+    private grooveSteps: number = 4     // Default: 16th notes
+    private grooveStepDuration: number = 120  // Pre-computed: 480 / 4
+    private currentStepIndex: number = 0    // Track position within groove cycle
+
+    // RFC-047 Phase 8 Task 3: Clip start delay
+    private startDelay: number = 0  // Delay before first note in ticks
+
     /**
      * Create a new SynapticClip.
      * 
@@ -106,7 +136,18 @@ export class SynapticClip {
         const noteVelocity = velocity ?? this.defaultVelocity
 
         // RFC-047 Phase 2: Apply pending shift to baseTick
-        const actualTick = this.currentTick + this.pendingShift
+        // RFC-047 Phase 8 Task 3: Apply startDelay to all notes
+        let actualTick = this.currentTick + this.pendingShift + this.startDelay
+
+        // RFC-047 Phase 8 Task 2: Apply groove swing
+        if (this.grooveSwing !== 0.5) {
+            // Odd steps (1, 3, 5...) get swing offset
+            const isOddStep = (this.currentStepIndex % 2) === 1
+            if (isOddStep) {
+                const swingOffset = (this.grooveSwing - 0.5) * this.grooveStepDuration
+                actualTick = actualTick + swingOffset
+            }
+        }
 
         this.builder.addNote(
             midiPitch,
@@ -117,6 +158,13 @@ export class SynapticClip {
 
         this.currentTick += noteDuration  // Cursor advances by duration (not affected by shift)
         this.pendingShift = 0  // Reset shift (one-shot behavior)
+
+        // RFC-047 Phase 8 Task 2: Advance groove step
+        this.currentStepIndex = this.currentStepIndex + 1
+        if (this.currentStepIndex >= this.grooveSteps) {
+            this.currentStepIndex = 0  // Wrap around
+        }
+
         return this
     }
 
@@ -146,6 +194,63 @@ export class SynapticClip {
      */
     play(target: SynapticClip, weight?: number, jitter?: number): this {
         this.builder.linkTo(target.getNode(), weight, jitter)
+        return this
+    }
+
+    /**
+     * Apply a groove template to downstream notes.
+     * 
+     * Swing is applied to odd steps (1, 3, 5...) within the groove cycle.
+     * Per RFC-047 Phase 8 Task 2 requirements.
+     * 
+     * @param groove - Frozen groove template from GrooveBuilder
+     * @returns this for fluent chaining
+     * 
+     * @example
+     * const mpc = Clip.groove().swing(0.55).steps(4).build();
+     * clip.use(mpc).note('C4').note('D4');  // D4 will have swing offset
+     */
+    use(groove: Readonly<{ swing: number; steps: number }>): this {
+        this.grooveSwing = groove.swing
+        this.grooveSteps = groove.steps
+        // Pre-compute step duration for zero-allocation
+        // Assumes 480 PPQ, quarter note = 480 ticks
+        this.grooveStepDuration = 480 / groove.steps
+        this.currentStepIndex = 0
+        return this
+    }
+
+    /**
+     * Set clip start delay (all notes delayed by this amount).
+     * 
+     * Different from `.shift()` which is per-note and one-shot.
+     * `.wait()` applies to ALL notes in the clip persistently.
+     * 
+     * @param duration - Delay in ticks before clip starts
+     * @returns this for fluent chaining
+     * 
+     * @example
+     * clip.wait(480).note('C4');  // Clip starts 480 ticks late
+     */
+    wait(duration: number): this {
+        this.startDelay = duration
+        return this
+    }
+
+    /**
+     * Set playback offset for hardware latency compensation.
+     * 
+     * Writes latency compensation directly to SAB (global setting).
+     * This affects playback timing in the AudioWorklet.
+     * 
+     * @param offsetMs - Hardware latency in milliseconds (typically 10-50ms)
+     * @returns this for fluent chaining
+     * 
+     * @example
+     * clip.playbackOffset(10);  // Compensate for 10ms output latency
+     */
+    playbackOffset(offsetMs: number): this {
+        this.bridge.setPlaybackOffset(offsetMs)
         return this
     }
 
@@ -212,20 +317,33 @@ export class SynapticClip {
      * Executes builder callback and tags all notes with expressionId.
      * Per RFC-047 brainstorming session requirements.
      * 
-     * @param expressionId - MPE expression ID (channel assignment)
+     * @param expressionId - MPE expression ID (0-15) or string voice name (hashed to 0-15)
      * @param builderFn - Callback to build notes for this voice
      * @returns this for fluent chaining
      * 
      * @example
+     * // Numeric ID
      * clip.stack(s => s
      *   .voice(1, v => v.note('C4'))  // MPE Channel 1
      *   .voice(2, v => v.note('E4'))  // MPE Channel 2
      * );
+     * 
+     * @example
+     * // String name (hashed to consistent 4-bit ID)
+     * clip.stack(s => s
+     *   .voice('lead', v => v.note('C4'))   // Hashed to 0-15
+     *   .voice('bass', v => v.note('C2'))   // Hashed to 0-15
+     * );
      */
-    voice(expressionId: number, builderFn: (v: SynapticClip) => void): this {
+    voice(expressionId: string | number, builderFn: (v: SynapticClip) => void): this {
+        // Resolve string to numeric ID via hashing
+        const numericId = typeof expressionId === 'string'
+            ? hashVoiceName(expressionId)
+            : expressionId
+
         // Store current expressionId (for tagging)
         const previousExpressionId = this.currentExpressionId
-        this.currentExpressionId = expressionId
+        this.currentExpressionId = numericId
 
         // Execute builder (all notes inside get tagged)
         builderFn(this)

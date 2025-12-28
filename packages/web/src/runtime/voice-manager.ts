@@ -1,4 +1,4 @@
-import { PolyOscillator } from '@symphonyscript/dsp';
+ import { PolyOscillator } from '@symphonyscript/dsp';
 
 /**
  * Manages voice allocation for the PolyOscillator.

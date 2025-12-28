@@ -138,6 +138,21 @@ export declare class SiliconBridge {
      * Get the underlying SharedArrayBuffer.
      */
     getSAB(): SharedArrayBuffer;
+    /**
+     * Set playback offset for hardware latency compensation.
+     *
+     * Writes value directly to SAB using Atomics.store for thread-safety.
+     * Value is stored in milliseconds and converted to ticks by Audio Worklet.
+     *
+     * @param offsetMs - Hardware latency in milliseconds
+     */
+    setPlaybackOffset(offsetMs: number): void;
+    /**
+     * Get current playback offset.
+     *
+     * @returns Playback offset in milliseconds
+     */
+    getPlaybackOffset(): number;
     generateSourceId(source?: SourceLocation): number;
     /**
      * Advance nextSourceId with wraparound (RFC-045-04).
