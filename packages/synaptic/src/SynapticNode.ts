@@ -9,6 +9,7 @@
 // - Blind implementation following exact method signatures
 
 import type { SiliconBridge } from '@symphonyscript/kernel'
+import { SynapticNoteCursor } from './SynapticNoteCursor'
 
 /**
  * SynapticNode - Clean low-level wrapper around SiliconBridge.
@@ -23,6 +24,9 @@ export class SynapticNode {
     private expressionId: number = 0
     private cycle: number = Infinity
 
+    // RFC-047 Phase 9 Task 4: Reusable note parameter cursor
+    private cursor: SynapticNoteCursor
+
     /**
      * Create a new SynapticNode.
      * 
@@ -32,6 +36,7 @@ export class SynapticNode {
         this.bridge = bridge
         this.entryId = undefined
         this.exitId = undefined
+        this.cursor = new SynapticNoteCursor()  // RFC-047 Phase 9 Task 4
     }
 
     /**
@@ -68,17 +73,33 @@ export class SynapticNode {
         baseTick: number,
         muted?: boolean
     ): void {
+        // RFC-047 Phase 9 Task 4: Populate cursor with provided parameters
+        this.cursor.set(pitch, velocity, duration, baseTick, muted ?? false)
+
+        // Delegate to internal cursor-based implementation
+        this.addNoteFromCursor()
+    }
+
+    /**
+     * Internal method: Add note from cursor parameters.
+     * 
+     * This is the actual implementation. Public addNote() delegates to this.
+     * 
+     * @private
+     * @returns true if note was added, false on error
+     */
+    private addNoteFromCursor(): boolean {
         // Call bridge.insertAsync with afterSourceId set to current exit
         // This will chain notes together in the order they're added
         const sourceId = this.bridge.generateSourceId()
 
         const ptr = this.bridge.insertAsync(
             0x01, // OPCODE.NOTE
-            pitch,
-            velocity,
-            duration,
-            baseTick,
-            muted ?? false,
+            this.cursor.pitch,
+            this.cursor.velocity,
+            this.cursor.duration,
+            this.cursor.baseTick,
+            this.cursor.muted,
             sourceId,
             this.exitId,
             this.expressionId // RFC-047 Phase 3: Pass MPE ID
@@ -97,7 +118,10 @@ export class SynapticNode {
             // Register mapping to make sourceId usable
             // Note: We need to process commands to actually link the node
             this.bridge.getLinker().processCommands()
+            return true
         }
+
+        return false
     }
 
     /**

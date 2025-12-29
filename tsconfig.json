@@ -10,7 +10,8 @@
     "packages/composer/src/**/*",
     "packages/kernel/src/**/*",
     "packages/synaptic/src/**/*",
-    "packages/theory/src/**/*"
+    "packages/theory/src/**/*",
+    "packages/core/src/**/*"
   ],
   "exclude": [
     "node_modules",

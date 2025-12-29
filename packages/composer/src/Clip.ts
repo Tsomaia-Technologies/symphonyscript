@@ -4,9 +4,9 @@
 // High-level DSL factory for composing music.
 
 import { SiliconSynapse, SiliconBridge } from '@symphonyscript/kernel'
-import { SynapticClip } from './SynapticClip'
-import { SynapticMelody } from './SynapticMelody'
-import { GrooveBuilder } from './GrooveBuilder'
+import { SynapticClip } from '../../../../legacy/symphonyscript/packages/composer/src/legacy-synaptic/SynapticClip'
+import { SynapticMelody } from '../../../../legacy/symphonyscript/packages/composer/src/legacy-synaptic/SynapticMelody'
+import { GrooveBuilder } from '../../../../legacy/symphonyscript/packages/composer/src/legacy-synaptic/GrooveBuilder'
 
 
 // =============================================================================

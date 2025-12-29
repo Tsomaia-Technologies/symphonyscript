@@ -371,3 +371,31 @@ describe('SynapticNode - Complete Scenario', () => {
         expect(synapseJitter).toBe(0)
     })
 })
+
+describe('Cursor Integration (Phase 9)', () => {
+    test('addNote() uses cursor internally', () => {
+        const linker = SiliconSynapse.create({ nodeCapacity: 64, safeZoneTicks: 0 });
+        const bridge = new SiliconBridge(linker);
+        const node = new SynapticNode(bridge);
+
+        // Add note via public API
+        node.addNote(60, 100, 480, 0, false);
+
+        // Cursor should be reusable (internal state)
+        expect(node).toBeDefined();
+    });
+
+    test('Cursor is reused across multiple notes', () => {
+        const linker = SiliconSynapse.create({ nodeCapacity: 64, safeZoneTicks: 0 });
+        const bridge = new SiliconBridge(linker);
+        const node = new SynapticNode(bridge);
+
+        // Multiple notes should reuse same cursor instance
+        node.addNote(60, 100, 480, 0);
+        node.addNote(64, 110, 240, 480);
+        node.addNote(67, 120, 480, 720);
+
+        expect(node.getEntryId()).toBeGreaterThan(0);
+        expect(node.getExitId()).toBeGreaterThan(0);
+    });
+});

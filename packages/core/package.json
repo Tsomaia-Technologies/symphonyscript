@@ -1,0 +1,28 @@
+{
+    "name": "@symphonyscript/core",
+    "version": "0.1.0",
+    "description": "SymphonyScript - Music Core",
+    "license": "MIT",
+    "author": "Tsomaia Technologies",
+    "type": "module",
+    "main": "./dist/index.umd.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "require": "./dist/index.umd.cjs"
+        }
+    },
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "watch": "tsc && vite build --watch",
+        "preview": "vite preview",
+        "test": "jest --config jest.config.cjs"
+    },
+    "devDependencies": {
+        "vite": "^7.3.0",
+        "typescript": "^5.3.3"
+    }
+}

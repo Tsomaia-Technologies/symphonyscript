@@ -89,8 +89,8 @@ Extends `SynapticMelodyBaseCursor`. Handles multi-voice chords with zero-allocat
 *   **State**:
     *   `chordMask` (24-bit integer, packed intervals).
     *   `chordRoot` (MIDI pitch).
-    *   `sourceIds` (FixedInt32Array or number[] allocated once).
-    *   `pitches` (Fixed number[] allocated once).
+    *   `sourceIds` (Fixed `number[]` pre-allocated to `maxVoices`).
+    *   `pitches` (Fixed `number[]` pre-allocated to `maxVoices`).
 *   **Unified Flow**:
     *   `chord(string)` -> Parses to mask -> Sets pending mask.
     *   `harmony(mask)` -> Sets pending mask directly.
@@ -123,7 +123,7 @@ src/new/
 │   ├── SynapticMelody.ts        (Refreshed melody builder)
 │   └── SynapticDrums.ts         (New drum builder)
 ├── groove/
-│   ├── GrooveBuilder.ts         (Mutable pattern)
+│   ├── SynapticGrooveBuilder.ts (Mutable pattern)
 │   └── GrooveStepCursor.ts      (Step modifiers)
 └── index.ts
 ```
@@ -138,7 +138,11 @@ A **Mutable Builder** pattern with `.freeze()` for immutability.
 
 *   `GrooveBuilder`: Configures global groove state (`stepsPerBeat`, `swing`).
 *   `GrooveStepCursor`: Helper for configuring individual steps (`timing`, `velocity`, `probability`).
-*   `.step(timing?)`: Returns `GrooveStepCursor`.
+*   `.step(timing?)`: Returns `GrooveStepCursor` (starts first step).
+*   `GrooveStepCursor` Methods:
+    *   **Modifiers** (return `this`): `.timing(offset)`, `.velocity(scale)`, `.duration(scale)`, `.probability(p)`.
+    *   **Relay** (return `this`): `.step(timing?)` (commits current, starts next).
+    *   **Terminal** (returns `GrooveTemplate`): `.freeze()`.
 *   `.freeze()`: Returns the immutable `GrooveTemplate` ready for `clip.use()`.
 
 ```typescript
